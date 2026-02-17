@@ -56,11 +56,21 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
   const browser = await puppeteer.launch(env.MYBROWSER);
   try {
     const page = await browser.newPage();
+    const isFeishu = url.includes(".feishu.cn/") || url.includes(".larksuite.com/");
+    const isWechat = url.includes("mp.weixin.qq.com");
 
-    // Pick the right UA based on the target site
-    const ua = url.includes("mp.weixin.qq.com") ? WECHAT_UA : MOBILE_UA;
-    await page.setUserAgent(ua);
-    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    // Feishu is a heavy SPA — use desktop viewport for full rendering.
+    // WeChat needs mobile UA with MicroMessenger identifier.
+    if (isWechat) {
+      await page.setUserAgent(WECHAT_UA);
+      await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    } else if (isFeishu) {
+      await page.setViewport({ width: 1280, height: 900 });
+    } else {
+      await page.setUserAgent(MOBILE_UA);
+      await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    }
+
     await page.setExtraHTTPHeaders({
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     });
@@ -79,8 +89,24 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
 
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
 
-    // Some pages load content lazily — give a short extra wait
-    await new Promise((r) => setTimeout(r, 2000));
+    // Feishu SPA needs extra time and scrolling to fully render content
+    if (isFeishu) {
+      await new Promise((r) => setTimeout(r, 3000));
+      // Scroll to bottom to trigger lazy-loaded content, then back to top
+      await page.evaluate(`
+        (async function() {
+          var h = document.body.scrollHeight;
+          for (var y = 0; y < h; y += 500) {
+            window.scrollTo(0, y);
+            await new Promise(function(r) { setTimeout(r, 200); });
+          }
+          window.scrollTo(0, 0);
+        })()
+      `);
+      await new Promise((r) => setTimeout(r, 2000));
+    } else {
+      await new Promise((r) => setTimeout(r, 2000));
+    }
 
     // Swap lazy-loaded images: many sites (especially WeChat) store the
     // real URL in data-src while src holds a tiny SVG placeholder.
@@ -91,6 +117,47 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
         if (real) img.setAttribute("src", real);
       });
     `);
+
+    // For Feishu: extract only the document content area, stripping UI chrome.
+    // Try common Feishu doc container selectors; fall back to full page.
+    if (isFeishu) {
+      const extracted = await page.evaluate(`
+        (function() {
+          // Feishu doc content selectors (ordered by specificity)
+          var selectors = [
+            '.wiki-content',
+            '.docx-container',
+            '[data-page-id] .page-block',
+            '.doc-content-container',
+            '.ne-viewer-body',
+            '.lark-editor',
+            'article',
+            '[role="article"]',
+            'main'
+          ];
+          for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el && el.innerHTML.length > 200) {
+              return el.innerHTML;
+            }
+          }
+          // Fallback: remove known UI noise elements and return body
+          var noise = [
+            'header', 'nav', '.suite-header', '.wiki-sidebar',
+            '.doc-toolbar', '.comment-panel', '.suite-toast',
+            '[class*="login"]', '[class*="Login"]',
+            '[class*="sidebar"]', '[class*="Sidebar"]'
+          ];
+          noise.forEach(function(sel) {
+            document.querySelectorAll(sel).forEach(function(el) { el.remove(); });
+          });
+          return document.body.innerHTML;
+        })()
+      `);
+      if (extracted && typeof extracted === "string" && extracted.length > 100) {
+        return `<html><head><title>${await page.title()}</title></head><body>${extracted}</body></html>`;
+      }
+    }
 
     const html = await page.content();
     return html;
