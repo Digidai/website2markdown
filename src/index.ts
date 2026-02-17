@@ -145,6 +145,16 @@ function htmlToMarkdown(html: string, url: string): { markdown: string; title: s
   return { markdown, title };
 }
 
+/** Rewrite hotlink-protected image URLs to go through our /img/ proxy. */
+function proxyImageUrls(markdown: string, proxyHost: string): string {
+  // Match markdown image syntax ![alt](url)
+  return markdown.replace(
+    /!\[([^\]]*)\]\((https?:\/\/mmbiz\.qpic\.cn\/[^)]+)\)/g,
+    (_match, alt, imgUrl) =>
+      `![${alt}](https://${proxyHost}/img/${encodeURIComponent(imgUrl)})`
+  );
+}
+
 function isSafeUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -190,6 +200,28 @@ export default {
     // Handle API health check
     if (path === "/api/health") {
       return Response.json({ status: "ok", service: host });
+    }
+
+    // Image proxy — rewrites Referer so hotlink-protected images load
+    if (path.startsWith("/img/")) {
+      const imgUrl = decodeURIComponent(path.slice(5));
+      if (!isValidUrl(imgUrl) || !isSafeUrl(imgUrl)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      try {
+        const imgResp = await fetch(imgUrl, {
+          headers: {
+            "Referer": new URL(imgUrl).origin + "/",
+            "User-Agent": WECHAT_UA,
+          },
+        });
+        const headers = new Headers(imgResp.headers);
+        headers.set("Access-Control-Allow-Origin", "*");
+        headers.set("Cache-Control", "public, max-age=86400");
+        return new Response(imgResp.body, { status: imgResp.status, headers });
+      } catch {
+        return new Response("Image fetch failed", { status: 502 });
+      }
     }
 
     // Extract target URL from path
@@ -336,7 +368,12 @@ export default {
         );
       }
 
-      const { markdown } = htmlToMarkdown(finalHtml, targetUrl);
+      let { markdown } = htmlToMarkdown(finalHtml, targetUrl);
+
+      // Rewrite hotlink-protected WeChat images to go through our proxy
+      if (targetUrl.includes("mmbiz.qpic.cn") || targetUrl.includes("mp.weixin.qq.com")) {
+        markdown = proxyImageUrls(markdown, host);
+      }
 
       if (wantsRaw) {
         return new Response(markdown, {
