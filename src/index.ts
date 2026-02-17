@@ -1,6 +1,11 @@
 import TurndownService from "turndown";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
+import puppeteer from "@cloudflare/puppeteer";
+
+interface Env {
+  MYBROWSER: Fetcher;
+}
 
 // Module-level singleton — avoids re-creating on every request
 const turndown = new TurndownService({
@@ -15,6 +20,32 @@ turndown.addRule("strikethrough", {
 });
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+function needsBrowserRendering(html: string, url: string): boolean {
+  const lower = html.toLowerCase();
+  // WeChat-specific anti-bot markers
+  if (url.includes("mp.weixin.qq.com")) {
+    if (html.includes("环境异常") || html.includes("请在微信客户端打开")) return true;
+  }
+  // Common JS-challenge / CAPTCHA markers
+  if (lower.includes("cf-challenge") || lower.includes("cf_chl_opt")) return true;
+  if (lower.includes("captcha") && html.length < 10000) return true;
+  // Very short page with JS redirect (likely anti-bot)
+  if (html.length < 2000 && (lower.includes("document.location") || lower.includes("window.location"))) return true;
+  return false;
+}
+
+async function fetchWithBrowser(url: string, env: Env): Promise<string> {
+  const browser = await puppeteer.launch(env.MYBROWSER);
+  try {
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+    const html = await page.content();
+    return html;
+  } finally {
+    await browser.close();
+  }
+}
 
 function htmlToMarkdown(html: string, url: string): { markdown: string; title: string } {
   // Wrap in <html><head></head><body>...</body></html> to guarantee
@@ -90,7 +121,7 @@ const CORS_HEADERS = {
 };
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const host = url.host;
     const path = url.pathname;
@@ -212,6 +243,7 @@ export default {
 
       const tokenCount = response.headers.get("x-markdown-tokens") || "";
       const isMarkdown = contentType.includes("text/markdown");
+      const forceBrowser = url.searchParams.get("force_browser") === "true";
 
       // If the site returned markdown directly (supports Markdown for Agents)
       if (isMarkdown) {
@@ -225,13 +257,25 @@ export default {
             },
           });
         }
-        return new Response(renderedPageHTML(host, body, targetUrl, tokenCount, true), {
+        return new Response(renderedPageHTML(host, body, targetUrl, tokenCount, "native"), {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
 
-      // Fallback: convert HTML to Markdown via Readability + Turndown
-      const { markdown } = htmlToMarkdown(body, targetUrl);
+      // Check if the static fetch returned an anti-bot/JS-required page
+      let finalHtml = body;
+      let method = "readability+turndown";
+
+      if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
+        try {
+          finalHtml = await fetchWithBrowser(targetUrl, env);
+          method = "browser+readability+turndown";
+        } catch {
+          // Browser rendering failed — fall back to static HTML
+        }
+      }
+
+      const { markdown } = htmlToMarkdown(finalHtml, targetUrl);
 
       if (wantsRaw) {
         return new Response(markdown, {
@@ -239,14 +283,14 @@ export default {
             "Content-Type": "text/markdown; charset=utf-8",
             "X-Source-URL": targetUrl,
             "X-Markdown-Native": "false",
-            "X-Markdown-Method": "readability+turndown",
+            "X-Markdown-Method": method,
             "Access-Control-Allow-Origin": "*",
           },
         });
       }
 
       return new Response(
-        renderedPageHTML(host, markdown, targetUrl, "", false),
+        renderedPageHTML(host, markdown, targetUrl, "", method === "browser+readability+turndown" ? "browser" : "fallback"),
         {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         }
@@ -280,9 +324,10 @@ function extractTargetUrl(path: string, search: string): string | null {
   }
 
   // Re-attach the original query string if the target URL doesn't have one
-  // but exclude our own parameters (raw)
+  // but exclude our own parameters (raw, force_browser)
   const targetSearchParams = new URLSearchParams(search);
   targetSearchParams.delete("raw");
+  targetSearchParams.delete("force_browser");
   const remainingSearch = targetSearchParams.toString();
 
   if (remainingSearch && !raw.includes("?")) {
@@ -678,11 +723,14 @@ function landingPageHTML(host: string): string {
 </html>`;
 }
 
-function renderedPageHTML(host: string, content: string, sourceUrl: string, tokenCount: string, isNativeMarkdown: boolean): string {
+function renderedPageHTML(host: string, content: string, sourceUrl: string, tokenCount: string, method: "native" | "fallback" | "browser"): string {
   const escapedContent = escapeHtml(content);
-  const statusLabel = isNativeMarkdown
-    ? '<span class="status native">Native Markdown</span>'
-    : '<span class="status fallback">Converted via Readability + Turndown</span>';
+  const statusLabels: Record<string, string> = {
+    native: '<span class="status native">Native Markdown</span>',
+    fallback: '<span class="status fallback">Converted via Readability + Turndown</span>',
+    browser: '<span class="status browser">Rendered via Browser</span>',
+  };
+  const statusLabel = statusLabels[method];
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -769,6 +817,12 @@ function renderedPageHTML(host: string, content: string, sourceUrl: string, toke
       background: rgba(234, 179, 8, 0.1);
       color: #eab308;
       border: 1px solid rgba(234, 179, 8, 0.3);
+    }
+
+    .status.browser {
+      background: rgba(99, 102, 241, 0.1);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
     }
 
     .token-count {

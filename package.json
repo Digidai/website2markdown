@@ -15,6 +15,7 @@
     "wrangler": "^4.0.0"
   },
   "dependencies": {
+    "@cloudflare/puppeteer": "^1.0.6",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
     "turndown": "^7.2.2"
