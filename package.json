@@ -1,0 +1,22 @@
+{
+  "name": "md-genedai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Convert any URL to Markdown via Cloudflare's Markdown for Agents",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250214.0",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.12",
+    "turndown": "^7.2.2"
+  }
+}

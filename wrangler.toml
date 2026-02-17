@@ -1,0 +1,12 @@
+name = "md-genedai"
+main = "src/index.ts"
+compatibility_date = "2025-02-14"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+# Custom domain configuration — update with your actual domain
+# routes = [
+#   { pattern = "your-domain.example.com/*", zone_name = "example.com" }
+# ]
