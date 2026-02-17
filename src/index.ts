@@ -23,10 +23,10 @@ const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 function needsBrowserRendering(html: string, url: string): boolean {
   const lower = html.toLowerCase();
-  // WeChat-specific anti-bot markers
-  if (url.includes("mp.weixin.qq.com")) {
-    if (html.includes("环境异常") || html.includes("请在微信客户端打开")) return true;
-  }
+  // WeChat articles always require JS to render the body content.
+  // Even when static fetch bypasses the anti-bot page, the HTML is just
+  // a shell — the actual article text is injected by client-side scripts.
+  if (url.includes("mp.weixin.qq.com")) return true;
   // Common JS-challenge / CAPTCHA markers
   if (lower.includes("cf-challenge") || lower.includes("cf_chl_opt")) return true;
   if (lower.includes("captcha") && html.length < 10000) return true;
