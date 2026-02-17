@@ -35,10 +35,29 @@ function needsBrowserRendering(html: string, url: string): boolean {
   return false;
 }
 
+// WeChat in-app browser UA — mp.weixin.qq.com checks for "MicroMessenger"
+const WECHAT_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 " +
+  "(KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.47(0x18002f2f) " +
+  "NetType/WIFI Language/zh_CN";
+
+// Generic mobile UA for other sites that block headless Chrome
+const MOBILE_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 " +
+  "(KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
+
 async function fetchWithBrowser(url: string, env: Env): Promise<string> {
   const browser = await puppeteer.launch(env.MYBROWSER);
   try {
     const page = await browser.newPage();
+
+    // Pick the right UA based on the target site
+    const ua = url.includes("mp.weixin.qq.com") ? WECHAT_UA : MOBILE_UA;
+    await page.setUserAgent(ua);
+    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    await page.setExtraHTTPHeaders({
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    });
 
     // P1 fix: intercept every request so redirects to private/internal
     // addresses are blocked, matching the SSRF protection on the static path.
@@ -53,6 +72,10 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
     });
 
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+
+    // Some pages load content lazily — give a short extra wait
+    await new Promise((r) => setTimeout(r, 2000));
+
     const html = await page.content();
     return html;
   } finally {
@@ -193,10 +216,17 @@ export default {
         acceptHeader.split(",").some(part => part.trim().split(";")[0] === "text/markdown");
 
       // Fetch with manual redirect to validate each hop against SSRF
-      const fetchHeaders = {
+      // Use WeChat in-app UA for mp.weixin.qq.com so static fetch has the
+      // best chance of getting real content without needing browser rendering.
+      const isWechat = targetUrl.includes("mp.weixin.qq.com");
+      const fetchHeaders: Record<string, string> = {
         "Accept": "text/markdown, text/html;q=0.9, */*;q=0.8",
-        "User-Agent": `${host}/1.0 (Markdown Converter)`,
+        "User-Agent": isWechat ? WECHAT_UA : `${host}/1.0 (Markdown Converter)`,
       };
+      if (isWechat) {
+        fetchHeaders["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8";
+        fetchHeaders["Referer"] = "https://mp.weixin.qq.com/";
+      }
       let response = await fetch(targetUrl, { headers: fetchHeaders, redirect: "manual" });
 
       // Follow up to 5 redirects, validating each destination
