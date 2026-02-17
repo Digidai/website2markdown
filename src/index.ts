@@ -173,8 +173,51 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           function harvest() {
             // IMPORTANT: scope to contentRoot, not document
             var scope = contentRoot || document;
-            var blocks = scope.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, [class*="text-block"], [class*="heading-block"]');
+
+            // Swap lazy-loaded images FIRST (data-src, data-origin-src, etc.)
+            scope.querySelectorAll('img').forEach(function(img) {
+              var real = img.getAttribute('data-src') || img.getAttribute('data-origin-src') || img.getAttribute('data-original');
+              if (real && (!img.getAttribute('src') || img.getAttribute('src').indexOf('data:') === 0)) {
+                img.setAttribute('src', real);
+              }
+            });
+
+            // Query both text and image blocks in DOM order for proper interleaving
+            var blocks = scope.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, img, figure, [class*="text-block"], [class*="heading-block"], [class*="image-block"], [class*="img-block"]');
             blocks.forEach(function(b) {
+              var tag = b.tagName.toLowerCase();
+
+              // Handle img elements inline
+              if (tag === 'img') {
+                var src = b.getAttribute('src') || b.getAttribute('data-src') || '';
+                if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
+                  imgs.push(src);
+                  var marker = '{{IMG:' + src + '}}';
+                  if (!seenText.has(marker)) {
+                    seenText.add(marker);
+                    collected.push(marker);
+                  }
+                }
+                return;
+              }
+
+              // Handle figure / image-block containers
+              if (tag === 'figure' || (b.className && (b.className.indexOf('image') !== -1 || b.className.indexOf('img-block') !== -1))) {
+                var imgEl = b.querySelector('img');
+                if (imgEl) {
+                  var src = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+                  if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
+                    imgs.push(src);
+                    var marker = '{{IMG:' + src + '}}';
+                    if (!seenText.has(marker)) {
+                      seenText.add(marker);
+                      collected.push(marker);
+                    }
+                  }
+                }
+                return;
+              }
+
               var text = b.textContent.trim();
               if (text.length === 0 || seenText.has(text)) return;
               // Skip known UI strings
@@ -182,7 +225,6 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
                 if (text === uiStrings[i] || (text.length < 30 && text.indexOf(uiStrings[i]) !== -1)) return;
               }
               seenText.add(text);
-              var tag = b.tagName.toLowerCase();
               if (tag.match(/^h[1-6]$/)) {
                 var level = tag.charAt(1);
                 var prefix = '';
@@ -195,14 +237,20 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
               } else if (tag === 'pre') {
                 collected.push('\\n\`\`\`\\n' + text + '\\n\`\`\`\\n');
               } else {
+                // Check if this text block also contains images
+                var innerImgs = b.querySelectorAll('img');
+                innerImgs.forEach(function(img) {
+                  var src = img.getAttribute('src') || img.getAttribute('data-src') || '';
+                  if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
+                    imgs.push(src);
+                    var marker = '{{IMG:' + src + '}}';
+                    if (!seenText.has(marker)) {
+                      seenText.add(marker);
+                      collected.push(marker);
+                    }
+                  }
+                });
                 collected.push(text);
-              }
-            });
-            // Collect images within content area
-            scope.querySelectorAll('img[src]').forEach(function(img) {
-              var src = img.getAttribute('src') || '';
-              if (src && !src.startsWith('data:') && !imgs.includes(src)) {
-                imgs.push(src);
               }
             });
           }
@@ -228,16 +276,25 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
       const feishuResult = content as { text?: string; images?: string[] } | null;
       if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
         const title = await page.title();
-        // Build a clean HTML document from collected text
+        // Build a clean HTML document — images are inline via {{IMG:url}} markers
         let html = `<html><head><title>${title}</title></head><body>`;
         html += `<h1>${title}</h1>`;
+        const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
         html += feishuResult.text.split('\n\n').map((block: string) => {
+          const imgMatch = block.match(imgMarkerRe);
+          if (imgMatch) return `<figure><img src="${imgMatch[1]}" /></figure>`;
           if (block.startsWith('#')) return `<p>${block}</p>`;
           return `<p>${block}</p>`;
         }).join('\n');
+        // Append any remaining images not already inline
         if (feishuResult.images && feishuResult.images.length > 0) {
+          const inlineUrls = new Set(
+            feishuResult.text.match(/\{\{IMG:(.+?)\}\}/g)?.map((m: string) => m.slice(6, -2)) || []
+          );
           feishuResult.images.forEach((src: string) => {
-            html += `<img src="${src}" />`;
+            if (!inlineUrls.has(src)) {
+              html += `<figure><img src="${src}" /></figure>`;
+            }
           });
         }
         html += `</body></html>`;
