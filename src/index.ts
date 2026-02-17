@@ -39,6 +39,19 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
   const browser = await puppeteer.launch(env.MYBROWSER);
   try {
     const page = await browser.newPage();
+
+    // P1 fix: intercept every request so redirects to private/internal
+    // addresses are blocked, matching the SSRF protection on the static path.
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      const reqUrl = req.url();
+      if (!isSafeUrl(reqUrl)) {
+        req.abort("accessdenied");
+      } else {
+        req.continue();
+      }
+    });
+
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
     const html = await page.content();
     return html;
@@ -273,6 +286,14 @@ export default {
         } catch {
           // Browser rendering failed — fall back to static HTML
         }
+      }
+
+      // P2 fix: enforce the same 5 MB size limit on browser-rendered content
+      if (new TextEncoder().encode(finalHtml).byteLength > MAX_RESPONSE_BYTES) {
+        return new Response(
+          errorPageHTML("Content Too Large", "The rendered page exceeds the 5 MB size limit."),
+          { status: 413, headers: { "Content-Type": "text/html; charset=utf-8" } }
+        );
       }
 
       const { markdown } = htmlToMarkdown(finalHtml, targetUrl);
