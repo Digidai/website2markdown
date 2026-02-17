@@ -583,25 +583,102 @@ function landingPageHTML(host: string): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(host)} - Convert Any URL to Markdown</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg-deep: #07080c;
+      --bg-surface: #111318;
+      --bg-elevated: #191b22;
+      --border: #23252f;
+      --border-subtle: #1a1c26;
+      --text-primary: #eeeef2;
+      --text-secondary: #8b8da3;
+      --text-muted: #555770;
+      --accent: #22d3ee;
+      --accent-hover: #06b6d4;
+      --font-display: 'Instrument Serif', Georgia, serif;
+      --font-body: 'DM Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-      background: #0a0a0a;
-      color: #e5e5e5;
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Grain texture overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      opacity: 0.025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* Floating gradient orbs */
+    .bg-glow {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .bg-glow::before {
+      content: '';
+      position: absolute;
+      width: 700px;
+      height: 700px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(34, 211, 238, 0.07) 0%, transparent 70%);
+      top: -250px;
+      right: -150px;
+      animation: drift 22s ease-in-out infinite;
+    }
+
+    .bg-glow::after {
+      content: '';
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(34, 211, 238, 0.04) 0%, transparent 70%);
+      bottom: -150px;
+      left: -100px;
+      animation: drift 28s ease-in-out infinite reverse;
+    }
+
+    @keyframes drift {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(40px, -30px) scale(1.05); }
+      66% { transform: translate(-25px, 20px) scale(0.95); }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(28px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     .hero {
+      position: relative;
+      z-index: 1;
       flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 2rem;
+      padding: 3rem 2rem 2rem;
       text-align: center;
     }
 
@@ -609,64 +686,96 @@ function landingPageHTML(host: string): string {
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      padding: 0.4rem 1rem;
-      background: rgba(249, 115, 22, 0.1);
-      border: 1px solid rgba(249, 115, 22, 0.3);
+      padding: 0.35rem 1rem;
+      background: rgba(34, 211, 238, 0.06);
+      border: 1px solid rgba(34, 211, 238, 0.12);
       border-radius: 999px;
-      font-size: 0.8rem;
-      color: #f97316;
-      margin-bottom: 2rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: 0.03em;
+      margin-bottom: 2.5rem;
+      animation: fadeUp 0.6s ease both;
     }
 
     h1 {
-      font-size: clamp(2.5rem, 6vw, 4.5rem);
-      font-weight: 800;
-      letter-spacing: -0.03em;
-      line-height: 1.1;
+      font-family: var(--font-display);
+      font-size: clamp(3rem, 7vw, 5.5rem);
+      font-weight: 400;
+      font-style: italic;
+      letter-spacing: -0.02em;
+      line-height: 1.05;
       margin-bottom: 1.5rem;
-      background: linear-gradient(135deg, #fff 0%, #a3a3a3 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: var(--text-primary);
+      animation: fadeUp 0.6s ease 0.08s both;
     }
 
-    h1 span {
-      background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+    h1 em {
+      font-style: normal;
+      background: linear-gradient(135deg, var(--accent) 0%, #67e8f9 50%, var(--accent-hover) 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
+      background-clip: text;
     }
 
     .subtitle {
-      font-size: 1.2rem;
-      color: #737373;
-      max-width: 600px;
-      line-height: 1.6;
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 520px;
+      line-height: 1.7;
       margin-bottom: 3rem;
+      font-weight: 300;
+      animation: fadeUp 0.6s ease 0.16s both;
+    }
+
+    .subtitle strong {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    /* Animated gradient border on focus */
+    .input-wrapper {
+      position: relative;
+      width: 100%;
+      max-width: 680px;
+      border-radius: 14px;
+      padding: 1px;
+      background: var(--border);
+      transition: box-shadow 0.4s ease;
+      animation: fadeUp 0.6s ease 0.24s both;
+    }
+
+    .input-wrapper:focus-within {
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover), #67e8f9, var(--accent));
+      background-size: 300% 300%;
+      animation: fadeUp 0.6s ease 0.24s both, shimmer 4s ease infinite;
+      box-shadow: 0 0 40px rgba(34, 211, 238, 0.1), 0 0 80px rgba(34, 211, 238, 0.04);
+    }
+
+    @keyframes shimmer {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
     }
 
     .input-group {
       display: flex;
       width: 100%;
-      max-width: 700px;
-      background: #171717;
-      border: 1px solid #262626;
-      border-radius: 16px;
+      background: var(--bg-surface);
+      border-radius: 13px;
       overflow: hidden;
-      transition: border-color 0.2s;
-    }
-
-    .input-group:focus-within {
-      border-color: #f97316;
     }
 
     .input-prefix {
       display: flex;
       align-items: center;
       padding: 0 0 0 1.25rem;
-      color: #f97316;
-      font-size: 0.95rem;
-      font-weight: 600;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      font-weight: 500;
       white-space: nowrap;
       user-select: none;
+      opacity: 0.7;
     }
 
     .input-group input {
@@ -675,267 +784,318 @@ function landingPageHTML(host: string): string {
       background: transparent;
       border: none;
       outline: none;
-      color: #e5e5e5;
-      font-size: 0.95rem;
-      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      font-family: var(--font-mono);
+      font-weight: 400;
     }
 
     .input-group input::placeholder {
-      color: #525252;
+      color: var(--text-muted);
+      font-weight: 400;
     }
 
     .input-group button {
-      padding: 0 1.5rem;
-      background: #f97316;
+      padding: 0 1.75rem;
+      background: var(--accent);
       border: none;
-      color: #fff;
+      color: var(--bg-deep);
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.85rem;
+      font-family: var(--font-body);
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s ease;
+      letter-spacing: 0.01em;
     }
 
     .input-group button:hover {
-      background: #ea580c;
-    }
-
-    .features {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 1.5rem;
-      width: 100%;
-      max-width: 900px;
-      margin-top: 4rem;
-    }
-
-    .feature {
-      padding: 1.5rem;
-      background: #171717;
-      border: 1px solid #262626;
-      border-radius: 12px;
-    }
-
-    .feature-icon {
-      width: 40px;
-      height: 40px;
-      background: rgba(249, 115, 22, 0.1);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.2rem;
-      margin-bottom: 1rem;
-    }
-
-    .feature h3 {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #e5e5e5;
-      margin-bottom: 0.5rem;
-    }
-
-    .feature p {
-      font-size: 0.85rem;
-      color: #737373;
-      line-height: 1.5;
-    }
-
-    .how-it-works {
-      width: 100%;
-      max-width: 900px;
-      margin-top: 4rem;
-    }
-
-    .how-it-works h2 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      text-align: center;
-      margin-bottom: 2rem;
-      color: #e5e5e5;
-    }
-
-    .steps {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    .step {
-      flex: 1;
-      min-width: 200px;
-      max-width: 280px;
-      padding: 1.5rem;
-      background: #171717;
-      border: 1px solid #262626;
-      border-radius: 12px;
-      text-align: center;
-    }
-
-    .step-number {
-      width: 32px;
-      height: 32px;
-      background: rgba(249, 115, 22, 0.15);
-      color: #f97316;
-      border-radius: 50%;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 0.9rem;
-      margin-bottom: 1rem;
-    }
-
-    .step h3 {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin-bottom: 0.5rem;
-    }
-
-    .step p {
-      font-size: 0.8rem;
-      color: #737373;
-      line-height: 1.5;
-    }
-
-    .example-box {
-      margin-top: 3rem;
-      width: 100%;
-      max-width: 900px;
-      padding: 1.5rem;
-      background: #171717;
-      border: 1px solid #262626;
-      border-radius: 12px;
-    }
-
-    .example-box h3 {
-      font-size: 0.85rem;
-      color: #737373;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 1rem;
-    }
-
-    .example-url {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.85rem;
-      color: #a3a3a3;
-      padding: 1rem;
-      background: #0a0a0a;
-      border-radius: 8px;
-      overflow-x: auto;
-      cursor: pointer;
-      transition: background 0.2s;
-    }
-
-    .example-url:hover {
-      background: #1a1a1a;
-    }
-
-    .example-url .prefix {
-      color: #f97316;
-    }
-
-    footer {
-      text-align: center;
-      padding: 2rem;
-      color: #525252;
-      font-size: 0.8rem;
-    }
-
-    footer a {
-      color: #f97316;
-      text-decoration: none;
+      background: var(--accent-hover);
     }
 
     .input-hint {
       margin-top: 0.75rem;
-      font-size: 0.8rem;
-      color: #525252;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      letter-spacing: 0.01em;
+      animation: fadeUp 0.6s ease 0.28s both;
     }
 
-    @media (max-width: 640px) {
+    /* Feature cards */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      width: 100%;
+      max-width: 840px;
+      margin-top: 5rem;
+      background: var(--border-subtle);
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+      animation: fadeUp 0.6s ease 0.36s both;
+    }
+
+    .feature {
+      padding: 2rem 1.75rem;
+      background: var(--bg-surface);
+      transition: background 0.3s ease;
+    }
+
+    .feature:hover {
+      background: var(--bg-elevated);
+    }
+
+    .feature-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 0.85rem;
+      opacity: 0.7;
+    }
+
+    .feature h3 {
+      font-family: var(--font-display);
+      font-size: 1.2rem;
+      font-weight: 400;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+
+    .feature p {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      font-weight: 300;
+    }
+
+    .feature code {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      background: rgba(34, 211, 238, 0.08);
+      padding: 0.12rem 0.35rem;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    /* How it works */
+    .how-section {
+      width: 100%;
+      max-width: 840px;
+      margin-top: 5rem;
+      animation: fadeUp 0.6s ease 0.44s both;
+    }
+
+    .how-section h2 {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-weight: 400;
+      font-style: italic;
+      text-align: center;
+      margin-bottom: 2.5rem;
+      color: var(--text-primary);
+    }
+
+    .steps {
+      display: flex;
+      gap: 1px;
+      background: var(--border-subtle);
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .step {
+      flex: 1;
+      padding: 2rem 1.5rem;
+      background: var(--bg-surface);
+      text-align: center;
+    }
+
+    .step-num {
+      font-family: var(--font-display);
+      font-size: 2rem;
+      font-style: italic;
+      color: var(--accent);
+      opacity: 0.5;
+      margin-bottom: 0.75rem;
+      line-height: 1;
+    }
+
+    .step h3 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      color: var(--text-primary);
+    }
+
+    .step p {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+      font-weight: 300;
+    }
+
+    .step code {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      background: rgba(34, 211, 238, 0.08);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+
+    /* Example */
+    .example-box {
+      margin-top: 3.5rem;
+      width: 100%;
+      max-width: 840px;
+      animation: fadeUp 0.6s ease 0.5s both;
+    }
+
+    .example-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-bottom: 0.6rem;
+    }
+
+    .example-url {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      padding: 1rem 1.25rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      overflow-x: auto;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .example-url:hover {
+      background: var(--bg-elevated);
+      border-color: var(--border);
+      color: var(--text-primary);
+    }
+
+    .example-url .hl {
+      color: var(--accent);
+    }
+
+    footer {
+      position: relative;
+      z-index: 1;
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      letter-spacing: 0.01em;
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
+
+    @media (max-width: 768px) {
+      .features { grid-template-columns: 1fr; }
+      .steps { flex-direction: column; }
       .input-prefix { display: none; }
       .input-group input { padding: 1rem; }
+      .hero { padding: 2rem 1.25rem 1.5rem; }
     }
   </style>
 </head>
 <body>
+  <div class="bg-glow"></div>
+
   <div class="hero">
     <div class="badge">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-      Powered by Cloudflare Markdown for Agents
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Cloudflare Markdown for Agents
     </div>
 
-    <h1>Any URL to <span>Markdown</span><br>in one click</h1>
+    <h1>Any URL to <em>Markdown</em>,<br>instantly</h1>
 
     <p class="subtitle">
-      Prepend <strong>${escapeHtml(host)}/</strong> to any URL and get clean, readable Markdown.
-      Perfect for AI agents, LLMs, and developers.
+      Prepend <strong>${escapeHtml(host)}/</strong> before any URL.<br>
+      Clean, readable Markdown for AI agents, LLMs, and developers.
     </p>
 
-    <form class="input-group" id="urlForm" onsubmit="return handleSubmit(event)">
-      <div class="input-prefix">${escapeHtml(host)}/</div>
-      <input
-        type="text"
-        id="urlInput"
-        placeholder="example.com or https://example.com/page"
-        autocomplete="off"
-        autofocus
-      />
-      <button type="submit">Convert</button>
-    </form>
-    <p class="input-hint">Supports bare domains, http:// and https:// URLs</p>
+    <div class="input-wrapper">
+      <form class="input-group" id="urlForm" onsubmit="return handleSubmit(event)">
+        <div class="input-prefix">${escapeHtml(host)}/</div>
+        <input
+          type="text"
+          id="urlInput"
+          placeholder="paste any url..."
+          autocomplete="off"
+          autofocus
+        />
+        <button type="submit">Convert</button>
+      </form>
+    </div>
+    <p class="input-hint">Bare domains, http:// and https:// all work</p>
 
     <div class="features">
       <div class="feature">
-        <div class="feature-icon">MD</div>
+        <div class="feature-label">01 &mdash; Universal</div>
         <h3>Any Website</h3>
-        <p>Works on every site. Uses native Markdown for Agents when available, falls back to Readability + Turndown.</p>
+        <p>Three conversion paths: native edge Markdown, Readability extraction, or headless browser rendering.</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">{}</div>
-        <h3>API Ready</h3>
-        <p>Add <code>?raw=true</code> or send <code>Accept: text/markdown</code> header to get raw markdown response.</p>
+        <div class="feature-label">02 &mdash; API-first</div>
+        <h3>Raw Output</h3>
+        <p>Append <code>?raw=true</code> or send <code>Accept: text/markdown</code> for plain Markdown text.</p>
       </div>
       <div class="feature">
-        <div class="feature-icon">&lt;/&gt;</div>
-        <h3>Zero Config</h3>
-        <p>No API keys, no signup. Just prepend the URL and get markdown instantly.</p>
+        <div class="feature-label">03 &mdash; Zero Config</div>
+        <h3>No Keys Needed</h3>
+        <p>No signup, no API keys, no rate limits. Just prepend the domain and go.</p>
       </div>
     </div>
 
-    <div class="how-it-works">
-      <h2>How It Works</h2>
+    <div class="how-section">
+      <h2>How it works</h2>
       <div class="steps">
         <div class="step">
-          <div class="step-number">1</div>
+          <div class="step-num">i</div>
           <h3>Prepend URL</h3>
-          <p>Add <strong>${escapeHtml(host)}/</strong> before any URL you want to convert.</p>
+          <p>Add <strong>${escapeHtml(host)}/</strong> before any web address.</p>
         </div>
         <div class="step">
-          <div class="step-number">2</div>
-          <h3>We Fetch</h3>
-          <p>We request the page with <code>Accept: text/markdown</code> header via Cloudflare edge.</p>
+          <div class="step-num">ii</div>
+          <h3>Edge Fetch</h3>
+          <p>Request sent with <code>Accept: text/markdown</code> via Cloudflare edge network.</p>
         </div>
         <div class="step">
-          <div class="step-number">3</div>
-          <h3>Get Markdown</h3>
-          <p>Receive clean, formatted Markdown — rendered beautifully or as raw text.</p>
+          <div class="step-num">iii</div>
+          <h3>Clean Output</h3>
+          <p>Receive formatted Markdown &mdash; rendered preview or raw text via API.</p>
         </div>
       </div>
     </div>
 
     <div class="example-box">
-      <h3>Try an example</h3>
+      <div class="example-label">Try an example</div>
       <div class="example-url" onclick="window.location.href='/https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/'">
-        <span class="prefix">${escapeHtml(host)}/</span>https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/
+        <span class="hl">${escapeHtml(host)}/</span>https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/
       </div>
     </div>
   </div>
 
   <footer>
-    Built with Cloudflare Workers &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Learn about Markdown for Agents</a>
+    Built on Cloudflare Workers &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Markdown for Agents</a>
   </footer>
 
   <script>
@@ -943,8 +1103,6 @@ function landingPageHTML(host: string): string {
       e.preventDefault();
       const input = document.getElementById('urlInput').value.trim();
       if (!input) return false;
-      // Support: "example.com", "http://example.com", "https://example.com"
-      // Bare domains go directly to path — backend auto-prepends https://
       window.location.href = '/' + input;
       return false;
     }
@@ -955,27 +1113,49 @@ function landingPageHTML(host: string): string {
 
 function renderedPageHTML(host: string, content: string, sourceUrl: string, tokenCount: string, method: "native" | "fallback" | "browser"): string {
   const escapedContent = escapeHtml(content);
-  const statusLabels: Record<string, string> = {
-    native: '<span class="status native">Native Markdown</span>',
-    fallback: '<span class="status fallback">Converted via Readability + Turndown</span>',
-    browser: '<span class="status browser">Rendered via Browser</span>',
+  const statusConfig: Record<string, { label: string; cls: string }> = {
+    native: { label: 'Native Markdown', cls: 'st-native' },
+    fallback: { label: 'Readability + Turndown', cls: 'st-fallback' },
+    browser: { label: 'Browser Rendered', cls: 'st-browser' },
   };
-  const statusLabel = statusLabels[method];
+  const status = statusConfig[method];
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MD - ${escapeHtml(sourceUrl)}</title>
+  <title>MD &mdash; ${escapeHtml(sourceUrl)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.8.1/github-markdown-dark.min.css">
   <style>
+    :root {
+      --bg-deep: #07080c;
+      --bg-base: #0c0d12;
+      --bg-surface: #111318;
+      --bg-elevated: #191b22;
+      --border: #23252f;
+      --border-subtle: #1a1c26;
+      --text-primary: #eeeef2;
+      --text-secondary: #8b8da3;
+      --text-muted: #555770;
+      --accent: #22d3ee;
+      --accent-hover: #06b6d4;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --violet: #a78bfa;
+      --font-body: 'DM Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0a0a0a;
-      color: #e5e5e5;
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
       min-height: 100vh;
     }
 
@@ -987,147 +1167,171 @@ function renderedPageHTML(host: string, content: string, sourceUrl: string, toke
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
-      padding: 0.75rem 1.5rem;
-      background: rgba(10, 10, 10, 0.85);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid #262626;
+      padding: 0 1.5rem;
+      height: 52px;
+      background: rgba(7, 8, 12, 0.82);
+      backdrop-filter: blur(16px) saturate(180%);
+      -webkit-backdrop-filter: blur(16px) saturate(180%);
+      border-bottom: 1px solid var(--border-subtle);
     }
 
     .toolbar-left {
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.75rem;
       min-width: 0;
     }
 
-    .toolbar .logo {
-      font-weight: 800;
-      font-size: 1rem;
-      color: #f97316;
+    .logo {
+      font-weight: 600;
+      font-size: 0.88rem;
+      color: var(--accent);
       text-decoration: none;
       white-space: nowrap;
+      letter-spacing: -0.01em;
     }
 
-    .toolbar .source-url {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.8rem;
-      color: #737373;
+    .sep {
+      width: 1px;
+      height: 16px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    .source-url {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-muted);
       text-decoration: none;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      transition: color 0.2s;
     }
 
-    .toolbar .source-url:hover {
-      color: #a3a3a3;
+    .source-url:hover {
+      color: var(--text-secondary);
     }
 
     .toolbar-right {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.5rem;
       flex-shrink: 0;
     }
 
-    .status {
-      padding: 0.25rem 0.75rem;
-      border-radius: 999px;
-      font-size: 0.75rem;
-      font-weight: 600;
+    .status-pill {
+      padding: 0.2rem 0.65rem;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 500;
+      letter-spacing: 0.02em;
       white-space: nowrap;
     }
 
-    .status.native {
-      background: rgba(34, 197, 94, 0.1);
-      color: #22c55e;
-      border: 1px solid rgba(34, 197, 94, 0.3);
+    .st-native {
+      background: rgba(52, 211, 153, 0.08);
+      color: var(--green);
+      border: 1px solid rgba(52, 211, 153, 0.18);
     }
 
-    .status.fallback {
-      background: rgba(234, 179, 8, 0.1);
-      color: #eab308;
-      border: 1px solid rgba(234, 179, 8, 0.3);
+    .st-fallback {
+      background: rgba(251, 191, 36, 0.08);
+      color: var(--amber);
+      border: 1px solid rgba(251, 191, 36, 0.18);
     }
 
-    .status.browser {
-      background: rgba(99, 102, 241, 0.1);
-      color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.3);
+    .st-browser {
+      background: rgba(167, 139, 250, 0.08);
+      color: var(--violet);
+      border: 1px solid rgba(167, 139, 250, 0.18);
     }
 
-    .token-count {
-      font-size: 0.75rem;
-      color: #525252;
+    .tokens {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
       white-space: nowrap;
     }
 
     .btn {
-      padding: 0.4rem 0.9rem;
-      border-radius: 8px;
-      border: 1px solid #333;
-      background: #171717;
-      color: #e5e5e5;
-      font-size: 0.8rem;
+      padding: 0.3rem 0.8rem;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      font-size: 0.75rem;
+      font-family: var(--font-body);
+      font-weight: 500;
       cursor: pointer;
-      transition: all 0.15s;
+      transition: all 0.15s ease;
       white-space: nowrap;
     }
 
     .btn:hover {
-      background: #262626;
-      border-color: #404040;
+      background: var(--bg-elevated);
+      color: var(--text-primary);
     }
 
-    .btn-primary {
-      background: #f97316;
-      border-color: #f97316;
-      color: #fff;
+    .btn-accent {
+      background: var(--accent);
+      border-color: transparent;
+      color: var(--bg-deep);
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
     }
 
-    .btn-primary:hover {
-      background: #ea580c;
-    }
-
-    .content-area {
-      display: flex;
-      min-height: calc(100vh - 52px);
+    .btn-accent:hover {
+      background: var(--accent-hover);
     }
 
     .tab-bar {
       display: flex;
       gap: 0;
-      padding: 1rem 2rem 0;
-      background: #0a0a0a;
+      padding: 0 2rem;
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border-subtle);
     }
 
     .tab {
-      padding: 0.6rem 1.2rem;
-      font-size: 0.85rem;
-      color: #737373;
+      padding: 0.7rem 1.15rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text-muted);
       cursor: pointer;
       border-bottom: 2px solid transparent;
-      transition: all 0.15s;
+      transition: all 0.15s ease;
+      margin-bottom: -1px;
     }
 
     .tab.active {
-      color: #f97316;
-      border-bottom-color: #f97316;
+      color: var(--accent);
+      border-bottom-color: var(--accent);
     }
 
     .tab:hover:not(.active) {
-      color: #a3a3a3;
+      color: var(--text-secondary);
     }
 
     .panel {
       display: none;
-      padding: 2rem;
-      max-width: 900px;
+      padding: 2.5rem 2rem;
+      max-width: 860px;
       margin: 0 auto;
       width: 100%;
     }
 
     .panel.active {
       display: block;
+      animation: panelIn 0.2s ease;
+    }
+
+    @keyframes panelIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     .markdown-body {
@@ -1136,22 +1340,23 @@ function renderedPageHTML(host: string, content: string, sourceUrl: string, toke
     }
 
     .raw-content {
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 0.85rem;
-      line-height: 1.7;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      line-height: 1.8;
       white-space: pre-wrap;
       word-break: break-word;
-      color: #a3a3a3;
-      background: #171717;
+      color: var(--text-secondary);
+      background: var(--bg-surface);
       padding: 1.5rem;
-      border-radius: 12px;
-      border: 1px solid #262626;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
     }
 
     @media (max-width: 768px) {
-      .toolbar { padding: 0.5rem 1rem; flex-wrap: wrap; }
-      .toolbar .source-url { display: none; }
-      .panel { padding: 1rem; }
+      .toolbar { padding: 0 1rem; }
+      .source-url, .sep { display: none; }
+      .panel { padding: 1.25rem 1rem; }
+      .tab-bar { padding: 0 1rem; }
     }
   </style>
 </head>
@@ -1159,13 +1364,14 @@ function renderedPageHTML(host: string, content: string, sourceUrl: string, toke
   <div class="toolbar">
     <div class="toolbar-left">
       <a href="/" class="logo">${escapeHtml(host)}</a>
-      <a href="${escapeHtml(sourceUrl)}" class="source-url" target="_blank">${escapeHtml(sourceUrl)}</a>
+      <div class="sep"></div>
+      <a href="${escapeHtml(sourceUrl)}" class="source-url" target="_blank" title="${escapeHtml(sourceUrl)}">${escapeHtml(sourceUrl)}</a>
     </div>
     <div class="toolbar-right">
-      ${statusLabel}
-      ${tokenCount ? '<span class="token-count">' + escapeHtml(tokenCount) + ' tokens</span>' : ''}
-      <button class="btn" onclick="copyRaw()">Copy Raw</button>
-      <a href="/${escapeHtml(sourceUrl)}${sourceUrl.includes('?') ? '&' : '?'}raw=true" class="btn btn-primary" target="_blank">Raw API</a>
+      <span class="status-pill ${status.cls}">${status.label}</span>
+      ${tokenCount ? '<span class="tokens">' + escapeHtml(tokenCount) + ' tokens</span>' : ''}
+      <button class="btn" onclick="copyRaw()">Copy</button>
+      <a href="/${escapeHtml(sourceUrl)}${sourceUrl.includes('?') ? '&' : '?'}raw=true" class="btn btn-accent" target="_blank">Raw</a>
     </div>
   </div>
 
@@ -1186,14 +1392,11 @@ function renderedPageHTML(host: string, content: string, sourceUrl: string, toke
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
   <script>
     const rawContent = document.getElementById('raw-content').textContent;
-
-    // Sanitize rendered HTML to prevent XSS from untrusted markdown/HTML
     document.getElementById('markdown-rendered').innerHTML = DOMPurify.sanitize(marked.parse(rawContent));
 
     function switchTab(tab) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-
       if (tab === 'rendered') {
         document.querySelectorAll('.tab')[0].classList.add('active');
         document.getElementById('rendered-panel').classList.add('active');
@@ -1207,7 +1410,7 @@ function renderedPageHTML(host: string, content: string, sourceUrl: string, toke
       navigator.clipboard.writeText(rawContent).then(() => {
         const btn = document.querySelector('.btn');
         btn.textContent = 'Copied!';
-        setTimeout(() => btn.textContent = 'Copy Raw', 2000);
+        setTimeout(() => btn.textContent = 'Copy', 2000);
       });
     }
   </script>
@@ -1221,57 +1424,108 @@ function errorPageHTML(title: string, message: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Error</title>
+  <title>Error &mdash; ${escapeHtml(title)}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg-deep: #07080c;
+      --bg-surface: #111318;
+      --border: #23252f;
+      --text-primary: #eeeef2;
+      --text-secondary: #8b8da3;
+      --red: #f87171;
+      --accent: #22d3ee;
+      --accent-hover: #06b6d4;
+      --font-display: 'Instrument Serif', Georgia, serif;
+      --font-body: 'DM Sans', system-ui, sans-serif;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #0a0a0a;
-      color: #e5e5e5;
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 2rem;
     }
+
     .error-card {
-      max-width: 500px;
-      padding: 2.5rem;
-      background: #171717;
-      border: 1px solid #262626;
-      border-radius: 16px;
+      max-width: 440px;
+      width: 100%;
+      padding: 3rem 2.5rem;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
       text-align: center;
+      animation: fadeUp 0.5s ease both;
     }
-    .error-icon {
-      width: 48px;
-      height: 48px;
-      background: rgba(239, 68, 68, 0.1);
-      border-radius: 50%;
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .error-glyph {
+      font-family: var(--font-display);
+      font-style: italic;
+      font-size: 3.5rem;
+      color: var(--red);
+      opacity: 0.35;
+      line-height: 1;
+      margin-bottom: 1.25rem;
+    }
+
+    h1 {
+      font-family: var(--font-display);
+      font-style: italic;
+      font-size: 1.4rem;
+      font-weight: 400;
+      margin-bottom: 0.75rem;
+      color: var(--text-primary);
+    }
+
+    p {
+      color: var(--text-secondary);
+      line-height: 1.7;
+      margin-bottom: 2rem;
+      font-size: 0.88rem;
+      font-weight: 300;
+    }
+
+    a {
       display: inline-flex;
       align-items: center;
-      justify-content: center;
-      font-size: 1.5rem;
-      margin-bottom: 1.5rem;
-    }
-    h1 { font-size: 1.5rem; margin-bottom: 0.75rem; }
-    p { color: #737373; line-height: 1.6; margin-bottom: 1.5rem; }
-    a {
-      display: inline-block;
-      padding: 0.6rem 1.5rem;
-      background: #f97316;
-      color: #fff;
+      gap: 0.4rem;
+      padding: 0.55rem 1.4rem;
+      background: var(--accent);
+      color: var(--bg-deep);
       text-decoration: none;
-      border-radius: 8px;
+      border-radius: 9px;
       font-weight: 600;
+      font-size: 0.82rem;
+      transition: background 0.2s ease;
     }
-    a:hover { background: #ea580c; }
+
+    a:hover {
+      background: var(--accent-hover);
+    }
   </style>
 </head>
 <body>
   <div class="error-card">
-    <div class="error-icon">!</div>
+    <div class="error-glyph">!</div>
     <h1>${escapeHtml(title)}</h1>
     <p>${escapeHtml(message)}</p>
-    <a href="/">Back to Home</a>
+    <a href="/">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Back to Home
+    </a>
   </div>
 </body>
 </html>`;
