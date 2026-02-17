@@ -17,21 +17,30 @@ turndown.addRule("strikethrough", {
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 function htmlToMarkdown(html: string, url: string): { markdown: string; title: string } {
-  const { document } = parseHTML(html);
+  // Wrap in <html><head></head><body>...</body></html> to guarantee
+  // linkedom always has a documentElement, head, and body — prevents
+  // crashes on plain-text or fragment responses.
+  const wrappedHtml = html.includes("<html") ? html : `<html><head></head><body>${html}</body></html>`;
+  const { document } = parseHTML(wrappedHtml);
 
   // Set <base> for Readability to resolve relative links
-  const existingBase = document.querySelector("base");
-  if (existingBase) {
-    existingBase.href = url;
-  } else {
-    const base = document.createElement("base");
-    base.href = url;
-    document.head.appendChild(base);
+  try {
+    const existingBase = document.querySelector("base");
+    if (existingBase) {
+      existingBase.href = url;
+    } else if (document.head) {
+      const base = document.createElement("base");
+      base.href = url;
+      document.head.appendChild(base);
+    }
+  } catch {
+    // Ignore if head is not available
   }
 
   // Try Readability to extract main content
   let contentHtml = html;
-  let title = document.title || "";
+  let title = "";
+  try { title = document.title || ""; } catch { /* no title */ }
   try {
     const reader = new Readability(document.cloneNode(true) as any);
     const article = reader.parse();
@@ -139,14 +148,28 @@ export default {
         url.searchParams.get("raw") === "true" ||
         acceptHeader.split(",").some(part => part.trim().split(";")[0] === "text/markdown");
 
-      // Fetch the target URL with Accept: text/markdown
-      const response = await fetch(targetUrl, {
-        headers: {
-          "Accept": "text/markdown, text/html;q=0.9, */*;q=0.8",
-          "User-Agent": `${host}/1.0 (Markdown Converter)`,
-        },
-        redirect: "follow",
-      });
+      // Fetch with manual redirect to validate each hop against SSRF
+      const fetchHeaders = {
+        "Accept": "text/markdown, text/html;q=0.9, */*;q=0.8",
+        "User-Agent": `${host}/1.0 (Markdown Converter)`,
+      };
+      let response = await fetch(targetUrl, { headers: fetchHeaders, redirect: "manual" });
+
+      // Follow up to 5 redirects, validating each destination
+      let redirects = 0;
+      while (redirects < 5 && [301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("Location");
+        if (!location) break;
+        const redirectUrl = new URL(location, targetUrl).href;
+        if (!isSafeUrl(redirectUrl)) {
+          return new Response(
+            errorPageHTML("Blocked", "Redirect target points to an internal or private address."),
+            { status: 403, headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+        response = await fetch(redirectUrl, { headers: fetchHeaders, redirect: "manual" });
+        redirects++;
+      }
 
       if (!response.ok) {
         return new Response(
@@ -180,7 +203,7 @@ export default {
       }
 
       const body = await response.text();
-      if (body.length > MAX_RESPONSE_BYTES) {
+      if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
         return new Response(
           errorPageHTML("Content Too Large", "The target page exceeds the 5 MB size limit."),
           { status: 413, headers: { "Content-Type": "text/html; charset=utf-8" } }
@@ -858,7 +881,7 @@ function renderedPageHTML(host: string, content: string, sourceUrl: string, toke
       ${statusLabel}
       ${tokenCount ? '<span class="token-count">' + escapeHtml(tokenCount) + ' tokens</span>' : ''}
       <button class="btn" onclick="copyRaw()">Copy Raw</button>
-      <a href="/${escapeHtml(sourceUrl)}?raw=true" class="btn btn-primary" target="_blank">Raw API</a>
+      <a href="/${escapeHtml(sourceUrl)}${sourceUrl.includes('?') ? '&' : '?'}raw=true" class="btn btn-primary" target="_blank">Raw API</a>
     </div>
   </div>
 
