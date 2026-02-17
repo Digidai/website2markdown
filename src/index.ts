@@ -21,12 +21,18 @@ turndown.addRule("strikethrough", {
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB
 
+/** Sites that always need headless Chrome (JS-rendered content, cookie auth flows). */
+function alwaysNeedsBrowser(url: string): boolean {
+  if (url.includes("mp.weixin.qq.com")) return true;
+  if (url.includes(".feishu.cn/")) return true;
+  if (url.includes(".larksuite.com/")) return true;
+  return false;
+}
+
 function needsBrowserRendering(html: string, url: string): boolean {
   const lower = html.toLowerCase();
-  // WeChat articles always require JS to render the body content.
-  // Even when static fetch bypasses the anti-bot page, the HTML is just
-  // a shell — the actual article text is injected by client-side scripts.
-  if (url.includes("mp.weixin.qq.com")) return true;
+  // Sites that always require browser rendering
+  if (alwaysNeedsBrowser(url)) return true;
   // Common JS-challenge / CAPTCHA markers
   if (lower.includes("cf-challenge") || lower.includes("cf_chl_opt")) return true;
   if (lower.includes("captcha") && html.length < 10000) return true;
@@ -287,7 +293,11 @@ export default {
         redirects++;
       }
 
-      if (!response.ok) {
+      const forceBrowser = url.searchParams.get("force_browser") === "true";
+      const staticFailed = !response.ok;
+
+      // If static fetch failed and this is NOT a browser-required site, return error
+      if (staticFailed && !forceBrowser && !alwaysNeedsBrowser(targetUrl)) {
         return new Response(
           errorPageHTML(
             "Fetch Failed",
@@ -300,63 +310,76 @@ export default {
         );
       }
 
-      // Reject non-text content (PDFs, images, videos, etc.)
-      const contentType = response.headers.get("Content-Type") || "";
-      if (!contentType.includes("text/") && !contentType.includes("application/xhtml")) {
-        return new Response(
-          errorPageHTML("Unsupported Content", `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`),
-          { status: 415, headers: { "Content-Type": "text/html; charset=utf-8" } }
-        );
-      }
-
-      // Reject oversized responses
-      const contentLength = parseInt(response.headers.get("Content-Length") || "0", 10);
-      if (contentLength > MAX_RESPONSE_BYTES) {
-        return new Response(
-          errorPageHTML("Content Too Large", "The target page exceeds the 5 MB size limit."),
-          { status: 413, headers: { "Content-Type": "text/html; charset=utf-8" } }
-        );
-      }
-
-      const body = await response.text();
-      if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
-        return new Response(
-          errorPageHTML("Content Too Large", "The target page exceeds the 5 MB size limit."),
-          { status: 413, headers: { "Content-Type": "text/html; charset=utf-8" } }
-        );
-      }
-
-      const tokenCount = response.headers.get("x-markdown-tokens") || "";
-      const isMarkdown = contentType.includes("text/markdown");
-      const forceBrowser = url.searchParams.get("force_browser") === "true";
-
-      // If the site returned markdown directly (supports Markdown for Agents)
-      if (isMarkdown) {
-        if (wantsRaw) {
-          return new Response(body, {
-            headers: {
-              "Content-Type": "text/markdown; charset=utf-8",
-              "X-Source-URL": targetUrl,
-              "X-Markdown-Tokens": tokenCount,
-              "Access-Control-Allow-Origin": "*",
-            },
-          });
-        }
-        return new Response(renderedPageHTML(host, body, targetUrl, tokenCount, "native"), {
-          headers: { "Content-Type": "text/html; charset=utf-8" },
-        });
-      }
-
-      // Check if the static fetch returned an anti-bot/JS-required page
-      let finalHtml = body;
+      let finalHtml = "";
       let method = "readability+turndown";
 
-      if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
+      if (staticFailed) {
+        // Static fetch failed (e.g. Feishu 302 login redirect) — go straight to browser
         try {
           finalHtml = await fetchWithBrowser(targetUrl, env);
           method = "browser+readability+turndown";
-        } catch {
-          // Browser rendering failed — fall back to static HTML
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return new Response(
+            errorPageHTML("Fetch Failed", `Static fetch returned ${response.status} and browser rendering also failed: ${msg}`),
+            { status: 502, headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+      } else {
+        // Static fetch succeeded — validate content type and size
+        const contentType = response.headers.get("Content-Type") || "";
+        if (!contentType.includes("text/") && !contentType.includes("application/xhtml")) {
+          return new Response(
+            errorPageHTML("Unsupported Content", `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`),
+            { status: 415, headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        const contentLength = parseInt(response.headers.get("Content-Length") || "0", 10);
+        if (contentLength > MAX_RESPONSE_BYTES) {
+          return new Response(
+            errorPageHTML("Content Too Large", "The target page exceeds the 5 MB size limit."),
+            { status: 413, headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        const body = await response.text();
+        if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
+          return new Response(
+            errorPageHTML("Content Too Large", "The target page exceeds the 5 MB size limit."),
+            { status: 413, headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        }
+
+        const tokenCount = response.headers.get("x-markdown-tokens") || "";
+        const isMarkdown = contentType.includes("text/markdown");
+
+        // If the site returned markdown directly (supports Markdown for Agents)
+        if (isMarkdown) {
+          if (wantsRaw) {
+            return new Response(body, {
+              headers: {
+                "Content-Type": "text/markdown; charset=utf-8",
+                "X-Source-URL": targetUrl,
+                "X-Markdown-Tokens": tokenCount,
+                "Access-Control-Allow-Origin": "*",
+              },
+            });
+          }
+          return new Response(renderedPageHTML(host, body, targetUrl, tokenCount, "native"), {
+            headers: { "Content-Type": "text/html; charset=utf-8" },
+          });
+        }
+
+        // Check if the static HTML needs browser rendering
+        finalHtml = body;
+        if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
+          try {
+            finalHtml = await fetchWithBrowser(targetUrl, env);
+            method = "browser+readability+turndown";
+          } catch {
+            // Browser rendering failed — fall back to static HTML
+          }
         }
       }
 

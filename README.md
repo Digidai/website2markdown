@@ -1,6 +1,6 @@
 # URL to Markdown Converter
 
-A Cloudflare Worker that converts **any** web page to clean Markdown. Works on every website — uses [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) when available, falls back to [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) for everything else.
+A Cloudflare Worker that converts **any** web page to clean Markdown. Supports three conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), and [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages (e.g. WeChat articles).
 
 Prepend your domain before any URL and get instant Markdown output. No API keys, no signup required.
 
@@ -10,74 +10,79 @@ Prepend your domain before any URL and get instant Markdown output. No API keys,
 https://<your-worker-domain>/<target-url>
 ```
 
+### Three-Tier Conversion Flow
+
 ```
 Request
   │
   ▼
 Fetch target with Accept: text/markdown
   │
-  ├─ Response is text/markdown? ──▶ Native Markdown (Cloudflare edge conversion)
+  ├─ Response is text/markdown? ──▶ Path 1: Native Markdown
   │
-  └─ Response is text/html? ──▶ Readability extracts main content
-                                      │
-                                      ▼
-                                 Turndown converts HTML → Markdown
+  └─ Response is text/html?
+       │
+       ├─ Anti-bot / JS-required detected? ──▶ Path 3: Browser Rendering → Readability + Turndown
+       │
+       └─ Normal HTML ──▶ Path 2: Readability + Turndown
 ```
 
-**Two conversion paths:**
+| Path | When | How | `X-Markdown-Method` |
+|---|---|---|---|
+| **Native** | Target site supports Markdown for Agents | Cloudflare edge converts via `Accept: text/markdown` content negotiation | _(not set)_ |
+| **Fallback** | Normal HTML pages | Readability extracts main content → Turndown converts to Markdown | `readability+turndown` |
+| **Browser** | Anti-bot pages, JS-rendered content (e.g. WeChat) | Headless Chrome renders the page → Readability + Turndown | `browser+readability+turndown` |
 
-| Path | When | How |
-|---|---|---|
-| **Native** | Target site uses Cloudflare + has Markdown for Agents enabled | Cloudflare edge converts HTML to Markdown via `Accept: text/markdown` content negotiation |
-| **Fallback** | Any other website | [Readability](https://github.com/mozilla/readability) extracts the article content (strips nav, ads, sidebars), then [Turndown](https://github.com/mixmark-io/turndown) converts HTML to Markdown |
-
-Both paths return clean Markdown. The response header `X-Markdown-Method` tells you which path was used.
-
-## Usage
+## API Usage
 
 ### Browser (URL bar)
 
 ```
-# With full URL
-https://<your-worker-domain>/https://example.com/page
-
-# With http://
-https://<your-worker-domain>/http://example.com/page
+# Full URL
+https://md.genedai.me/https://example.com/page
 
 # Bare domain (auto-prepends https://)
-https://<your-worker-domain>/example.com/page
+https://md.genedai.me/example.com/page
 ```
 
-### Homepage Input
+### Raw Markdown API
 
-Visit the root domain directly to see a landing page with an input box. You can type:
-
-- `https://example.com/some-page` — full HTTPS URL
-- `http://example.com/some-page` — full HTTP URL
-- `example.com/some-page` — bare domain, automatically treated as HTTPS
-
-### cURL
+Append `?raw=true` or send `Accept: text/markdown` header to get plain Markdown text.
 
 ```bash
-# Get rendered HTML page with Markdown preview
-curl https://<your-worker-domain>/https://example.com/page
+# Get raw Markdown via query param
+curl "https://md.genedai.me/https://example.com/page?raw=true"
 
-# Get raw Markdown
-curl "https://<your-worker-domain>/https://example.com/page?raw=true"
-
-# Or use Accept header
-curl https://<your-worker-domain>/https://example.com/page \
+# Get raw Markdown via Accept header
+curl https://md.genedai.me/https://example.com/page \
   -H "Accept: text/markdown"
+```
+
+### Force Browser Rendering
+
+For pages that don't auto-trigger browser rendering but need it:
+
+```bash
+curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_browser=true"
+```
+
+### WeChat Articles
+
+WeChat articles (`mp.weixin.qq.com`) automatically use browser rendering. Images are proxied through `/img/` to bypass WeChat's hotlink protection.
+
+```bash
+curl "https://md.genedai.me/https://mp.weixin.qq.com/s/DAxmijabtwWmrPHeJ-OTFQ?raw=true"
 ```
 
 ### JavaScript / TypeScript
 
 ```ts
 const res = await fetch(
-  "https://<your-worker-domain>/https://example.com/page?raw=true"
+  "https://md.genedai.me/https://example.com/page?raw=true"
 );
 const markdown = await res.text();
-console.log(res.headers.get("X-Markdown-Method")); // "native" or "readability+turndown"
+console.log(res.headers.get("X-Markdown-Method"));
+// "readability+turndown" or "browser+readability+turndown"
 ```
 
 ### Python
@@ -85,35 +90,10 @@ console.log(res.headers.get("X-Markdown-Method")); // "native" or "readability+t
 ```python
 import requests
 
-url = "https://<your-worker-domain>/https://example.com/page"
+url = "https://md.genedai.me/https://example.com/page"
 resp = requests.get(url, params={"raw": "true"})
 markdown = resp.text
 ```
-
-## Features
-
-| Feature | Description |
-|---|---|
-| **Any Website** | Works on every site — native Markdown for Agents when available, Readability + Turndown fallback for everything else |
-| **Smart Extraction** | Readability strips navigation, ads, sidebars and extracts the main article content before conversion |
-| **Rendered View** | Beautiful dark-themed Markdown rendering with GitHub-style CSS and tab switching (Rendered / Source) |
-| **Raw API** | Append `?raw=true` or send `Accept: text/markdown` to get plain Markdown text — ideal for LLMs and scripts |
-| **Flexible Input** | Accepts `https://...`, `http://...`, or bare domains like `example.com` |
-| **Copy Button** | One-click copy of the raw Markdown source |
-| **Token Count** | Shows the `x-markdown-tokens` header when available (useful for LLM context window planning) |
-| **Dynamic Domain** | No hardcoded domain — reads the hostname from the incoming request, works on any custom domain or localhost |
-| **Zero Config** | No API keys, no environment variables, no database — deploy and use immediately |
-
-## Response Headers (Raw API mode)
-
-| Header | Description |
-|---|---|
-| `Content-Type` | `text/markdown; charset=utf-8` |
-| `X-Source-URL` | The original target URL that was fetched |
-| `X-Markdown-Tokens` | Estimated token count (only present for native Markdown for Agents responses) |
-| `X-Markdown-Native` | `"false"` when using the Readability + Turndown fallback |
-| `X-Markdown-Method` | `"readability+turndown"` when using the fallback path |
-| `Access-Control-Allow-Origin` | `*` — CORS enabled for all origins |
 
 ## API Endpoints
 
@@ -122,65 +102,88 @@ markdown = resp.text
 | `/` | GET | Landing page with URL input form |
 | `/<url>` | GET | Convert URL and render Markdown as HTML page |
 | `/<url>?raw=true` | GET | Return raw Markdown as plain text |
-| `/api/health` | GET | Health check — returns `{"status":"ok","service":"<host>"}` |
+| `/<url>?force_browser=true` | GET | Force browser rendering for the URL |
+| `/img/<encoded-url>` | GET | Image proxy (bypasses hotlink protection) |
+| `/api/health` | GET | Health check — `{"status":"ok","service":"<host>"}` |
+
+## Response Headers (Raw API)
+
+| Header | Description |
+|---|---|
+| `Content-Type` | `text/markdown; charset=utf-8` |
+| `X-Source-URL` | The original target URL |
+| `X-Markdown-Tokens` | Token count (native Markdown for Agents only) |
+| `X-Markdown-Native` | `"false"` when using fallback/browser path |
+| `X-Markdown-Method` | `"readability+turndown"` or `"browser+readability+turndown"` |
+| `Access-Control-Allow-Origin` | `*` — CORS enabled |
+
+## Features
+
+| Feature | Description |
+|---|---|
+| **Any Website** | Works on every site with three conversion paths |
+| **Anti-Bot Bypass** | Browser Rendering handles JS challenges, CAPTCHAs, and WeChat verification |
+| **WeChat Support** | Full article extraction with image proxy for hotlink-protected images |
+| **Smart Extraction** | Readability strips nav, ads, sidebars — extracts main article content |
+| **Rendered View** | Dark-themed Markdown preview with GitHub CSS and tab switching |
+| **Raw API** | `?raw=true` or `Accept: text/markdown` for plain Markdown text |
+| **Flexible Input** | Accepts `https://`, `http://`, or bare domains |
+| **Zero Config** | No API keys, no env vars — deploy and use immediately |
 
 ## Tech Stack
 
 | Component | Role |
 |---|---|
-| [Cloudflare Workers](https://workers.cloudflare.com/) | Edge runtime — global deployment, zero cold start |
-| [Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/) | Native HTML→Markdown at Cloudflare edge (when target site supports it) |
-| [@mozilla/readability](https://github.com/mozilla/readability) | Extracts main article content from HTML (same algorithm as Firefox Reader View) |
-| [Turndown](https://github.com/mixmark-io/turndown) | Converts HTML to Markdown with configurable rules |
-| [LinkeDOM](https://github.com/WebReflection/linkedom) | Lightweight DOM implementation for Workers (no browser needed) |
-| [marked](https://github.com/markedjs/marked) | Client-side Markdown→HTML rendering for the preview UI |
+| [Cloudflare Workers](https://workers.cloudflare.com/) | Edge runtime — global deployment |
+| [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) | Headless Chrome for JS-heavy/anti-bot pages |
+| [Markdown for Agents](https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/) | Native HTML→Markdown at edge |
+| [@mozilla/readability](https://github.com/mozilla/readability) | Article content extraction (Firefox Reader View algorithm) |
+| [Turndown](https://github.com/mixmark-io/turndown) | HTML→Markdown conversion |
+| [@cloudflare/puppeteer](https://github.com/nichochar/puppeteer) | Puppeteer API for Browser Rendering binding |
+| [LinkeDOM](https://github.com/WebReflection/linkedom) | Lightweight DOM for Workers |
 
 ## Project Structure
 
 ```
 md-genedai/
 ├── src/
-│   └── index.ts          # Worker entry: routing, fetch proxy, conversion, HTML templates
+│   └── index.ts          # Worker entry: routing, fetch, browser rendering, conversion, templates
 ├── package.json
-├── wrangler.toml          # Cloudflare Worker config (nodejs_compat enabled)
+├── wrangler.toml          # Worker config: nodejs_compat, browser binding
 ├── tsconfig.json
 └── .gitignore
 ```
 
-## Development
+## Deployment
 
-### Prerequisites
+This project uses **Cloudflare Git Integration** for deployment — push to `main` and Cloudflare automatically builds and deploys.
 
-- [Node.js](https://nodejs.org/) >= 18
-- A [Cloudflare account](https://dash.cloudflare.com/sign-up) (for deployment)
+### Setup (one-time)
 
-### Install
+1. Fork or push this repo to GitHub
+2. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) > **Workers & Pages** > **Create** > **Import a Git repository**
+3. Select the GitHub repo, set build settings:
+   - **Build command**: _(leave empty — Cloudflare auto-detects from `wrangler.toml`)_
+   - **Production branch**: `main`
+4. Cloudflare will deploy automatically on every push to `main`
 
-```bash
-npm install
+### Browser Rendering Binding
+
+The `[browser]` binding in `wrangler.toml` is automatically configured:
+
+```toml
+[browser]
+binding = "MYBROWSER"
 ```
 
-### Local Development
-
-```bash
-npm run dev
-```
-
-Starts a local dev server at `http://localhost:8787`. All features work locally.
-
-### Deploy
-
-```bash
-npm run deploy
-```
-
-Deploys to Cloudflare Workers. Access via the `*.workers.dev` subdomain assigned by Cloudflare.
+> **Note**: Browser Rendering requires a Workers Paid plan. It only works in deployed Workers or with `wrangler dev --remote` — local dev without `--remote` will gracefully fall back to static fetch.
 
 ### Custom Domain
 
-1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) > Workers & Pages > your Worker > Settings > Domains & Routes
+1. In Cloudflare Dashboard > Workers & Pages > your Worker > **Settings** > **Domains & Routes**
 2. Add your custom domain (e.g. `md.example.com`)
-3. Or uncomment and update the `routes` in `wrangler.toml`:
+
+Or uncomment and update in `wrangler.toml`:
 
 ```toml
 routes = [
@@ -188,7 +191,13 @@ routes = [
 ]
 ```
 
-The Worker automatically reads the hostname from each request — no code changes needed for different domains.
+### Local Development
+
+```bash
+npm install
+npm run dev          # Local dev at http://localhost:8787
+                     # Browser rendering won't work locally (use --remote)
+```
 
 ## License
 
