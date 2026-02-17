@@ -89,75 +89,117 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
 
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
 
-    // Feishu SPA needs extra time and scrolling to fully render content
+    // Feishu uses virtual scrolling — only visible content is in the DOM.
+    // Scroll through the entire page and collect text at each position.
     if (isFeishu) {
       await new Promise((r) => setTimeout(r, 3000));
-      // Scroll to bottom to trigger lazy-loaded content, then back to top
-      await page.evaluate(`
+
+      const content = await page.evaluate(`
         (async function() {
-          var h = document.body.scrollHeight;
-          for (var y = 0; y < h; y += 500) {
-            window.scrollTo(0, y);
-            await new Promise(function(r) { setTimeout(r, 200); });
+          // Try to find the scrollable container (Feishu nests scroll inside a div)
+          var scrollEl =
+            document.querySelector('.wiki-docs-reader') ||
+            document.querySelector('[class*="docx-scroller"]') ||
+            document.querySelector('[class*="scroll"]') ||
+            document.documentElement;
+
+          // First try: disable virtual scroll by expanding container height
+          var allContainers = document.querySelectorAll('[style*="overflow"]');
+          allContainers.forEach(function(el) {
+            if (el.scrollHeight > el.clientHeight) {
+              el.style.overflow = 'visible';
+              el.style.maxHeight = 'none';
+              el.style.height = 'auto';
+            }
+          });
+          await new Promise(function(r) { setTimeout(r, 2000); });
+
+          // Collect all text blocks as we scroll (handles virtual scroll)
+          var collected = [];
+          var seenText = new Set();
+          var imgs = [];
+          var totalH = Math.max(scrollEl.scrollHeight, document.body.scrollHeight, 5000);
+
+          function harvest() {
+            // Grab all paragraph-like and heading elements currently in DOM
+            var blocks = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, [class*="text-block"], [class*="heading-block"]');
+            blocks.forEach(function(b) {
+              var text = b.textContent.trim();
+              if (text.length > 0 && !seenText.has(text)) {
+                seenText.add(text);
+                var tag = b.tagName.toLowerCase();
+                if (tag.match(/^h[1-6]$/)) {
+                  var level = tag.charAt(1);
+                  var prefix = '';
+                  for (var i = 0; i < parseInt(level); i++) prefix += '#';
+                  collected.push(prefix + ' ' + text);
+                } else if (tag === 'li') {
+                  collected.push('- ' + text);
+                } else if (tag === 'blockquote') {
+                  collected.push('> ' + text);
+                } else if (tag === 'pre') {
+                  collected.push('\\n\`\`\`\\n' + text + '\\n\`\`\`\\n');
+                } else {
+                  collected.push(text);
+                }
+              }
+            });
+            // Collect images
+            document.querySelectorAll('img[src]').forEach(function(img) {
+              var src = img.getAttribute('src') || '';
+              if (src && !src.startsWith('data:') && !imgs.includes(src)) {
+                imgs.push(src);
+              }
+            });
           }
-          window.scrollTo(0, 0);
+
+          // Scroll and harvest at each position
+          for (var y = 0; y < totalH; y += 400) {
+            scrollEl.scrollTop = y;
+            window.scrollTo(0, y);
+            await new Promise(function(r) { setTimeout(r, 300); });
+            harvest();
+          }
+          // Final harvest at bottom
+          harvest();
+
+          return { text: collected.join('\\n\\n'), images: imgs };
         })()
       `);
-      await new Promise((r) => setTimeout(r, 2000));
-    } else {
+
+      const feishuResult = content as { text?: string; images?: string[] } | null;
+      if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
+        const title = await page.title();
+        // Build a clean HTML document from collected text
+        let html = `<html><head><title>${title}</title></head><body>`;
+        html += `<h1>${title}</h1>`;
+        html += feishuResult.text.split('\n\n').map((block: string) => {
+          if (block.startsWith('#')) return `<p>${block}</p>`;
+          return `<p>${block}</p>`;
+        }).join('\n');
+        if (feishuResult.images && feishuResult.images.length > 0) {
+          feishuResult.images.forEach((src: string) => {
+            html += `<img src="${src}" />`;
+          });
+        }
+        html += `</body></html>`;
+        return html;
+      }
+    }
+
+    // Non-Feishu: standard wait
+    if (!isFeishu) {
       await new Promise((r) => setTimeout(r, 2000));
     }
 
     // Swap lazy-loaded images: many sites (especially WeChat) store the
     // real URL in data-src while src holds a tiny SVG placeholder.
-    // Uses string form to avoid Workers TS complaining about DOM types.
     await page.evaluate(`
       document.querySelectorAll("img[data-src]").forEach(function(img) {
         var real = img.getAttribute("data-src");
         if (real) img.setAttribute("src", real);
       });
     `);
-
-    // For Feishu: extract only the document content area, stripping UI chrome.
-    // Try common Feishu doc container selectors; fall back to full page.
-    if (isFeishu) {
-      const extracted = await page.evaluate(`
-        (function() {
-          // Feishu doc content selectors (ordered by specificity)
-          var selectors = [
-            '.wiki-content',
-            '.docx-container',
-            '[data-page-id] .page-block',
-            '.doc-content-container',
-            '.ne-viewer-body',
-            '.lark-editor',
-            'article',
-            '[role="article"]',
-            'main'
-          ];
-          for (var i = 0; i < selectors.length; i++) {
-            var el = document.querySelector(selectors[i]);
-            if (el && el.innerHTML.length > 200) {
-              return el.innerHTML;
-            }
-          }
-          // Fallback: remove known UI noise elements and return body
-          var noise = [
-            'header', 'nav', '.suite-header', '.wiki-sidebar',
-            '.doc-toolbar', '.comment-panel', '.suite-toast',
-            '[class*="login"]', '[class*="Login"]',
-            '[class*="sidebar"]', '[class*="Sidebar"]'
-          ];
-          noise.forEach(function(sel) {
-            document.querySelectorAll(sel).forEach(function(el) { el.remove(); });
-          });
-          return document.body.innerHTML;
-        })()
-      `);
-      if (extracted && typeof extracted === "string" && extracted.length > 100) {
-        return `<html><head><title>${await page.title()}</title></head><body>${extracted}</body></html>`;
-      }
-    }
 
     const html = await page.content();
     return html;
