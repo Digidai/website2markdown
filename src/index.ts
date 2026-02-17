@@ -76,6 +76,16 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
     // Some pages load content lazily — give a short extra wait
     await new Promise((r) => setTimeout(r, 2000));
 
+    // Swap lazy-loaded images: many sites (especially WeChat) store the
+    // real URL in data-src while src holds a tiny SVG placeholder.
+    // Uses string form to avoid Workers TS complaining about DOM types.
+    await page.evaluate(`
+      document.querySelectorAll("img[data-src]").forEach(function(img) {
+        var real = img.getAttribute("data-src");
+        if (real) img.setAttribute("src", real);
+      });
+    `);
+
     const html = await page.content();
     return html;
   } finally {
