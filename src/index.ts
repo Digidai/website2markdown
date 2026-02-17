@@ -96,56 +96,110 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
 
       const content = await page.evaluate(`
         (async function() {
-          // Try to find the scrollable container (Feishu nests scroll inside a div)
-          var scrollEl =
-            document.querySelector('.wiki-docs-reader') ||
-            document.querySelector('[class*="docx-scroller"]') ||
-            document.querySelector('[class*="scroll"]') ||
-            document.documentElement;
+          // 1. Remove known Feishu UI noise before harvesting
+          var uiNoise = [
+            'nav', 'header',
+            '[class*="sidebar"]', '[class*="Sidebar"]', '[class*="side-bar"]',
+            '[class*="catalog-"]', '[class*="Catalog"]',
+            '[class*="header-bar"]', '[class*="HeaderBar"]',
+            '[class*="help-center"]', '[class*="HelpCenter"]',
+            '[class*="shortcut"]', '[class*="Shortcut"]',
+            '[class*="share-"]', '[class*="Share"]',
+            '[class*="comment-"]', '[class*="Comment"]',
+            '[class*="navigation"]', '[class*="Navigation"]',
+            '[class*="breadcrumb"]', '[class*="Breadcrumb"]',
+            '[class*="toast"]', '[class*="Toast"]',
+            '[class*="modal"]', '[class*="Modal"]',
+            '[class*="toolbar"]', '[class*="Toolbar"]',
+            '[class*="suite-header"]', '[class*="lark-header"]'
+          ];
+          uiNoise.forEach(function(sel) {
+            try {
+              document.querySelectorAll(sel).forEach(function(el) { el.remove(); });
+            } catch(e) {}
+          });
 
-          // First try: disable virtual scroll by expanding container height
-          var allContainers = document.querySelectorAll('[style*="overflow"]');
-          allContainers.forEach(function(el) {
-            if (el.scrollHeight > el.clientHeight) {
-              el.style.overflow = 'visible';
-              el.style.maxHeight = 'none';
-              el.style.height = 'auto';
+          // 2. Find the document content container (scope harvesting here)
+          var contentRoot =
+            document.querySelector('[data-content-editable-root="true"]') ||
+            document.querySelector('[class*="wiki-content"]') ||
+            document.querySelector('[class*="docx-content"]') ||
+            document.querySelector('[class*="doc-reader-content"]') ||
+            document.querySelector('.wiki-docs-reader') ||
+            document.querySelector('[class*="page-content"]') ||
+            document.querySelector('article') ||
+            document.body;
+
+          // 3. Find the scrollable ancestor of the content
+          var scrollEl = null;
+          var el = contentRoot;
+          while (el && el !== document.body) {
+            var style = window.getComputedStyle(el);
+            var ov = style.overflow + style.overflowY;
+            if ((ov.indexOf('auto') !== -1 || ov.indexOf('scroll') !== -1) && el.scrollHeight > el.clientHeight + 100) {
+              scrollEl = el;
+              break;
+            }
+            el = el.parentElement;
+          }
+          if (!scrollEl) {
+            scrollEl =
+              document.querySelector('[class*="docx-scroller"]') ||
+              document.querySelector('[class*="scroll"]') ||
+              document.documentElement;
+          }
+
+          // 4. Try to disable virtual scroll
+          document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
+            if (c.scrollHeight > c.clientHeight) {
+              c.style.overflow = 'visible';
+              c.style.maxHeight = 'none';
+              c.style.height = 'auto';
             }
           });
           await new Promise(function(r) { setTimeout(r, 2000); });
 
-          // Collect all text blocks as we scroll (handles virtual scroll)
+          // 5. Known UI strings to filter out
+          var uiStrings = [
+            'Help Center', 'Keyboard Shortcuts', 'Shared With Me',
+            'Last updated', 'Share', 'Copy Link', 'More', 'Comments',
+            'Table of Contents', 'Getting Started'
+          ];
+
           var collected = [];
           var seenText = new Set();
           var imgs = [];
-          var totalH = Math.max(scrollEl.scrollHeight, document.body.scrollHeight, 5000);
 
           function harvest() {
-            // Grab all paragraph-like and heading elements currently in DOM
-            var blocks = document.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, [class*="text-block"], [class*="heading-block"]');
+            // IMPORTANT: scope to contentRoot, not document
+            var scope = contentRoot || document;
+            var blocks = scope.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, [class*="text-block"], [class*="heading-block"]');
             blocks.forEach(function(b) {
               var text = b.textContent.trim();
-              if (text.length > 0 && !seenText.has(text)) {
-                seenText.add(text);
-                var tag = b.tagName.toLowerCase();
-                if (tag.match(/^h[1-6]$/)) {
-                  var level = tag.charAt(1);
-                  var prefix = '';
-                  for (var i = 0; i < parseInt(level); i++) prefix += '#';
-                  collected.push(prefix + ' ' + text);
-                } else if (tag === 'li') {
-                  collected.push('- ' + text);
-                } else if (tag === 'blockquote') {
-                  collected.push('> ' + text);
-                } else if (tag === 'pre') {
-                  collected.push('\\n\`\`\`\\n' + text + '\\n\`\`\`\\n');
-                } else {
-                  collected.push(text);
-                }
+              if (text.length === 0 || seenText.has(text)) return;
+              // Skip known UI strings
+              for (var i = 0; i < uiStrings.length; i++) {
+                if (text === uiStrings[i] || (text.length < 30 && text.indexOf(uiStrings[i]) !== -1)) return;
+              }
+              seenText.add(text);
+              var tag = b.tagName.toLowerCase();
+              if (tag.match(/^h[1-6]$/)) {
+                var level = tag.charAt(1);
+                var prefix = '';
+                for (var j = 0; j < parseInt(level); j++) prefix += '#';
+                collected.push(prefix + ' ' + text);
+              } else if (tag === 'li') {
+                collected.push('- ' + text);
+              } else if (tag === 'blockquote') {
+                collected.push('> ' + text);
+              } else if (tag === 'pre') {
+                collected.push('\\n\`\`\`\\n' + text + '\\n\`\`\`\\n');
+              } else {
+                collected.push(text);
               }
             });
-            // Collect images
-            document.querySelectorAll('img[src]').forEach(function(img) {
+            // Collect images within content area
+            scope.querySelectorAll('img[src]').forEach(function(img) {
               var src = img.getAttribute('src') || '';
               if (src && !src.startsWith('data:') && !imgs.includes(src)) {
                 imgs.push(src);
@@ -153,14 +207,18 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
             });
           }
 
-          // Scroll and harvest at each position
-          for (var y = 0; y < totalH; y += 400) {
+          // 6. Scroll and harvest — use both scroll targets for safety
+          var totalH = Math.max(scrollEl.scrollHeight, document.body.scrollHeight, 8000);
+          for (var y = 0; y < totalH; y += 300) {
             scrollEl.scrollTop = y;
             window.scrollTo(0, y);
-            await new Promise(function(r) { setTimeout(r, 300); });
+            await new Promise(function(r) { setTimeout(r, 350); });
             harvest();
           }
-          // Final harvest at bottom
+          // Scroll to very bottom and do final harvests
+          scrollEl.scrollTop = 999999;
+          window.scrollTo(0, 999999);
+          await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
 
           return { text: collected.join('\\n\\n'), images: imgs };
