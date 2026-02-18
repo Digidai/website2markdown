@@ -179,25 +179,9 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           });
 
-          // 0b. Capture all content image URLs BEFORE noise removal.
-          // UI noise selectors (e.g. 'header') can remove containers that hold
-          // the first content image, making it invisible to later harvest scans.
-          var preNoiseContentImgUrls = [];
-          document.querySelectorAll('img').forEach(function(img) {
-            var cls = (img.className || '').toLowerCase();
-            // Only Feishu content images (docx-image class)
-            if (cls.indexOf('docx-image') === -1) return;
-            var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
-            var h = img.naturalHeight || parseInt(img.getAttribute('height')) || 0;
-            if (w > 0 && w < 80) return;
-            if (h > 0 && h < 80) return;
-            var src = img.getAttribute('src') || img.getAttribute('data-src') || '';
-            if (src && src.indexOf('data:') !== 0) {
-              preNoiseContentImgUrls.push(src);
-            }
-          });
-
-          // 1. Remove Feishu UI noise
+          // 1. Remove Feishu UI noise — but preserve elements containing
+          // content images (class "docx-image"), because selectors like
+          // 'header' can accidentally remove the first image's container.
           var uiNoise = [
             'nav', 'header', 'footer',
             '[class*="sidebar"]', '[class*="Sidebar"]', '[class*="side-bar"]',
@@ -218,7 +202,10 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             '[class*="wiki-header"]', '[class*="wiki-nav"]'
           ];
           uiNoise.forEach(function(sel) {
-            try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
+            try { document.querySelectorAll(sel).forEach(function(el) {
+              if (el.querySelector && el.querySelector('img.docx-image')) return;
+              el.remove();
+            }); } catch(e) {}
           });
 
           // 2. Find content container
@@ -415,29 +402,6 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
           window.scrollTo(0, 999999);
           await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
-
-          // 8. Inject any pre-noise content images that harvest never found.
-          // These images existed in the DOM before UI noise removal but were
-          // inside containers (like <header>) that got removed.
-          for (var pi = 0; pi < preNoiseContentImgUrls.length; pi++) {
-            var pSrc = preNoiseContentImgUrls[pi];
-            var pPathKey = '';
-            try { pPathKey = new URL(pSrc, location.href).pathname; } catch(e) {}
-            var pKey = pPathKey || pSrc;
-            if (!seenText.has('IMG:' + pKey)) {
-              seenText.add('IMG:' + pKey);
-              imgUrls.push(pSrc);
-              // Find the first text block in collected and insert before it
-              var insertIdx = 0;
-              for (var ci = 0; ci < collected.length; ci++) {
-                if (collected[ci].indexOf('{{IMG:') !== 0) {
-                  insertIdx = ci;
-                  break;
-                }
-              }
-              collected.splice(insertIdx, 0, '{{IMG:' + pSrc + '}}');
-            }
-          }
 
           return { text: collected.join('\\n\\n'), images: imgUrls, debugImgs: debugImgs, preNoiseImgs: preNoiseImgs, coverElements: coverElements };
         })()
