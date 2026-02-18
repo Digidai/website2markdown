@@ -52,7 +52,7 @@ const MOBILE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 " +
   "(KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
-async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<string> {
+async function fetchWithBrowser(url: string, env: Env): Promise<string> {
   const browser = await puppeteer.launch(env.MYBROWSER);
   try {
     const page = await browser.newPage();
@@ -113,24 +113,6 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
           capturedImages.set(rUrl, dataUrl);
           // Also store by pathname for fuzzy matching (evaluate may see different query params)
           try { capturedImages.set(new URL(rUrl).pathname, dataUrl); } catch {}
-          // Store under all URLs in the redirect chain — the evaluate sees the
-          // original pre-redirect URL while resp.url() is the final URL.
-          try {
-            const chain = resp.request().redirectChain();
-            for (const req of chain) {
-              const origUrl: string = req.url();
-              capturedImages.set(origUrl, dataUrl);
-              try { capturedImages.set(new URL(origUrl).pathname, dataUrl); } catch {}
-            }
-          } catch {}
-          // Also store under the request URL (before redirect) if different from response URL
-          try {
-            const reqUrl: string = resp.request().url();
-            if (reqUrl !== rUrl) {
-              capturedImages.set(reqUrl, dataUrl);
-              try { capturedImages.set(new URL(reqUrl).pathname, dataUrl); } catch {}
-            }
-          } catch {}
         } catch {}
       });
     }
@@ -144,47 +126,9 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
 
       const content = await page.evaluate(`
         (async function() {
-          // 0. Debug: snapshot ALL images BEFORE any removal
-          var preNoiseImgs = [];
-          document.querySelectorAll('img').forEach(function(img) {
-            var src = img.getAttribute('src') || '';
-            var dataSrc = img.getAttribute('data-src') || '';
-            var cls = img.className || '';
-            var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
-            var h = img.naturalHeight || parseInt(img.getAttribute('height')) || 0;
-            var parentChain = [];
-            var p = img.parentElement;
-            for (var d = 0; d < 5 && p; d++) {
-              parentChain.push(p.tagName + (p.className ? '.' + (p.className || '').substring(0, 60) : ''));
-              p = p.parentElement;
-            }
-            preNoiseImgs.push({
-              src: src.substring(0, 200),
-              dataSrc: dataSrc.substring(0, 200),
-              cls: cls.substring(0, 80),
-              w: w, h: h,
-              parentChain: parentChain
-            });
-          });
-          // Also look for elements with background-image or data attributes referencing the missing image ID
-          var coverElements = [];
-          document.querySelectorAll('[style*="background-image"], [data-cover], [class*="cover"], [class*="banner"]').forEach(function(el) {
-            var style = el.getAttribute('style') || '';
-            var bgMatch = style.match(/url\\(["']?([^"')]+)["']?\\)/);
-            coverElements.push({
-              tag: el.tagName,
-              cls: (el.className || '').substring(0, 80),
-              bgUrl: bgMatch ? bgMatch[1].substring(0, 200) : '',
-              dataCover: (el.getAttribute('data-cover') || '').substring(0, 200)
-            });
-          });
-
-          // 1. Remove Feishu UI noise.
-          // NOTE: generic HTML5 tags (header/footer/nav) are intentionally
-          // excluded — Feishu's SPA may wrap content blocks inside <header>,
-          // and the class-based selectors below already cover Feishu's UI
-          // (suite-header, lark-header, wiki-header, wiki-nav, etc.).
+          // 1. Remove Feishu UI noise
           var uiNoise = [
+            'nav', 'header', 'footer',
             '[class*="sidebar"]', '[class*="Sidebar"]', '[class*="side-bar"]',
             '[class*="catalog"]', '[class*="Catalog"]',
             '[class*="header-bar"]', '[class*="HeaderBar"]',
@@ -234,7 +178,17 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
               document.querySelector('[class*="scroll"]') || document.documentElement;
           }
 
-          // 4. Filters (defined before virtual scroll disable so we can pre-harvest)
+          // 4. Disable virtual scroll
+          document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
+            if (c.scrollHeight > c.clientHeight) {
+              c.style.overflow = 'visible';
+              c.style.maxHeight = 'none';
+              c.style.height = 'auto';
+            }
+          });
+          await new Promise(function(r) { setTimeout(r, 2000); });
+
+          // 5. Filters
           var uiStrings = [
             'Help Center', 'Keyboard Shortcuts', 'Shared With Me',
             'Last updated', 'Share', 'Copy Link', 'More', 'Comments',
@@ -272,7 +226,6 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
           var collected = [];
           var seenText = new Set();
           var imgUrls = [];
-          var debugImgs = [];
 
           function harvest() {
             var scope = contentRoot || document;
@@ -282,32 +235,6 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
               var real = img.getAttribute('data-src') || img.getAttribute('data-origin-src') || img.getAttribute('data-original');
               if (real && (!img.getAttribute('src') || img.getAttribute('src').indexOf('data:') === 0)) {
                 img.setAttribute('src', real);
-              }
-            });
-
-            // Debug: track ALL unique image srcs seen across all scroll positions
-            scope.querySelectorAll('img').forEach(function(img) {
-              var src = img.getAttribute('src') || '';
-              if (src && !seenText.has('DEBUG_IMG:' + src.substring(0, 100))) {
-                seenText.add('DEBUG_IMG:' + src.substring(0, 100));
-                var dataSrc = img.getAttribute('data-src') || '';
-                var cls = img.className || '';
-                var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
-                var h = img.naturalHeight || parseInt(img.getAttribute('height')) || 0;
-                var inScope = scope.contains(img);
-                var isContent = isContentImage(img);
-                var parentTag = img.parentElement ? img.parentElement.tagName : 'none';
-                var parentCls = img.parentElement ? (img.parentElement.className || '').substring(0, 80) : '';
-                debugImgs.push({
-                  src: src.substring(0, 200),
-                  dataSrc: dataSrc.substring(0, 200),
-                  cls: cls.substring(0, 80),
-                  w: w, h: h,
-                  inScope: inScope,
-                  isContent: isContent,
-                  parentTag: parentTag,
-                  parentCls: parentCls
-                });
               }
             });
 
@@ -374,17 +301,7 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           }
 
-          // 5. Disable virtual scroll
-          document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
-            if (c.scrollHeight > c.clientHeight) {
-              c.style.overflow = 'visible';
-              c.style.maxHeight = 'none';
-              c.style.height = 'auto';
-            }
-          });
-          await new Promise(function(r) { setTimeout(r, 2000); });
-
-          // 7. Scroll and harvest
+          // 6. Scroll and harvest
           var totalH = Math.max(scrollEl.scrollHeight, document.body.scrollHeight, 8000);
           for (var y = 0; y < totalH; y += 300) {
             scrollEl.scrollTop = y;
@@ -397,71 +314,63 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
           await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
 
-          return { text: collected.join('\\n\\n'), images: imgUrls, debugImgs: debugImgs, preNoiseImgs: preNoiseImgs, coverElements: coverElements };
+          return { text: collected.join('\\n\\n'), images: imgUrls };
         })()
       `);
 
       // Wait for pending response handlers to finish
       await new Promise((r) => setTimeout(r, 1000));
 
-      const feishuResult = content as { text?: string; images?: string[]; debugImgs?: any[]; preNoiseImgs?: any[]; coverElements?: any[] } | null;
+      const feishuResult = content as { text?: string; images?: string[] } | null;
       if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
         const title = await page.title();
 
-        // Collect captured image keys for debug (truncated URLs, no base64)
-        const capturedKeys = Array.from(capturedImages.keys()).map(k => k.substring(0, 200));
-
         // Resolve image URL to captured base64. Try exact match, then pathname match.
-        const resolveLog: { rawUrl: string; method: string; matched: boolean }[] = [];
         function resolveImage(rawUrl: string): string {
           const exact = capturedImages.get(rawUrl);
-          if (exact) { resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'exact', matched: true }); return exact; }
+          if (exact) return exact;
           try {
             const pathMatch = capturedImages.get(new URL(rawUrl).pathname);
-            if (pathMatch) { resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'pathname', matched: true }); return pathMatch; }
+            if (pathMatch) return pathMatch;
           } catch {}
           // Last resort: find any captured URL containing the same path segment
           try {
             const path = new URL(rawUrl).pathname;
             for (const [key, val] of capturedImages) {
-              if (key.includes(path) || path.includes(key)) { resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'fuzzy', matched: true }); return val; }
+              if (key.includes(path) || path.includes(key)) return val;
             }
           } catch {}
-          resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'none', matched: false });
           return rawUrl; // Return raw URL if no match found
         }
 
-        // Debug mode: return diagnostic JSON instead of HTML
-        if (debug) {
-          let html = `<html><head><title>${title}</title></head><body>`;
-          html += `<h1>${title}</h1>`;
-          const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
-          html += feishuResult.text.split('\n\n').map((block: string) => {
-            const imgMatch = block.match(imgMarkerRe);
-            if (imgMatch) {
-              const src = resolveImage(imgMatch[1]);
-              return `<figure><img src="${src}" /></figure>`;
+        // Find captured content images that the evaluate missed (e.g. the
+        // first image is inside a <header> that noise-removal deletes).
+        const usedPathnames = new Set<string>();
+        for (const imgUrl of feishuResult.images || []) {
+          try { usedPathnames.add(new URL(imgUrl).pathname); } catch {}
+        }
+        const missingImages: string[] = [];
+        for (const [key] of capturedImages) {
+          if (!key.startsWith("http")) continue;
+          if (!key.includes("/space/api/box/stream/download/")) continue;
+          try {
+            const p = new URL(key).pathname;
+            if (!usedPathnames.has(p)) {
+              usedPathnames.add(p);
+              missingImages.push(key);
             }
-            return `<p>${block}</p>`;
-          }).join('\n');
-          html += `</body></html>`;
-
-          const debugData = {
-            title,
-            totalCapturedImages: capturedImages.size,
-            capturedKeys,
-            imgMarkersInText: (feishuResult.text.match(/\{\{IMG:[^}]+\}\}/g) || []).map((m: string) => m.substring(0, 200)),
-            resolveLog,
-            preNoiseImgs: feishuResult.preNoiseImgs,
-            coverElements: feishuResult.coverElements,
-            allDomImgsAcrossScrolls: feishuResult.debugImgs,
-            collectedImgUrls: feishuResult.images,
-          };
-          return `__FEISHU_DEBUG__${JSON.stringify(debugData)}`;
+          } catch {}
         }
 
         let html = `<html><head><title>${title}</title></head><body>`;
         html += `<h1>${title}</h1>`;
+
+        // Prepend missing images before the main content
+        for (const missUrl of missingImages) {
+          const src = resolveImage(missUrl);
+          html += `<figure><img src="${src}" /></figure>\n`;
+        }
+
         const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
         html += feishuResult.text.split('\n\n').map((block: string) => {
           const imgMatch = block.match(imgMarkerRe);
@@ -693,7 +602,6 @@ export default {
       }
 
       const forceBrowser = url.searchParams.get("force_browser") === "true";
-      const debugMode = url.searchParams.get("debug") === "true";
       const staticFailed = !response.ok;
 
       // If static fetch failed and this is NOT a browser-required site, return error
@@ -716,7 +624,7 @@ export default {
       if (staticFailed) {
         // Static fetch failed (e.g. Feishu 302 login redirect) — go straight to browser
         try {
-          finalHtml = await fetchWithBrowser(targetUrl, env, debugMode);
+          finalHtml = await fetchWithBrowser(targetUrl, env);
           method = "browser+readability+turndown";
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -775,23 +683,12 @@ export default {
         finalHtml = body;
         if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
           try {
-            finalHtml = await fetchWithBrowser(targetUrl, env, debugMode);
+            finalHtml = await fetchWithBrowser(targetUrl, env);
             method = "browser+readability+turndown";
           } catch {
             // Browser rendering failed — fall back to static HTML
           }
         }
-      }
-
-      // Debug mode: return diagnostic JSON for Feishu image troubleshooting
-      if (finalHtml.startsWith("__FEISHU_DEBUG__")) {
-        const debugJson = finalHtml.substring("__FEISHU_DEBUG__".length);
-        return new Response(debugJson, {
-          headers: {
-            "Content-Type": "application/json; charset=utf-8",
-            "Access-Control-Allow-Origin": "*",
-          },
-        });
       }
 
       // P2 fix: enforce the same 5 MB size limit on browser-rendered content
@@ -860,7 +757,6 @@ function extractTargetUrl(path: string, search: string): string | null {
   const targetSearchParams = new URLSearchParams(search);
   targetSearchParams.delete("raw");
   targetSearchParams.delete("force_browser");
-  targetSearchParams.delete("debug");
   const remainingSearch = targetSearchParams.toString();
 
   if (remainingSearch && !raw.includes("?")) {
