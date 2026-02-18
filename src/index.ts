@@ -87,6 +87,30 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
       }
     });
 
+    // Capture image responses during page load (Feishu tokens are single-use,
+    // so a second fetch() for the same URL will fail).
+    const capturedImages = new Map<string, string>();
+    if (isFeishu) {
+      page.on("response", async (resp: any) => {
+        try {
+          if (resp.status() !== 200) return;
+          const rUrl: string = resp.url();
+          const ct: string = resp.headers()["content-type"] || "";
+          if (!ct.includes("image") && !ct.includes("octet-stream")) return;
+          const buf = await resp.buffer();
+          if (buf.length < 100 || buf.length > 4 * 1024 * 1024) return;
+          const bytes = new Uint8Array(buf.buffer || buf);
+          let binary = "";
+          const chunk = 8192;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+          }
+          const mime = ct.split(";")[0].trim() || "image/png";
+          capturedImages.set(rUrl, `data:${mime};base64,${btoa(binary)}`);
+        } catch {}
+      });
+    }
+
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
 
     // Feishu uses virtual scrolling — only visible content is in the DOM.
@@ -289,37 +313,28 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
             }
           });
 
-          // 8. Convert images to base64 data URLs (browser has session cookies)
-          // Without this, Feishu image URLs require auth and won't load for end users.
+          // 8. Fallback: try in-browser fetch for images not captured by response interception
           var imgDataMap = {};
           var maxConvert = Math.min(imgs.length, 20);
           for (var k = 0; k < maxConvert; k++) {
-            // Retry up to 2 times per image
-            for (var attempt = 0; attempt < 2; attempt++) {
-              try {
-                if (attempt > 0) await new Promise(function(r) { setTimeout(r, 500); });
-                var imgResp = await fetch(imgs[k], { credentials: 'include', cache: 'no-cache' });
-                if (!imgResp.ok) continue;
-                var ct = imgResp.headers.get('content-type') || '';
-                if (ct.indexOf('image') === -1 && ct.indexOf('octet-stream') === -1) continue;
-                var imgBlob = await imgResp.blob();
-                if (imgBlob.size < 100) continue;
-                if (imgBlob.size > 4 * 1024 * 1024) continue;
-                var dataUrl = await new Promise(function(resolve) {
-                  var reader = new FileReader();
-                  reader.onloadend = function() { resolve(reader.result); };
-                  reader.onerror = function() { resolve(null); };
-                  reader.readAsDataURL(imgBlob);
-                });
-                if (dataUrl) {
-                  imgDataMap[imgs[k]] = dataUrl;
-                  break;
-                }
-              } catch(e) {}
-            }
+            try {
+              var imgResp = await fetch(imgs[k], { credentials: 'include' });
+              if (!imgResp.ok) continue;
+              var ct = imgResp.headers.get('content-type') || '';
+              if (ct.indexOf('image') === -1 && ct.indexOf('octet-stream') === -1) continue;
+              var imgBlob = await imgResp.blob();
+              if (imgBlob.size < 100 || imgBlob.size > 4 * 1024 * 1024) continue;
+              var dataUrl = await new Promise(function(resolve) {
+                var reader = new FileReader();
+                reader.onloadend = function() { resolve(reader.result); };
+                reader.onerror = function() { resolve(null); };
+                reader.readAsDataURL(imgBlob);
+              });
+              if (dataUrl) imgDataMap[imgs[k]] = dataUrl;
+            } catch(e) {}
           }
 
-          // Replace image markers with base64 data URLs
+          // Replace image markers with in-browser base64 (fallback)
           for (var m = 0; m < collected.length; m++) {
             var markerMatch = collected[m].match(/^\{\{IMG:(.+)\}\}$/);
             if (markerMatch && imgDataMap[markerMatch[1]]) {
@@ -327,20 +342,29 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
             }
           }
 
-          // Build base64 image list for any extras not in markers
-          var b64imgs = [];
-          for (var key in imgDataMap) {
-            b64imgs.push(imgDataMap[key]);
-          }
-
-          return { text: collected.join('\\n\\n'), images: b64imgs };
+          return { text: collected.join('\\n\\n'), images: imgs };
         })()
       `);
+
+      // Wait for any pending response handlers to finish capturing images
+      await new Promise((r) => setTimeout(r, 1000));
 
       const feishuResult = content as { text?: string; images?: string[] } | null;
       if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
         const title = await page.title();
-        // Build a clean HTML document — images are inline via {{IMG:dataurl}} markers
+
+        // Build a URL → base64 map: response-captured images (primary) + evaluate fallback
+        // Response interception captures images on first load (before tokens expire).
+        const imgMap = new Map<string, string>();
+        // Add response-captured base64 data (most reliable — single-use tokens handled)
+        for (const [imgUrl, dataUrl] of capturedImages) {
+          imgMap.set(imgUrl, dataUrl);
+        }
+
+        // For each raw URL from evaluate, check if we have it captured
+        // The evaluate text may contain {{IMG:data:...}} (already base64 from fallback)
+        // or {{IMG:https://...}} (raw URL needing mapping)
+
         let html = `<html><head><title>${title}</title></head><body>`;
         html += `<h1>${title}</h1>`;
         const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
@@ -348,19 +372,25 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
         html += feishuResult.text.split('\n\n').map((block: string) => {
           const imgMatch = block.match(imgMarkerRe);
           if (imgMatch) {
-            usedImgs.add(imgMatch[1]);
-            return `<figure><img src="${imgMatch[1]}" /></figure>`;
+            let src = imgMatch[1];
+            // If it's a raw URL, try to map to response-captured base64
+            if (src.startsWith("http")) {
+              const captured = imgMap.get(src);
+              if (captured) src = captured;
+            }
+            usedImgs.add(src);
+            return `<figure><img src="${src}" /></figure>`;
           }
           if (block.startsWith('#')) return `<p>${block}</p>`;
           return `<p>${block}</p>`;
         }).join('\n');
-        // Append remaining base64 images not already placed inline
-        if (feishuResult.images && feishuResult.images.length > 0) {
-          feishuResult.images.forEach((src: string) => {
-            if (!usedImgs.has(src)) {
-              html += `<figure><img src="${src}" /></figure>`;
-            }
-          });
+
+        // Append remaining captured images not already placed inline
+        for (const [, dataUrl] of capturedImages) {
+          if (!usedImgs.has(dataUrl)) {
+            html += `<figure><img src="${dataUrl}" /></figure>`;
+            usedImgs.add(dataUrl);
+          }
         }
         html += `</body></html>`;
         return html;
