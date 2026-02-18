@@ -44,22 +44,22 @@ function wantsJsonError(request: Request): boolean {
   );
 }
 
-/** Timing-safe string comparison using HMAC to prevent timing attacks. */
+/** Timing-safe string comparison using HMAC. Does NOT leak length. */
 async function timingSafeEqual(a: string, b: string): Promise<boolean> {
   const encoder = new TextEncoder();
-  const aBytes = encoder.encode(a);
-  const bBytes = encoder.encode(b);
-  if (aBytes.length !== bBytes.length) return false;
+  // Use a fixed key so both inputs are always processed, regardless of length
+  const fixedKey = encoder.encode("timing-safe-compare-key");
   const key = await crypto.subtle.importKey(
     "raw",
-    aBytes,
+    fixedKey,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
-  const sig1 = new Uint8Array(await crypto.subtle.sign("HMAC", key, aBytes));
-  const sig2 = new Uint8Array(await crypto.subtle.sign("HMAC", key, bBytes));
-  let diff = 0;
+  const sig1 = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(a)));
+  const sig2 = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(b)));
+  // HMAC outputs are always the same length (32 bytes for SHA-256)
+  let diff = sig1.length ^ sig2.length;
   for (let i = 0; i < sig1.length; i++) diff |= sig1[i] ^ sig2[i];
   return diff === 0;
 }
@@ -133,6 +133,9 @@ export default {
     // R2 image proxy — serve stored images
     if (path.startsWith("/r2img/")) {
       const key = path.slice(7); // strip "/r2img/"
+      if (!key || !key.startsWith("images/") || key.includes("..")) {
+        return new Response("Not Found", { status: 404 });
+      }
       try {
         const img = await getImage(env, key);
         if (img) {
@@ -860,6 +863,8 @@ function handleOgImage(url: URL, host: string): Response {
   return new Response(svg, {
     headers: {
       "Content-Type": "image/svg+xml",
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+      "X-Content-Type-Options": "nosniff",
       "Cache-Control": "public, max-age=86400, s-maxage=86400",
       "Access-Control-Allow-Origin": "*",
     },

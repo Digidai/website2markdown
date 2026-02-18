@@ -323,18 +323,16 @@ export function landingPageHTML(host: string): string {
     Built on Cloudflare Workers &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Markdown for Agents</a>
   </footer>
 
-  <script type="application/ld+json">
-  {
+  <script type="application/ld+json">${JSON.stringify({
     "@context": "https://schema.org",
     "@type": "WebApplication",
-    "name": "${h}",
-    "description": "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
-    "url": "https://${h}/",
-    "applicationCategory": "DeveloperApplication",
-    "operatingSystem": "Any",
-    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
-  }
-  </script>
+    name: host,
+    description: "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
+    url: `https://${host}/`,
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Any",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  })}</script>
   <script>
     function handleSubmit(e) {
       e.preventDefault();
