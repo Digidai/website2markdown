@@ -52,7 +52,7 @@ const MOBILE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 " +
   "(KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
-async function fetchWithBrowser(url: string, env: Env): Promise<string> {
+async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<string> {
   const browser = await puppeteer.launch(env.MYBROWSER);
   try {
     const page = await browser.newPage();
@@ -244,6 +244,7 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           var collected = [];
           var seenText = new Set();
           var imgUrls = [];
+          var debugImgs = [];
 
           function harvest() {
             var scope = contentRoot || document;
@@ -255,6 +256,31 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
                 img.setAttribute('src', real);
               }
             });
+
+            // Debug: collect info about ALL images in DOM
+            if (debugImgs.length === 0) {
+              document.querySelectorAll('img').forEach(function(img) {
+                var src = img.getAttribute('src') || '';
+                var dataSrc = img.getAttribute('data-src') || '';
+                var cls = img.className || '';
+                var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
+                var h = img.naturalHeight || parseInt(img.getAttribute('height')) || 0;
+                var inScope = scope.contains(img);
+                var isContent = isContentImage(img);
+                var parentTag = img.parentElement ? img.parentElement.tagName : 'none';
+                var parentCls = img.parentElement ? (img.parentElement.className || '').substring(0, 80) : '';
+                debugImgs.push({
+                  src: src.substring(0, 150),
+                  dataSrc: dataSrc.substring(0, 150),
+                  cls: cls.substring(0, 80),
+                  w: w, h: h,
+                  inScope: inScope,
+                  isContent: isContent,
+                  parentTag: parentTag,
+                  parentCls: parentCls
+                });
+              });
+            }
 
             // Collect text and images in DOM order
             var blocks = scope.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, img, figure, [class*="image-block"]');
@@ -332,33 +358,65 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
 
-          return { text: collected.join('\\n\\n'), images: imgUrls };
+          return { text: collected.join('\\n\\n'), images: imgUrls, debugImgs: debugImgs };
         })()
       `);
 
       // Wait for pending response handlers to finish
       await new Promise((r) => setTimeout(r, 1000));
 
-      const feishuResult = content as { text?: string; images?: string[] } | null;
+      const feishuResult = content as { text?: string; images?: string[]; debugImgs?: any[] } | null;
       if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
         const title = await page.title();
 
+        // Collect captured image keys for debug (truncated URLs, no base64)
+        const capturedKeys = Array.from(capturedImages.keys()).map(k => k.substring(0, 200));
+
         // Resolve image URL to captured base64. Try exact match, then pathname match.
+        const resolveLog: { rawUrl: string; method: string; matched: boolean }[] = [];
         function resolveImage(rawUrl: string): string {
           const exact = capturedImages.get(rawUrl);
-          if (exact) return exact;
+          if (exact) { resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'exact', matched: true }); return exact; }
           try {
             const pathMatch = capturedImages.get(new URL(rawUrl).pathname);
-            if (pathMatch) return pathMatch;
+            if (pathMatch) { resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'pathname', matched: true }); return pathMatch; }
           } catch {}
           // Last resort: find any captured URL containing the same path segment
           try {
             const path = new URL(rawUrl).pathname;
             for (const [key, val] of capturedImages) {
-              if (key.includes(path) || path.includes(key)) return val;
+              if (key.includes(path) || path.includes(key)) { resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'fuzzy', matched: true }); return val; }
             }
           } catch {}
+          resolveLog.push({ rawUrl: rawUrl.substring(0, 150), method: 'none', matched: false });
           return rawUrl; // Return raw URL if no match found
+        }
+
+        // Debug mode: return diagnostic JSON instead of HTML
+        if (debug) {
+          let html = `<html><head><title>${title}</title></head><body>`;
+          html += `<h1>${title}</h1>`;
+          const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
+          html += feishuResult.text.split('\n\n').map((block: string) => {
+            const imgMatch = block.match(imgMarkerRe);
+            if (imgMatch) {
+              const src = resolveImage(imgMatch[1]);
+              return `<figure><img src="${src}" /></figure>`;
+            }
+            return `<p>${block}</p>`;
+          }).join('\n');
+          html += `</body></html>`;
+
+          const debugData = {
+            title,
+            totalCapturedImages: capturedImages.size,
+            capturedKeys,
+            imgMarkersInText: (feishuResult.text.match(/\{\{IMG:[^}]+\}\}/g) || []).map((m: string) => m.substring(0, 200)),
+            resolveLog,
+            allDomImages: feishuResult.debugImgs,
+            collectedImgUrls: feishuResult.images,
+          };
+          return `__FEISHU_DEBUG__${JSON.stringify(debugData)}`;
         }
 
         let html = `<html><head><title>${title}</title></head><body>`;
@@ -594,6 +652,7 @@ export default {
       }
 
       const forceBrowser = url.searchParams.get("force_browser") === "true";
+      const debugMode = url.searchParams.get("debug") === "true";
       const staticFailed = !response.ok;
 
       // If static fetch failed and this is NOT a browser-required site, return error
@@ -616,7 +675,7 @@ export default {
       if (staticFailed) {
         // Static fetch failed (e.g. Feishu 302 login redirect) — go straight to browser
         try {
-          finalHtml = await fetchWithBrowser(targetUrl, env);
+          finalHtml = await fetchWithBrowser(targetUrl, env, debugMode);
           method = "browser+readability+turndown";
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
@@ -675,12 +734,23 @@ export default {
         finalHtml = body;
         if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
           try {
-            finalHtml = await fetchWithBrowser(targetUrl, env);
+            finalHtml = await fetchWithBrowser(targetUrl, env, debugMode);
             method = "browser+readability+turndown";
           } catch {
             // Browser rendering failed — fall back to static HTML
           }
         }
+      }
+
+      // Debug mode: return diagnostic JSON for Feishu image troubleshooting
+      if (finalHtml.startsWith("__FEISHU_DEBUG__")) {
+        const debugJson = finalHtml.substring("__FEISHU_DEBUG__".length);
+        return new Response(debugJson, {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Access-Control-Allow-Origin": "*",
+          },
+        });
       }
 
       // P2 fix: enforce the same 5 MB size limit on browser-rendered content
@@ -749,6 +819,7 @@ function extractTargetUrl(path: string, search: string): string | null {
   const targetSearchParams = new URLSearchParams(search);
   targetSearchParams.delete("raw");
   targetSearchParams.delete("force_browser");
+  targetSearchParams.delete("debug");
   const remainingSearch = targetSearchParams.toString();
 
   if (remainingSearch && !raw.includes("?")) {
