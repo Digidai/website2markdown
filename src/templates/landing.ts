@@ -218,7 +218,7 @@ export function landingPageHTML(host: string): string {
         <button type="submit">Convert</button>
       </form>
     </div>
-    <p class="input-hint">Bare domains, http:// and https:// all work &mdash; Supports <code>?format=json</code>, <code>?selector=.article</code>, <code>?raw=true</code></p>
+    <p class="input-hint">Bare domains, http:// and https:// all work &mdash; <code>?format=json|html|text</code> &middot; <code>?selector=.css</code> &middot; <code>?raw=true</code> &middot; <code>?force_browser=true</code> &middot; <code>?no_cache=true</code></p>
 
     <div class="features">
       <div class="feature">
@@ -255,6 +255,32 @@ export function landingPageHTML(host: string): string {
           <div class="step-num">iii</div>
           <h3>Clean Output</h3>
           <p>Receive formatted Markdown &mdash; rendered preview or raw text via API.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="how-section" style="margin-top:3.5rem">
+      <h2>API Reference</h2>
+      <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem 1.75rem;font-size:0.82rem;line-height:1.8;color:var(--text-secondary)">
+        <div style="margin-bottom:1rem"><strong style="color:var(--text-primary)">GET /{url}</strong> &mdash; Convert a single URL to Markdown</div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">Query Parameters:</strong></div>
+        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
+          <code>?raw=true</code> &mdash; Return raw Markdown (no HTML wrapper)<br>
+          <code>?format=</code><code>markdown</code>|<code>html</code>|<code>text</code>|<code>json</code> &mdash; Output format<br>
+          <code>?selector=.article</code> &mdash; Extract only matching CSS selector<br>
+          <code>?force_browser=true</code> &mdash; Force headless browser rendering<br>
+          <code>?no_cache=true</code> &mdash; Bypass cache, fetch fresh content
+        </div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">Response Headers:</strong></div>
+        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
+          <code>X-Markdown-Method</code> &mdash; native | readability+turndown | browser+readability+turndown<br>
+          <code>X-Cache-Status</code> &mdash; HIT | MISS<br>
+          <code>X-Source-URL</code> &mdash; The original target URL
+        </div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">POST /api/batch</strong> &mdash; Convert up to 10 URLs (requires <code>Authorization: Bearer &lt;token&gt;</code>)</div>
+        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem">
+          Body: <code>{"urls": ["https://...", "https://..."]}</code><br>
+          Returns: <code>{"results": [{url, markdown, title, method}, ...]}</code>
         </div>
       </div>
     </div>

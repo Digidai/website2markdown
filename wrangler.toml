@@ -19,6 +19,12 @@ bucket_name = "md-images"
 [observability]
 enabled = true
 
+# Rate limiting: configure via Cloudflare Dashboard → Security → WAF → Rate Limiting Rules
+# Recommended: limit /api/batch to 10 req/min per IP, and all routes to 60 req/min per IP
+
+# Secrets (set via `wrangler secret put API_TOKEN`):
+# API_TOKEN — Bearer token for POST /api/batch authentication
+
 # Custom domain configuration — update with your actual domain
 # routes = [
 #   { pattern = "your-domain.example.com/*", zone_name = "example.com" }

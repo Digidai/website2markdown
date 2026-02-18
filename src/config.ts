@@ -11,14 +11,21 @@ export const CACHE_TTL_SHORT = 600; // 10 min (dynamic content)
 
 /** Browser rendering budget (ms). */
 export const BROWSER_TIMEOUT = 30_000;
-export const FEISHU_SCROLL_BUDGET = 20_000;
+export const FEISHU_SCROLL_BUDGET = 25_000;
 export const FEISHU_SETTLE_WAIT = 3000;
 export const FEISHU_SCROLL_STEP = 300;
-export const FEISHU_SCROLL_DELAY = 350;
+export const FEISHU_SCROLL_DELAY = 400;
+export const FEISHU_STALE_LIMIT = 15;
 
 /** Image limits for capture. */
 export const IMAGE_MIN_BYTES = 5000;
 export const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+
+/** Max concurrent browser sessions in batch mode. */
+export const BROWSER_CONCURRENCY = 2;
+
+/** Valid output formats. */
+export const VALID_FORMATS = new Set(["markdown", "html", "text", "json"]);
 
 // WeChat in-app browser UA — mp.weixin.qq.com checks for "MicroMessenger"
 export const WECHAT_UA =
@@ -39,6 +46,6 @@ export const DESKTOP_UA =
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Accept, Content-Type",
+  "Access-Control-Allow-Headers": "Accept, Content-Type, Authorization",
   "Access-Control-Max-Age": "86400",
 };

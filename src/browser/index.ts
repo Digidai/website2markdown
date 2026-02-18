@@ -1,7 +1,17 @@
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env, SiteAdapter } from "../types";
-import { BROWSER_TIMEOUT } from "../config";
+import {
+  BROWSER_TIMEOUT,
+  FEISHU_SCROLL_BUDGET,
+  FEISHU_SETTLE_WAIT,
+  FEISHU_SCROLL_STEP,
+  FEISHU_SCROLL_DELAY,
+  FEISHU_STALE_LIMIT,
+  IMAGE_MIN_BYTES,
+  IMAGE_MAX_BYTES,
+} from "../config";
 import { isSafeUrl } from "../security";
+import { storeImage } from "../cache";
 
 // Adapter registry for non-Feishu sites
 import { wechatAdapter } from "./adapters/wechat";
@@ -31,10 +41,6 @@ export function getAdapter(url: string): SiteAdapter {
   return genericAdapter;
 }
 
-function isFeishu(url: string): boolean {
-  return url.includes(".feishu.cn/") || url.includes(".larksuite.com/");
-}
-
 /** Check if a URL always needs browser rendering. */
 export function alwaysNeedsBrowser(url: string): boolean {
   const adapter = getAdapter(url);
@@ -49,9 +55,10 @@ export function alwaysNeedsBrowser(url: string): boolean {
 export async function fetchWithBrowser(
   url: string,
   env: Env,
+  host: string,
 ): Promise<string> {
-  if (isFeishu(url)) {
-    return fetchWithBrowserFeishu(url, env);
+  if (feishuAdapter.match(url)) {
+    return fetchWithBrowserFeishu(url, env, host);
   }
   return fetchWithBrowserAdapter(url, env);
 }
@@ -60,10 +67,12 @@ export async function fetchWithBrowser(
  * Feishu-specific browser rendering.
  * Uses the proven original approach: inline evaluate template literal
  * for virtual scroll content extraction + response-level image capture.
+ * Images are stored in R2 and referenced via /r2img/ URLs.
  */
 async function fetchWithBrowserFeishu(
   url: string,
   env: Env,
+  host: string,
 ): Promise<string> {
   const browser = await puppeteer.launch(env.MYBROWSER);
   try {
@@ -95,23 +104,34 @@ async function fetchWithBrowserFeishu(
         if (ct.includes("svg")) return;
         if (!ct.includes("image") && !ct.includes("octet-stream")) return;
         const buf = await resp.buffer();
-        if (buf.length < 5000 || buf.length > 4 * 1024 * 1024) return;
-        const bytes = new Uint8Array(buf);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
-        const mime = ct.split(";")[0].trim() || "image/png";
-        const dataUrl = `data:${mime};base64,${btoa(binary)}`;
-        capturedImages.set(rUrl, dataUrl);
+        if (buf.length < IMAGE_MIN_BYTES || buf.length > IMAGE_MAX_BYTES) return;
+        // Store in R2 instead of base64 data URI
         try {
-          capturedImages.set(new URL(rUrl).pathname, dataUrl);
-        } catch {}
+          const key = await storeImage(env, rUrl, buf.buffer, ct.split(";")[0].trim() || "image/png");
+          const r2Url = `https://${host}/r2img/${key}`;
+          capturedImages.set(rUrl, r2Url);
+          try {
+            capturedImages.set(new URL(rUrl).pathname, r2Url);
+          } catch {}
+        } catch {
+          // R2 store failed — fall back to data URI
+          const bytes = new Uint8Array(buf);
+          let binary = "";
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          const mime = ct.split(";")[0].trim() || "image/png";
+          const dataUrl = `data:${mime};base64,${btoa(binary)}`;
+          capturedImages.set(rUrl, dataUrl);
+          try {
+            capturedImages.set(new URL(rUrl).pathname, dataUrl);
+          } catch {}
+        }
       } catch {}
     });
 
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
-    await new Promise((r) => setTimeout(r, 3000));
+    await page.goto(url, { waitUntil: "networkidle2", timeout: BROWSER_TIMEOUT });
+    await new Promise((r) => setTimeout(r, FEISHU_SETTLE_WAIT));
 
     // Pre-scroll using Puppeteer keyboard to trigger Feishu's virtual scroll.
     // This is more reliable than scrollTo() inside evaluate because it triggers
@@ -340,7 +360,7 @@ async function fetchWithBrowserFeishu(
 
         // 6. Scroll through page to trigger virtual scroll rendering
         var scrollStartTime = Date.now();
-        var scrollBudget = 25000; // 25 seconds max
+        var scrollBudget = ${FEISHU_SCROLL_BUDGET};
         var y = 0;
         var prevCollected = 0;
         var staleCount = 0;
@@ -357,19 +377,19 @@ async function fetchWithBrowserFeishu(
             scrollEl.dispatchEvent(new Event('scroll', {bubbles: true}));
             window.dispatchEvent(new Event('scroll'));
           } catch(e) {}
-          await new Promise(function(r) { setTimeout(r, 400); });
+          await new Promise(function(r) { setTimeout(r, ${FEISHU_SCROLL_DELAY}); });
           harvest();
 
           // Check if we found new content
           if (collected.length === prevCollected) {
             staleCount++;
-            if (staleCount > 15) break; // No new content for 15 scrolls, stop
+            if (staleCount > ${FEISHU_STALE_LIMIT}) break;
           } else {
             staleCount = 0;
             prevCollected = collected.length;
           }
 
-          y += 300;
+          y += ${FEISHU_SCROLL_STEP};
         }
 
         // Final scroll to bottom
@@ -405,7 +425,7 @@ async function fetchWithBrowserFeishu(
     if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
       const title = await page.title();
 
-      // Resolve image URL to captured base64
+      // Resolve image URL to captured R2 URL (or fallback to original)
       function resolveImage(rawUrl: string): string {
         const exact = capturedImages.get(rawUrl);
         if (exact) return exact;
@@ -461,7 +481,12 @@ async function fetchWithBrowserFeishu(
             const src = resolveImage(imgMatch[1]);
             return `<figure><img src="${src}" /></figure>`;
           }
-          if (block.startsWith("#")) return `<p>${block}</p>`;
+          // Parse heading markers into proper HTML heading tags
+          const headingMatch = block.match(/^(#{1,6})\s+(.+)$/);
+          if (headingMatch) {
+            const level = headingMatch[1].length;
+            return `<h${level}>${headingMatch[2]}</h${level}>`;
+          }
           return `<p>${block}</p>`;
         })
         .join("\n");

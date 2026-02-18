@@ -23,6 +23,33 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl("http://[::1]:8080")).toBe(false);
   });
 
+  it("blocks IPv6 loopback full form", () => {
+    expect(isSafeUrl("http://[0:0:0:0:0:0:0:1]")).toBe(false);
+    expect(isSafeUrl("http://[0000:0000:0000:0000:0000:0000:0000:0001]")).toBe(false);
+  });
+
+  it("blocks IPv4-mapped IPv6 addresses", () => {
+    expect(isSafeUrl("http://[::ffff:127.0.0.1]")).toBe(false);
+    expect(isSafeUrl("http://[::ffff:10.0.0.1]")).toBe(false);
+    expect(isSafeUrl("http://[::ffff:169.254.169.254]")).toBe(false);
+    expect(isSafeUrl("http://[::ffff:192.168.1.1]")).toBe(false);
+    expect(isSafeUrl("http://[::ffff:172.16.0.1]")).toBe(false);
+  });
+
+  it("blocks IPv4-mapped IPv6 in hex form", () => {
+    // ::ffff:7f00:0001 = 127.0.0.1
+    expect(isSafeUrl("http://[::ffff:7f00:1]")).toBe(false);
+    // ::ffff:0a00:0001 = 10.0.0.1
+    expect(isSafeUrl("http://[::ffff:a00:1]")).toBe(false);
+    // ::ffff:c0a8:0101 = 192.168.1.1
+    expect(isSafeUrl("http://[::ffff:c0a8:101]")).toBe(false);
+  });
+
+  it("allows valid IPv4-mapped IPv6 public addresses", () => {
+    // ::ffff:8.8.8.8 (Google DNS, public)
+    expect(isSafeUrl("http://[::ffff:8.8.8.8]")).toBe(true);
+  });
+
   it("blocks private IPv4 ranges", () => {
     expect(isSafeUrl("http://10.0.0.1")).toBe(false);
     expect(isSafeUrl("http://10.255.255.255")).toBe(false);
@@ -102,9 +129,16 @@ describe("needsBrowserRendering", () => {
     expect(needsBrowserRendering(longPage, "https://example.com")).toBe(false);
   });
 
-  it("detects JS redirects on short pages", () => {
+  it("detects JS redirects in script tags on short pages", () => {
     expect(needsBrowserRendering('<script>document.location="/"</script>', "https://example.com")).toBe(true);
     expect(needsBrowserRendering('<script>window.location.href="/"</script>', "https://example.com")).toBe(true);
+  });
+
+  it("does not flag normal pages with analytics containing document.location", () => {
+    // Longer page with document.location in analytics — should NOT trigger
+    const normalPage = '<html><body>' + '<p>content</p>'.repeat(50) +
+      '<script>ga("send", document.location.href)</script></body></html>';
+    expect(needsBrowserRendering(normalPage, "https://example.com")).toBe(false);
   });
 
   it("does not flag normal pages", () => {

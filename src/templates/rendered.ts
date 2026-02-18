@@ -117,11 +117,15 @@ export function renderedPageHTML(
     <div class="raw-content" id="raw-content">${escapedContent}</div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" crossorigin="anonymous"></script>
   <script>
     var rawContent = document.getElementById('raw-content').textContent;
-    document.getElementById('markdown-rendered').innerHTML = DOMPurify.sanitize(marked.parse(rawContent));
+    if (typeof DOMPurify !== 'undefined' && typeof marked !== 'undefined') {
+      document.getElementById('markdown-rendered').innerHTML = DOMPurify.sanitize(marked.parse(rawContent));
+    } else {
+      document.getElementById('markdown-rendered').textContent = rawContent;
+    }
 
     function switchTab(tab) {
       document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });

@@ -2,7 +2,7 @@ import { MAX_URL_LENGTH } from "./config";
 
 /**
  * Validate that a URL is safe to fetch (no SSRF).
- * Blocks localhost, private/internal IPs (v4 + v6), link-local, AWS metadata.
+ * Blocks localhost, private/internal IPs (v4 + v6 + mapped), link-local, AWS metadata.
  */
 export function isSafeUrl(url: string): boolean {
   try {
@@ -30,8 +30,54 @@ export function isSafeUrl(url: string): boolean {
 
     // IPv6 private / link-local (bracket-stripped)
     const bare = hostname.replace(/^\[|\]$/g, "");
+
+    // Standard IPv6 private/link-local
     if (/^(fc|fd|fe80)/i.test(bare)) return false;
-    if (bare === "::1" || bare === "0:0:0:0:0:0:0:1") return false;
+
+    // IPv6 loopback — all representations
+    if (
+      bare === "::1" ||
+      bare === "0:0:0:0:0:0:0:1" ||
+      bare === "0000:0000:0000:0000:0000:0000:0000:0001" ||
+      /^0*:0*:0*:0*:0*:0*:0*:0*1$/.test(bare)
+    )
+      return false;
+
+    // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
+    // These are equivalent to the IPv4 address and bypass simple hostname checks
+    const v4MappedMatch = bare.match(
+      /^(?:0*:)*:?(?:ffff:?)?((?:\d{1,3}\.){3}\d{1,3})$/i,
+    );
+    if (v4MappedMatch) {
+      const mappedIp = v4MappedMatch[1];
+      // Check the embedded IPv4 against private ranges
+      if (mappedIp === "127.0.0.1" || mappedIp.startsWith("127."))
+        return false;
+      if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(mappedIp))
+        return false;
+      if (/^169\.254\./.test(mappedIp)) return false;
+      if (mappedIp === "0.0.0.0") return false;
+    }
+
+    // IPv4-compatible IPv6 in hex form (e.g., ::ffff:7f00:0001 = 127.0.0.1)
+    const hexMappedMatch = bare.match(
+      /^(?:0*:)*:?ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i,
+    );
+    if (hexMappedMatch) {
+      const hi = parseInt(hexMappedMatch[1], 16);
+      const lo = parseInt(hexMappedMatch[2], 16);
+      const ip1 = (hi >> 8) & 0xff;
+      const ip2 = hi & 0xff;
+      const ip3 = (lo >> 8) & 0xff;
+      const ip4 = lo & 0xff;
+      const mappedIp = `${ip1}.${ip2}.${ip3}.${ip4}`;
+      if (mappedIp.startsWith("127.") || mappedIp.startsWith("10."))
+        return false;
+      if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
+      if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
+        return false;
+      if (mappedIp === "0.0.0.0") return false;
+    }
 
     // Internal / local TLDs
     if (
@@ -68,7 +114,7 @@ export function isValidUrl(url: string): boolean {
  * Detect if a static-fetch HTML response is an anti-bot / JS-challenge page
  * that needs browser rendering to get real content.
  */
-export function needsBrowserRendering(html: string, url: string): boolean {
+export function needsBrowserRendering(html: string, _url: string): boolean {
   const lower = html.toLowerCase();
 
   // Cloudflare JS challenge
@@ -78,13 +124,17 @@ export function needsBrowserRendering(html: string, url: string): boolean {
   // Generic CAPTCHA on short pages
   if (lower.includes("captcha") && html.length < 10_000) return true;
 
-  // Very short page with JS redirect (likely anti-bot)
+  // Very short page with JS redirect (likely anti-bot).
+  // Only flag truly minimal pages — real content pages are longer than this.
   if (
     html.length < 2000 &&
     (lower.includes("document.location") ||
       lower.includes("window.location"))
-  )
-    return true;
+  ) {
+    // If the page has substantial visible text content, it's probably real
+    const textOnly = html.replace(/<[^>]+>/g, "").trim();
+    if (textOnly.length < 200) return true;
+  }
 
   return false;
 }

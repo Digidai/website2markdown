@@ -55,7 +55,17 @@ describe("htmlToMarkdown", () => {
     const { markdown } = htmlToMarkdown(html, "https://example.com", ".article");
     expect(markdown).toContain("Article");
     expect(markdown).toContain("Content");
-    // Sidebar should not be in the output since we selected .article
+    expect(markdown).not.toContain("Sidebar noise");
+  });
+
+  it("returns contentHtml from Readability extraction", () => {
+    const html = `<html><head><title>Test</title></head><body>
+      <article><h1>Main</h1><p>Body text here</p></article>
+      <footer>footer noise</footer>
+    </body></html>`;
+    const { contentHtml } = htmlToMarkdown(html, "https://example.com");
+    expect(contentHtml).toContain("Body text");
+    expect(typeof contentHtml).toBe("string");
   });
 });
 

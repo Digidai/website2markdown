@@ -71,7 +71,7 @@ export function htmlToMarkdown(
   html: string,
   url: string,
   selector?: string,
-): { markdown: string; title: string } {
+): { markdown: string; title: string; contentHtml: string } {
   // Ensure full document structure
   const wrappedHtml = html.includes("<html")
     ? html
@@ -137,7 +137,7 @@ export function htmlToMarkdown(
     markdown = `# ${title}\n\n${markdown}`;
   }
 
-  return { markdown, title };
+  return { markdown, title, contentHtml };
 }
 
 /**

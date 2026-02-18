@@ -2,6 +2,7 @@ export interface Env {
   MYBROWSER: Fetcher;
   CACHE_KV: KVNamespace;
   IMAGE_BUCKET: R2Bucket;
+  API_TOKEN?: string;
 }
 
 export interface ConvertResult {
