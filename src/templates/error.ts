@@ -1,6 +1,7 @@
 import { escapeHtml } from "../security";
 
-export function errorPageHTML(title: string, message: string): string {
+export function errorPageHTML(title: string, message: string, statusCode?: number): string {
+  const statusDisplay = statusCode ? `<div class="error-code">${statusCode}</div>` : '<div class="error-glyph">!</div>';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -38,6 +39,7 @@ export function errorPageHTML(title: string, message: string): string {
     }
 
     .error-glyph { font-family: var(--font-display); font-style: italic; font-size: 3.5rem; color: var(--red); opacity: 0.35; line-height: 1; margin-bottom: 1.25rem; }
+    .error-code { font-family: var(--font-mono, monospace); font-size: 3rem; color: var(--red); opacity: 0.5; line-height: 1; margin-bottom: 1.25rem; font-weight: 600; }
     h1 { font-family: var(--font-display); font-style: italic; font-size: 1.4rem; font-weight: 400; margin-bottom: 0.75rem; color: var(--text-primary); }
     p { color: var(--text-secondary); line-height: 1.7; margin-bottom: 2rem; font-size: 0.88rem; font-weight: 300; }
 
@@ -51,7 +53,7 @@ export function errorPageHTML(title: string, message: string): string {
 </head>
 <body>
   <div class="error-card">
-    <div class="error-glyph">!</div>
+    ${statusDisplay}
     <h1>${escapeHtml(title)}</h1>
     <p>${escapeHtml(message)}</p>
     <a href="/">

@@ -278,9 +278,18 @@ export function landingPageHTML(host: string): string {
           <code>X-Source-URL</code> &mdash; The original target URL
         </div>
         <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">POST /api/batch</strong> &mdash; Convert up to 10 URLs (requires <code>Authorization: Bearer &lt;token&gt;</code>)</div>
-        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem">
+        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1.5rem">
           Body: <code>{"urls": ["https://...", "https://..."]}</code><br>
           Returns: <code>{"results": [{url, markdown, title, method}, ...]}</code>
+        </div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">curl Examples:</strong></div>
+        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.72rem;line-height:2;color:var(--text-muted)">
+          <code style="display:block;margin-bottom:0.4rem"># Get raw markdown</code>
+          <code style="display:block;margin-bottom:0.75rem">curl -H "Accept: text/markdown" ${h}/https://example.com</code>
+          <code style="display:block;margin-bottom:0.4rem"># Get JSON output</code>
+          <code style="display:block;margin-bottom:0.75rem">curl "${h}/https://example.com?raw=true&amp;format=json"</code>
+          <code style="display:block;margin-bottom:0.4rem"># Batch conversion</code>
+          <code style="display:block">curl -X POST ${h}/api/batch -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d '{"urls":["https://example.com"]}'</code>
         </div>
       </div>
     </div>
@@ -304,6 +313,10 @@ export function landingPageHTML(host: string): string {
       if (!input) return false;
       window.location.href = '/' + input;
       return false;
+    }
+    // On mobile, prefix is hidden — update placeholder to show full URL hint
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      document.getElementById('urlInput').placeholder = 'https://example.com/article';
     }
   </script>
 </body>

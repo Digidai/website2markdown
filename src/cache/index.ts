@@ -1,22 +1,29 @@
 import type { Env } from "../types";
 import { CACHE_TTL_DEFAULT, CACHE_TTL_SHORT } from "../config";
 
-/** Simple non-crypto hash for cache key deduplication of long URLs. */
-function simpleHash(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash).toString(36);
+/** SHA-256 hash (truncated) for cache key deduplication of long URLs. */
+async function urlHash(str: string): Promise<string> {
+  const buf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(str),
+  );
+  return Array.from(new Uint8Array(buf).slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /** Build a cache key from URL + format + optional selector. KV key max is 512 bytes. */
-function cacheKey(url: string, format: string, selector?: string): string {
+async function cacheKey(
+  url: string,
+  format: string,
+  selector?: string,
+): Promise<string> {
   const selPart = selector ? `:sel=${selector}` : "";
   const full = `md:${format}${selPart}:${url}`;
   if (full.length <= 500) return full;
-  // Truncate and append hash for long URLs
-  return `md:${format}${selPart}:${url.slice(0, 400)}:h=${simpleHash(url)}`;
+  // Truncate and append SHA-256 hash for long URLs
+  const hash = await urlHash(url);
+  return `md:${format}${selPart}:${url.slice(0, 400)}:h=${hash}`;
 }
 
 /** Get cached markdown/content from KV. Returns null on miss. */
@@ -27,7 +34,7 @@ export async function getCached(
   selector?: string,
 ): Promise<{ content: string; method: string; title: string } | null> {
   try {
-    const key = cacheKey(url, format, selector);
+    const key = await cacheKey(url, format, selector);
     const raw = await env.CACHE_KV.get(key, "text");
     if (!raw) return null;
     return JSON.parse(raw);
@@ -46,7 +53,7 @@ export async function setCache(
   ttl?: number,
 ): Promise<void> {
   try {
-    const key = cacheKey(url, format, selector);
+    const key = await cacheKey(url, format, selector);
     const effectiveTtl = ttl ?? getTtlForUrl(url);
     await env.CACHE_KV.put(key, JSON.stringify(data), {
       expirationTtl: effectiveTtl,

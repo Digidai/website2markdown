@@ -7,7 +7,8 @@ import { MAX_URL_LENGTH } from "./config";
 export function isSafeUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    const hostname = parsed.hostname.toLowerCase();
+    // Strip trailing dot (FQDN notation: "localhost." bypasses exact match)
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
 
     // Loopback
     if (
@@ -66,6 +67,27 @@ export function isSafeUrl(url: string): boolean {
     if (hexMappedMatch) {
       const hi = parseInt(hexMappedMatch[1], 16);
       const lo = parseInt(hexMappedMatch[2], 16);
+      const ip1 = (hi >> 8) & 0xff;
+      const ip2 = hi & 0xff;
+      const ip3 = (lo >> 8) & 0xff;
+      const ip4 = lo & 0xff;
+      const mappedIp = `${ip1}.${ip2}.${ip3}.${ip4}`;
+      if (mappedIp.startsWith("127.") || mappedIp.startsWith("10."))
+        return false;
+      if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
+      if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
+        return false;
+      if (mappedIp === "0.0.0.0") return false;
+    }
+
+    // IPv4-compatible IPv6 WITHOUT ffff (e.g., ::7f00:1 from ::127.0.0.1)
+    // Deprecated but still parsed by URL implementations
+    const hexCompatMatch = bare.match(
+      /^(?:0*:)*:?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i,
+    );
+    if (hexCompatMatch && !hexMappedMatch) {
+      const hi = parseInt(hexCompatMatch[1], 16);
+      const lo = parseInt(hexCompatMatch[2], 16);
       const ip1 = (hi >> 8) & 0xff;
       const ip2 = hi & 0xff;
       const ip3 = (lo >> 8) & 0xff;

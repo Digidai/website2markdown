@@ -99,14 +99,14 @@ export function renderedPageHTML(
       <span class="status-pill ${status.cls}">${status.label}</span>
       ${cacheLabel}
       ${tokenCount ? '<span class="tokens">' + escapeHtml(tokenCount) + " tokens</span>" : ""}
-      <button class="btn" onclick="copyRaw()">Copy</button>
+      <button class="btn" id="copy-btn" onclick="copyRaw()">Copy</button>
       <a href="/${escapeHtml(sourceUrl)}${sourceUrl.includes("?") ? "&" : "?"}raw=true" class="btn btn-accent" target="_blank">Raw</a>
     </div>
   </div>
 
   <div class="tab-bar">
-    <div class="tab active" onclick="switchTab('rendered')">Rendered</div>
-    <div class="tab" onclick="switchTab('source')">Source</div>
+    <div class="tab active" id="tab-rendered" onclick="switchTab('rendered')">Rendered</div>
+    <div class="tab" id="tab-source" onclick="switchTab('source')">Source</div>
   </div>
 
   <div class="panel active" id="rendered-panel">
@@ -117,8 +117,8 @@ export function renderedPageHTML(
     <div class="raw-content" id="raw-content">${escapedContent}</div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js" integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js" integrity="sha384-eEu5CTj3qGvu9PdJuS+YlkNi7d2XxQROAFYOr59zgObtlcux1ae1Il3u7jvdCSWu" crossorigin="anonymous"></script>
   <script>
     var rawContent = document.getElementById('raw-content').textContent;
     if (typeof DOMPurify !== 'undefined' && typeof marked !== 'undefined') {
@@ -130,21 +130,16 @@ export function renderedPageHTML(
     function switchTab(tab) {
       document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
       document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
-      if (tab === 'rendered') {
-        document.querySelectorAll('.tab')[0].classList.add('active');
-        document.getElementById('rendered-panel').classList.add('active');
-      } else {
-        document.querySelectorAll('.tab')[1].classList.add('active');
-        document.getElementById('source-panel').classList.add('active');
-      }
+      document.getElementById(tab === 'rendered' ? 'tab-rendered' : 'tab-source').classList.add('active');
+      document.getElementById(tab === 'rendered' ? 'rendered-panel' : 'source-panel').classList.add('active');
     }
 
     function copyRaw() {
       navigator.clipboard.writeText(rawContent).then(function() {
-        var btn = document.querySelector('.btn');
+        var btn = document.getElementById('copy-btn');
         btn.textContent = 'Copied!';
         setTimeout(function() { btn.textContent = 'Copy'; }, 2000);
-      });
+      }).catch(function() {});
     }
   </script>
 </body>

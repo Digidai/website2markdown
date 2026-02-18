@@ -2,6 +2,7 @@ import puppeteer from "@cloudflare/puppeteer";
 import type { Env, SiteAdapter } from "../types";
 import {
   BROWSER_TIMEOUT,
+  FEISHU_BROWSER_TIMEOUT,
   FEISHU_SCROLL_BUDGET,
   FEISHU_SETTLE_WAIT,
   FEISHU_SCROLL_STEP,
@@ -10,7 +11,7 @@ import {
   IMAGE_MIN_BYTES,
   IMAGE_MAX_BYTES,
 } from "../config";
-import { isSafeUrl } from "../security";
+import { isSafeUrl, escapeHtml } from "../security";
 import { storeImage } from "../cache";
 
 // Adapter registry for non-Feishu sites
@@ -96,8 +97,9 @@ async function fetchWithBrowserFeishu(
     // Capture image responses during page load (Feishu tokens are single-use,
     // so a second fetch() for the same URL will fail).
     const capturedImages = new Map<string, string>();
-    page.on("response", async (resp: any) => {
-      try {
+    const pendingCaptures: Promise<void>[] = [];
+    page.on("response", (resp: any) => {
+      const p = (async () => { try {
         if (resp.status() !== 200) return;
         const rUrl: string = resp.url();
         const ct: string = resp.headers()["content-type"] || "";
@@ -127,10 +129,11 @@ async function fetchWithBrowserFeishu(
             capturedImages.set(new URL(rUrl).pathname, dataUrl);
           } catch {}
         }
-      } catch {}
+      } catch {} })();
+      pendingCaptures.push(p);
     });
 
-    await page.goto(url, { waitUntil: "networkidle2", timeout: BROWSER_TIMEOUT });
+    await page.goto(url, { waitUntil: "networkidle2", timeout: FEISHU_BROWSER_TIMEOUT });
     await new Promise((r) => setTimeout(r, FEISHU_SETTLE_WAIT));
 
     // Pre-scroll using Puppeteer keyboard to trigger Feishu's virtual scroll.
@@ -418,8 +421,8 @@ async function fetchWithBrowserFeishu(
       })()
     `);
 
-    // Wait for pending response handlers to finish
-    await new Promise((r) => setTimeout(r, 1000));
+    // Wait for all pending image capture handlers to complete
+    await Promise.allSettled(pendingCaptures);
 
     const feishuResult = content as { text?: string; images?: string[] } | null;
     if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
@@ -463,13 +466,13 @@ async function fetchWithBrowserFeishu(
         } catch {}
       }
 
-      let html = `<html><head><title>${title}</title></head><body>`;
-      html += `<h1>${title}</h1>`;
+      let html = `<html><head><title>${escapeHtml(title)}</title></head><body>`;
+      html += `<h1>${escapeHtml(title)}</h1>`;
 
       // Prepend missing images before the main content
       for (const missUrl of missingImages) {
         const src = resolveImage(missUrl);
-        html += `<figure><img src="${src}" /></figure>\n`;
+        html += `<figure><img src="${escapeHtml(src)}" /></figure>\n`;
       }
 
       const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
@@ -479,15 +482,15 @@ async function fetchWithBrowserFeishu(
           const imgMatch = block.match(imgMarkerRe);
           if (imgMatch) {
             const src = resolveImage(imgMatch[1]);
-            return `<figure><img src="${src}" /></figure>`;
+            return `<figure><img src="${escapeHtml(src)}" /></figure>`;
           }
           // Parse heading markers into proper HTML heading tags
           const headingMatch = block.match(/^(#{1,6})\s+(.+)$/);
           if (headingMatch) {
             const level = headingMatch[1].length;
-            return `<h${level}>${headingMatch[2]}</h${level}>`;
+            return `<h${level}>${escapeHtml(headingMatch[2])}</h${level}>`;
           }
-          return `<p>${block}</p>`;
+          return `<p>${escapeHtml(block)}</p>`;
         })
         .join("\n");
       html += `</body></html>`;

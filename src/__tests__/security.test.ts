@@ -68,6 +68,19 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl("http://169.254.1.1")).toBe(false);
   });
 
+  it("blocks FQDN trailing dot bypass (localhost.)", () => {
+    expect(isSafeUrl("http://localhost.")).toBe(false);
+    expect(isSafeUrl("http://localhost.:8080")).toBe(false);
+  });
+
+  it("blocks IPv4-compatible IPv6 without ffff (::7f00:1 = 127.0.0.1)", () => {
+    expect(isSafeUrl("http://[::7f00:1]")).toBe(false);
+    // ::a00:1 = 10.0.0.1
+    expect(isSafeUrl("http://[::a00:1]")).toBe(false);
+    // ::c0a8:101 = 192.168.1.1
+    expect(isSafeUrl("http://[::c0a8:101]")).toBe(false);
+  });
+
   it("blocks .local and .internal domains", () => {
     expect(isSafeUrl("http://myservice.local")).toBe(false);
     expect(isSafeUrl("http://api.internal")).toBe(false);

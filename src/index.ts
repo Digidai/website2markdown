@@ -11,7 +11,6 @@ import {
   isValidUrl,
   needsBrowserRendering,
   extractTargetUrl,
-  escapeHtml,
 } from "./security";
 import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
 import { fetchWithBrowser, alwaysNeedsBrowser } from "./browser";
@@ -29,7 +28,30 @@ function wantsJsonError(request: Request): boolean {
   );
 }
 
-/** Return error as JSON or HTML depending on caller. */
+/** Timing-safe string comparison using HMAC to prevent timing attacks. */
+async function timingSafeEqual(a: string, b: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  if (aBytes.length !== bBytes.length) return false;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    aBytes,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig1 = new Uint8Array(await crypto.subtle.sign("HMAC", key, aBytes));
+  const sig2 = new Uint8Array(await crypto.subtle.sign("HMAC", key, bBytes));
+  let diff = 0;
+  for (let i = 0; i < sig1.length; i++) diff |= sig1[i] ^ sig2[i];
+  return diff === 0;
+}
+
+/**
+ * Return error as JSON or HTML depending on caller.
+ * `message` should be a raw string — it will be escaped in the HTML template.
+ */
 function errorResponse(
   title: string,
   message: string,
@@ -43,7 +65,7 @@ function errorResponse(
     );
   }
   return new Response(
-    errorPageHTML(title, message),
+    errorPageHTML(title, message, status),
     { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -163,7 +185,7 @@ export default {
     if (!isValidUrl(targetUrl)) {
       return errorResponse(
         "Invalid URL",
-        `The URL "${escapeHtml(targetUrl)}" is not valid. Please provide a valid HTTP(S) URL.`,
+        `The URL is not valid. Please provide a valid HTTP(S) URL.`,
         400,
         jsonErrors,
       );
@@ -188,9 +210,15 @@ export default {
 
       // Validate format parameter
       const rawFormat = url.searchParams.get("format") || "markdown";
-      const format: OutputFormat = VALID_FORMATS.has(rawFormat)
-        ? (rawFormat as OutputFormat)
-        : "markdown";
+      if (!VALID_FORMATS.has(rawFormat)) {
+        return errorResponse(
+          "Invalid Format",
+          `Unknown format "${rawFormat}". Valid values: markdown, html, text, json.`,
+          400,
+          jsonErrors,
+        );
+      }
+      const format = rawFormat as OutputFormat;
       const selector = url.searchParams.get("selector") || undefined;
       const forceBrowser = url.searchParams.get("force_browser") === "true";
       const noCache = url.searchParams.get("no_cache") === "true";
@@ -292,7 +320,7 @@ export default {
         if (!isTextContent && !contentType.includes("text/")) {
           return errorResponse(
             "Unsupported Content",
-            `This URL returned non-text content (${escapeHtml(contentType)}). Only HTML and text pages can be converted to Markdown.`,
+            `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`,
             415,
             jsonErrors || wantsRaw,
           );
@@ -305,7 +333,7 @@ export default {
         ) {
           return errorResponse(
             "Unsupported Content",
-            `This URL returned ${escapeHtml(contentType)} which cannot be converted to Markdown.`,
+            `This URL returned ${contentType} which cannot be converted to Markdown.`,
             415,
             jsonErrors || wantsRaw,
           );
@@ -479,7 +507,7 @@ function buildResponse(
     return new Response(content, {
       headers: {
         "Content-Type": contentType,
-        "X-Source-URL": sourceUrl,
+        "X-Source-URL": sourceUrl.replace(/[\r\n]/g, ""),
         "X-Markdown-Native": method === "native" ? "true" : "false",
         "X-Markdown-Method": method,
         "X-Cache-Status": cached ? "HIT" : "MISS",
@@ -498,7 +526,15 @@ function buildResponse(
 
   return new Response(
     renderedPageHTML(host, content, sourceUrl, tokenCount, methodLabel, cached),
-    { headers: { "Content-Type": "text/html; charset=utf-8" } },
+    {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy":
+          "default-src 'none'; script-src https://cdn.jsdelivr.net 'unsafe-inline'; " +
+          "style-src https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; " +
+          "img-src * data:; font-src https://fonts.gstatic.com; connect-src 'none'",
+      },
+    },
   );
 }
 
@@ -536,25 +572,46 @@ async function handleBatch(
   env: Env,
   host: string,
 ): Promise<Response> {
-  // Authentication check
-  if (env.API_TOKEN) {
-    const auth = request.headers.get("Authorization") || "";
-    if (!auth.startsWith("Bearer ") || auth.slice(7) !== env.API_TOKEN) {
-      return Response.json(
-        { error: "Unauthorized", message: "Valid Bearer token required" },
-        { status: 401, headers: CORS_HEADERS },
-      );
-    }
+  // P0-5: Require API_TOKEN to be configured
+  if (!env.API_TOKEN) {
+    return Response.json(
+      { error: "Service misconfigured", message: "API_TOKEN not set" },
+      { status: 503, headers: CORS_HEADERS },
+    );
+  }
+
+  // P0-4: Timing-safe authentication check
+  const auth = request.headers.get("Authorization") || "";
+  if (!auth.startsWith("Bearer ") || !(await timingSafeEqual(auth.slice(7), env.API_TOKEN))) {
+    return Response.json(
+      { error: "Unauthorized", message: "Valid Bearer token required" },
+      { status: 401, headers: CORS_HEADERS },
+    );
+  }
+
+  // P1-3: Body size limit (100 KB)
+  const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
+  if (contentLength > 100_000) {
+    return Response.json(
+      { error: "Request too large", message: "Maximum body size is 100 KB" },
+      { status: 413, headers: CORS_HEADERS },
+    );
   }
 
   try {
     const body = await request.json() as { urls?: string[] };
     if (!body.urls || !Array.isArray(body.urls)) {
-      return Response.json({ error: "Request body must contain 'urls' array" }, { status: 400 });
+      return Response.json(
+        { error: "Request body must contain 'urls' array" },
+        { status: 400, headers: CORS_HEADERS },
+      );
     }
 
     if (body.urls.length > 10) {
-      return Response.json({ error: "Maximum 10 URLs per batch" }, { status: 400 });
+      return Response.json(
+        { error: "Maximum 10 URLs per batch" },
+        { status: 400, headers: CORS_HEADERS },
+      );
     }
 
     // Build task list with concurrency control for browser rendering
@@ -584,12 +641,35 @@ async function handleBatch(
           html = await fetchWithBrowser(targetUrl, env, host);
           method = "browser+readability+turndown";
         } else {
-          const resp = await fetch(targetUrl, {
+          // P0-1: Use redirect:"manual" and validate each hop (same as main handler)
+          let resp = await fetch(targetUrl, {
             headers: {
               Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
               "User-Agent": `${host}/1.0 (Markdown Converter)`,
             },
+            redirect: "manual",
           });
+          let redirects = 0;
+          while (
+            redirects < 5 &&
+            [301, 302, 303, 307, 308].includes(resp.status)
+          ) {
+            const location = resp.headers.get("Location");
+            if (!location) break;
+            const redirectUrl = new URL(location, targetUrl).href;
+            if (!isSafeUrl(redirectUrl)) {
+              return { url: targetUrl, error: "Redirect target blocked" };
+            }
+            resp = await fetch(redirectUrl, {
+              headers: {
+                Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
+                "User-Agent": `${host}/1.0 (Markdown Converter)`,
+              },
+              redirect: "manual",
+            });
+            redirects++;
+          }
+
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           html = await resp.text();
 
@@ -632,6 +712,9 @@ async function handleBatch(
       headers: CORS_HEADERS,
     });
   } catch {
-    return Response.json({ error: "Invalid request body" }, { status: 400 });
+    return Response.json(
+      { error: "Invalid request body" },
+      { status: 400, headers: CORS_HEADERS },
+    );
   }
 }

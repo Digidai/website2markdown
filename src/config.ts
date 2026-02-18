@@ -11,6 +11,7 @@ export const CACHE_TTL_SHORT = 600; // 10 min (dynamic content)
 
 /** Browser rendering budget (ms). */
 export const BROWSER_TIMEOUT = 30_000;
+export const FEISHU_BROWSER_TIMEOUT = 55_000;
 export const FEISHU_SCROLL_BUDGET = 25_000;
 export const FEISHU_SETTLE_WAIT = 3000;
 export const FEISHU_SCROLL_STEP = 300;
