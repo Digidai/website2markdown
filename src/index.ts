@@ -271,32 +271,52 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
 
           // 7. Also sweep entire document for images (fallback if contentRoot missed them)
           document.querySelectorAll('img').forEach(function(img) {
-            var src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-origin-src') || '';
-            if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
-              imgs.push(src);
+            var attrs = ['src', 'data-src', 'data-origin-src', 'data-original', 'data-actualsrc'];
+            for (var a = 0; a < attrs.length; a++) {
+              var val = img.getAttribute(attrs[a]);
+              if (val && val.indexOf('data:') !== 0 && val.indexOf('http') === 0 && !imgs.includes(val)) {
+                imgs.push(val);
+                break;
+              }
+            }
+          });
+          // Also look for background-image URLs (some Feishu images use div backgrounds)
+          document.querySelectorAll('[style*="background-image"]').forEach(function(el) {
+            var bg = el.style.backgroundImage || '';
+            var urlMatch = bg.match(/url\\(["']?(https?:\\/\\/.+?)["']?\\)/);
+            if (urlMatch && !imgs.includes(urlMatch[1])) {
+              imgs.push(urlMatch[1]);
             }
           });
 
           // 8. Convert images to base64 data URLs (browser has session cookies)
           // Without this, Feishu image URLs require auth and won't load for end users.
           var imgDataMap = {};
-          var maxConvert = Math.min(imgs.length, 15);
+          var maxConvert = Math.min(imgs.length, 20);
           for (var k = 0; k < maxConvert; k++) {
-            try {
-              var imgResp = await fetch(imgs[k], { credentials: 'include' });
-              if (!imgResp.ok) continue;
-              var ct = imgResp.headers.get('content-type') || '';
-              if (ct.indexOf('image') === -1) continue;
-              var imgBlob = await imgResp.blob();
-              if (imgBlob.size > 2 * 1024 * 1024) continue;
-              var dataUrl = await new Promise(function(resolve) {
-                var reader = new FileReader();
-                reader.onloadend = function() { resolve(reader.result); };
-                reader.onerror = function() { resolve(null); };
-                reader.readAsDataURL(imgBlob);
-              });
-              if (dataUrl) imgDataMap[imgs[k]] = dataUrl;
-            } catch(e) {}
+            // Retry up to 2 times per image
+            for (var attempt = 0; attempt < 2; attempt++) {
+              try {
+                if (attempt > 0) await new Promise(function(r) { setTimeout(r, 500); });
+                var imgResp = await fetch(imgs[k], { credentials: 'include', cache: 'no-cache' });
+                if (!imgResp.ok) continue;
+                var ct = imgResp.headers.get('content-type') || '';
+                if (ct.indexOf('image') === -1 && ct.indexOf('octet-stream') === -1) continue;
+                var imgBlob = await imgResp.blob();
+                if (imgBlob.size < 100) continue;
+                if (imgBlob.size > 4 * 1024 * 1024) continue;
+                var dataUrl = await new Promise(function(resolve) {
+                  var reader = new FileReader();
+                  reader.onloadend = function() { resolve(reader.result); };
+                  reader.onerror = function() { resolve(null); };
+                  reader.readAsDataURL(imgBlob);
+                });
+                if (dataUrl) {
+                  imgDataMap[imgs[k]] = dataUrl;
+                  break;
+                }
+              } catch(e) {}
+            }
           }
 
           // Replace image markers with base64 data URLs
