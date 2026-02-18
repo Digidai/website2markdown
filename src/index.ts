@@ -179,6 +179,24 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           });
 
+          // 0b. Capture all content image URLs BEFORE noise removal.
+          // UI noise selectors (e.g. 'header') can remove containers that hold
+          // the first content image, making it invisible to later harvest scans.
+          var preNoiseContentImgUrls = [];
+          document.querySelectorAll('img').forEach(function(img) {
+            var cls = (img.className || '').toLowerCase();
+            // Only Feishu content images (docx-image class)
+            if (cls.indexOf('docx-image') === -1) return;
+            var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
+            var h = img.naturalHeight || parseInt(img.getAttribute('height')) || 0;
+            if (w > 0 && w < 80) return;
+            if (h > 0 && h < 80) return;
+            var src = img.getAttribute('src') || img.getAttribute('data-src') || '';
+            if (src && src.indexOf('data:') !== 0) {
+              preNoiseContentImgUrls.push(src);
+            }
+          });
+
           // 1. Remove Feishu UI noise
           var uiNoise = [
             'nav', 'header', 'footer',
@@ -371,29 +389,9 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           }
 
-          // 5. Pre-harvest: capture content images from the ENTIRE document before
-          // virtual scroll disable. The first image may be outside contentRoot
-          // (e.g. rendered above the editable area) or get unmounted when we
-          // change overflow. harvest() only scans contentRoot, so we also need
-          // a document-wide scan for Feishu content images (class "docx-image").
+          // 5. Pre-harvest: capture whatever is currently visible before virtual
+          // scroll disable (which may cause reflows that unmount elements).
           harvest();
-          // Document-wide fallback: find content images that harvest() missed
-          // because they're outside contentRoot.
-          document.querySelectorAll('img.docx-image, img[class*="docx-image"]').forEach(function(img) {
-            if (!isContentImage(img)) return;
-            var src = img.getAttribute('src') || img.getAttribute('data-src') || '';
-            if (!src || src.indexOf('data:') === 0) return;
-            var pathKey = '';
-            try { pathKey = new URL(src, location.href).pathname; } catch(e) {}
-            var key = pathKey || src;
-            if (!seenText.has('IMG:' + key)) {
-              seenText.add('IMG:' + key);
-              imgUrls.push(src);
-              // Insert at position 0 — these are typically above-the-fold images
-              // that precede the scrollable content area
-              collected.unshift('{{IMG:' + src + '}}');
-            }
-          });
 
           // 6. Disable virtual scroll
           document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
@@ -417,6 +415,29 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
           window.scrollTo(0, 999999);
           await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
+
+          // 8. Inject any pre-noise content images that harvest never found.
+          // These images existed in the DOM before UI noise removal but were
+          // inside containers (like <header>) that got removed.
+          for (var pi = 0; pi < preNoiseContentImgUrls.length; pi++) {
+            var pSrc = preNoiseContentImgUrls[pi];
+            var pPathKey = '';
+            try { pPathKey = new URL(pSrc, location.href).pathname; } catch(e) {}
+            var pKey = pPathKey || pSrc;
+            if (!seenText.has('IMG:' + pKey)) {
+              seenText.add('IMG:' + pKey);
+              imgUrls.push(pSrc);
+              // Find the first text block in collected and insert before it
+              var insertIdx = 0;
+              for (var ci = 0; ci < collected.length; ci++) {
+                if (collected[ci].indexOf('{{IMG:') !== 0) {
+                  insertIdx = ci;
+                  break;
+                }
+              }
+              collected.splice(insertIdx, 0, '{{IMG:' + pSrc + '}}');
+            }
+          }
 
           return { text: collected.join('\\n\\n'), images: imgUrls, debugImgs: debugImgs, preNoiseImgs: preNoiseImgs, coverElements: coverElements };
         })()
