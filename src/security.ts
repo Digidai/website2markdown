@@ -1,0 +1,142 @@
+import { MAX_URL_LENGTH } from "./config";
+
+/**
+ * Validate that a URL is safe to fetch (no SSRF).
+ * Blocks localhost, private/internal IPs (v4 + v6), link-local, AWS metadata.
+ */
+export function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Loopback
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "[::1]" ||
+      hostname === "::1"
+    )
+      return false;
+
+    // IPv4 private ranges
+    if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname))
+      return false;
+
+    // AWS / cloud metadata
+    if (hostname === "169.254.169.254") return false;
+
+    // Link-local IPv4
+    if (/^169\.254\./.test(hostname)) return false;
+
+    // IPv6 private / link-local (bracket-stripped)
+    const bare = hostname.replace(/^\[|\]$/g, "");
+    if (/^(fc|fd|fe80)/i.test(bare)) return false;
+    if (bare === "::1" || bare === "0:0:0:0:0:0:0:1") return false;
+
+    // Internal / local TLDs
+    if (
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".test") ||
+      hostname.endsWith(".invalid")
+    )
+      return false;
+
+    // Must be HTTP(S)
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+      return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Check that the URL is valid HTTP(S). */
+export function isValidUrl(url: string): boolean {
+  if (url.length > MAX_URL_LENGTH) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Detect if a static-fetch HTML response is an anti-bot / JS-challenge page
+ * that needs browser rendering to get real content.
+ */
+export function needsBrowserRendering(html: string, url: string): boolean {
+  const lower = html.toLowerCase();
+
+  // Cloudflare JS challenge
+  if (lower.includes("cf-challenge") || lower.includes("cf_chl_opt"))
+    return true;
+
+  // Generic CAPTCHA on short pages
+  if (lower.includes("captcha") && html.length < 10_000) return true;
+
+  // Very short page with JS redirect (likely anti-bot)
+  if (
+    html.length < 2000 &&
+    (lower.includes("document.location") ||
+      lower.includes("window.location"))
+  )
+    return true;
+
+  return false;
+}
+
+const ESCAPE_MAP: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#039;",
+};
+
+/** Escape HTML special characters to prevent XSS. */
+export function escapeHtml(str: string): string {
+  return str.replace(/[&<>"']/g, (ch) => ESCAPE_MAP[ch]);
+}
+
+/**
+ * Extract target URL from request path.
+ * Handles bare domains, http/https prefixed, and strips our own query params.
+ */
+export function extractTargetUrl(
+  path: string,
+  search: string,
+): string | null {
+  let raw = path.slice(1); // Remove leading slash
+  if (!raw) return null;
+
+  // Auto-prepend https:// for bare domains
+  if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
+    if (raw.includes(".") && !raw.startsWith(".")) {
+      raw = "https://" + raw;
+    } else {
+      return null;
+    }
+  }
+
+  // Re-attach query string (excluding our params)
+  const targetSearchParams = new URLSearchParams(search);
+  targetSearchParams.delete("raw");
+  targetSearchParams.delete("force_browser");
+  targetSearchParams.delete("no_cache");
+  targetSearchParams.delete("format");
+  targetSearchParams.delete("selector");
+  const remainingSearch = targetSearchParams.toString();
+
+  if (remainingSearch && !raw.includes("?")) {
+    raw += "?" + remainingSearch;
+  }
+
+  // Length check
+  if (raw.length > MAX_URL_LENGTH) return null;
+
+  return raw;
+}
