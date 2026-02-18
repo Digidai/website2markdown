@@ -6,7 +6,6 @@ export const MAX_URL_LENGTH = 4096;
 
 /** Cache TTL defaults (seconds). */
 export const CACHE_TTL_DEFAULT = 3600; // 1 hour
-export const CACHE_TTL_LONG = 86400; // 24 hours (static content)
 export const CACHE_TTL_SHORT = 600; // 10 min (dynamic content)
 
 /** Browser rendering budget (ms). */
@@ -17,6 +16,7 @@ export const FEISHU_SETTLE_WAIT = 3000;
 export const FEISHU_SCROLL_STEP = 300;
 export const FEISHU_SCROLL_DELAY = 400;
 export const FEISHU_STALE_LIMIT = 15;
+export const FEISHU_MAX_CAPTURED_IMAGES = 50;
 
 /** Image limits for capture. */
 export const IMAGE_MIN_BYTES = 5000;

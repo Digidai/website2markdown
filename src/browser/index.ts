@@ -8,6 +8,7 @@ import {
   FEISHU_SCROLL_STEP,
   FEISHU_SCROLL_DELAY,
   FEISHU_STALE_LIMIT,
+  FEISHU_MAX_CAPTURED_IMAGES,
   IMAGE_MIN_BYTES,
   IMAGE_MAX_BYTES,
 } from "../config";
@@ -97,39 +98,53 @@ async function fetchWithBrowserFeishu(
     // Capture image responses during page load (Feishu tokens are single-use,
     // so a second fetch() for the same URL will fail).
     const capturedImages = new Map<string, string>();
+    let capturedImageCount = 0;
     const pendingCaptures: Promise<void>[] = [];
     page.on("response", (resp: any) => {
-      const p = (async () => { try {
-        if (resp.status() !== 200) return;
-        const rUrl: string = resp.url();
-        const ct: string = resp.headers()["content-type"] || "";
-        if (ct.includes("svg")) return;
-        if (!ct.includes("image") && !ct.includes("octet-stream")) return;
-        const buf = await resp.buffer();
-        if (buf.length < IMAGE_MIN_BYTES || buf.length > IMAGE_MAX_BYTES) return;
-        // Store in R2 instead of base64 data URI
+      const p = (async () => {
+        let reservedSlot = false;
+        let stored = false;
         try {
-          const key = await storeImage(env, rUrl, buf.buffer, ct.split(";")[0].trim() || "image/png");
-          const r2Url = `https://${host}/r2img/${key}`;
-          capturedImages.set(rUrl, r2Url);
+          if (resp.status() !== 200) return;
+          const rUrl: string = resp.url();
+          const ct: string = resp.headers()["content-type"] || "";
+          if (ct.includes("svg")) return;
+          if (!ct.includes("image") && !ct.includes("octet-stream")) return;
+          if (capturedImages.has(rUrl)) return;
+          if (capturedImageCount >= FEISHU_MAX_CAPTURED_IMAGES) return;
+          capturedImageCount++;
+          reservedSlot = true;
+          const buf = await resp.buffer();
+          if (buf.length < IMAGE_MIN_BYTES || buf.length > IMAGE_MAX_BYTES) return;
+          // Store in R2 instead of base64 data URI
           try {
-            capturedImages.set(new URL(rUrl).pathname, r2Url);
-          } catch {}
-        } catch {
-          // R2 store failed — fall back to data URI
-          const bytes = new Uint8Array(buf);
-          let binary = "";
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
+            const key = await storeImage(env, rUrl, buf.buffer, ct.split(";")[0].trim() || "image/png");
+            const r2Url = `https://${host}/r2img/${key}`;
+            capturedImages.set(rUrl, r2Url);
+            try {
+              capturedImages.set(new URL(rUrl).pathname, r2Url);
+            } catch {}
+            stored = true;
+          } catch {
+            // R2 store failed — fall back to data URI
+            const bytes = new Uint8Array(buf);
+            let binary = "";
+            for (let i = 0; i < bytes.length; i++) {
+              binary += String.fromCharCode(bytes[i]);
+            }
+            const mime = ct.split(";")[0].trim() || "image/png";
+            const dataUrl = `data:${mime};base64,${btoa(binary)}`;
+            capturedImages.set(rUrl, dataUrl);
+            try {
+              capturedImages.set(new URL(rUrl).pathname, dataUrl);
+            } catch {}
+            stored = true;
           }
-          const mime = ct.split(";")[0].trim() || "image/png";
-          const dataUrl = `data:${mime};base64,${btoa(binary)}`;
-          capturedImages.set(rUrl, dataUrl);
-          try {
-            capturedImages.set(new URL(rUrl).pathname, dataUrl);
-          } catch {}
+        } catch {
+        } finally {
+          if (reservedSlot && !stored) capturedImageCount--;
         }
-      } catch {} })();
+      })();
       pendingCaptures.push(p);
     });
 

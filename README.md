@@ -104,6 +104,7 @@ Convert multiple URLs in a single request:
 
 ```bash
 curl -X POST https://md.genedai.me/api/batch \
+  -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "urls": [

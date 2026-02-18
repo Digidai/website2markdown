@@ -16,6 +16,21 @@ describe("isSafeUrl", () => {
   it("blocks 127.0.0.1", () => {
     expect(isSafeUrl("http://127.0.0.1")).toBe(false);
     expect(isSafeUrl("http://127.0.0.1:8080/path")).toBe(false);
+    expect(isSafeUrl("http://127.0.0.2")).toBe(false);
+  });
+
+  it("blocks 0.0.0.0", () => {
+    expect(isSafeUrl("http://0.0.0.0")).toBe(false);
+  });
+
+  it("blocks CGNAT range 100.64.0.0/10", () => {
+    expect(isSafeUrl("http://100.64.0.1")).toBe(false);
+    expect(isSafeUrl("http://100.127.255.255")).toBe(false);
+  });
+
+  it("blocks octal-notation localhost after URL normalization", () => {
+    // URL() normalizes 0177.0.0.1 to 127.0.0.1
+    expect(isSafeUrl("http://0177.0.0.1")).toBe(false);
   });
 
   it("blocks IPv6 loopback", () => {
@@ -90,6 +105,7 @@ describe("isSafeUrl", () => {
   it("allows valid public URLs", () => {
     expect(isSafeUrl("https://example.com")).toBe(true);
     expect(isSafeUrl("https://mp.weixin.qq.com/s/abc123")).toBe(true);
+    expect(isSafeUrl("http://100.63.255.255")).toBe(true); // below CGNAT range
     expect(isSafeUrl("https://172.32.0.1")).toBe(true); // not in 172.16-31 range
     expect(isSafeUrl("http://192.169.0.1")).toBe(true); // not 192.168.x.x
   });

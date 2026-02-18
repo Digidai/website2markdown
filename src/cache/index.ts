@@ -18,12 +18,32 @@ async function cacheKey(
   format: string,
   selector?: string,
 ): Promise<string> {
-  const selPart = selector ? `:sel=${selector}` : "";
-  const full = `md:${format}${selPart}:${url}`;
-  if (full.length <= 500) return full;
-  // Truncate and append SHA-256 hash for long URLs
-  const hash = await urlHash(url);
-  return `md:${format}${selPart}:${url.slice(0, 400)}:h=${hash}`;
+  const maxKeyLength = 500;
+  let selPart = selector ? `:sel=${selector}` : "";
+
+  // Keep selector bounded in cache keys.
+  if (selector && selector.length > 120) {
+    const selectorHash = await urlHash(selector);
+    selPart = `:sel=${selector.slice(0, 120)}:sh=${selectorHash}`;
+  }
+
+  let full = `md:${format}${selPart}:${url}`;
+  if (full.length <= maxKeyLength) return full;
+
+  // If key is still too long, hash selector as well (if not hashed yet).
+  if (selector && !selPart.includes(":sh=")) {
+    const selectorHash = await urlHash(selector);
+    selPart = `:sel=${selector.slice(0, 120)}:sh=${selectorHash}`;
+    full = `md:${format}${selPart}:${url}`;
+    if (full.length <= maxKeyLength) return full;
+  }
+
+  // Truncate URL and append SHA-256 hash.
+  const hash = await urlHash(`${url}|${selector || ""}`);
+  const prefix = `md:${format}${selPart}:`;
+  const suffix = `:h=${hash}`;
+  const maxUrlLength = Math.max(0, maxKeyLength - prefix.length - suffix.length);
+  return `${prefix}${url.slice(0, maxUrlLength)}${suffix}`;
 }
 
 /** Get cached markdown/content from KV. Returns null on miss. */

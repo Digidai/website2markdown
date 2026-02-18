@@ -5,13 +5,6 @@ export interface Env {
   API_TOKEN?: string;
 }
 
-export interface ConvertResult {
-  markdown: string;
-  title: string;
-  method: ConvertMethod;
-  cached: boolean;
-}
-
 export type ConvertMethod =
   | "native"
   | "readability+turndown"

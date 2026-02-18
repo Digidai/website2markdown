@@ -13,10 +13,17 @@ export function isSafeUrl(url: string): boolean {
     // Loopback
     if (
       hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
+      /^127\./.test(hostname) ||
       hostname === "[::1]" ||
       hostname === "::1"
     )
+      return false;
+
+    // Unspecified / wildcard
+    if (hostname === "0.0.0.0") return false;
+
+    // Carrier-grade NAT (100.64.0.0/10)
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(hostname))
       return false;
 
     // IPv4 private ranges
@@ -57,6 +64,8 @@ export function isSafeUrl(url: string): boolean {
       if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(mappedIp))
         return false;
       if (/^169\.254\./.test(mappedIp)) return false;
+      if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
+        return false;
       if (mappedIp === "0.0.0.0") return false;
     }
 
@@ -76,6 +85,8 @@ export function isSafeUrl(url: string): boolean {
         return false;
       if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
       if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
+        return false;
+      if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
         return false;
       if (mappedIp === "0.0.0.0") return false;
     }
@@ -97,6 +108,8 @@ export function isSafeUrl(url: string): boolean {
         return false;
       if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
       if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
+        return false;
+      if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
         return false;
       if (mappedIp === "0.0.0.0") return false;
     }

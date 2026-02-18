@@ -5,12 +5,14 @@ import {
   WECHAT_UA,
   VALID_FORMATS,
   BROWSER_CONCURRENCY,
+  BROWSER_TIMEOUT,
 } from "./config";
 import {
   isSafeUrl,
   isValidUrl,
   needsBrowserRendering,
   extractTargetUrl,
+  escapeHtml,
 } from "./security";
 import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
 import { fetchWithBrowser, alwaysNeedsBrowser } from "./browser";
@@ -18,6 +20,20 @@ import { getCached, setCache, getImage } from "./cache";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
 import { errorPageHTML } from "./templates/error";
+
+const BATCH_BODY_MAX_BYTES = 100_000;
+const LANDING_CSP =
+  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+  "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://fonts.googleapis.com https://fonts.gstatic.com; " +
+  "base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const ERROR_CSP =
+  "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; " +
+  "img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'";
+
+/** Convert native markdown to a minimal safe HTML response. */
+function markdownToBasicHtml(markdown: string): string {
+  return `<pre>${escapeHtml(markdown)}</pre>`;
+}
 
 /** Check if the request prefers JSON error responses. */
 function wantsJsonError(request: Request): boolean {
@@ -66,7 +82,14 @@ function errorResponse(
   }
   return new Response(
     errorPageHTML(title, message, status),
-    { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    {
+      status,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": ERROR_CSP,
+        "X-Frame-Options": "DENY",
+      },
+    },
   );
 }
 
@@ -125,7 +148,12 @@ export default {
     // Legacy image proxy — rewrites Referer so hotlink-protected images load
     // P0-1 fix: use redirect:"manual" and validate each hop + content-type
     if (path.startsWith("/img/")) {
-      const imgUrl = decodeURIComponent(path.slice(5));
+      let imgUrl: string;
+      try {
+        imgUrl = decodeURIComponent(path.slice(5));
+      } catch {
+        return new Response("Invalid image URL encoding", { status: 400 });
+      }
       if (!isValidUrl(imgUrl) || !isSafeUrl(imgUrl)) {
         return new Response("Forbidden", { status: 403 });
       }
@@ -140,6 +168,7 @@ export default {
               "User-Agent": WECHAT_UA,
             },
             redirect: "manual",
+            signal: AbortSignal.timeout(BROWSER_TIMEOUT),
           });
           if ([301, 302, 303, 307, 308].includes(imgResp.status)) {
             const location = imgResp.headers.get("Location");
@@ -158,13 +187,19 @@ export default {
         }
         // Validate content-type is actually an image
         const imgContentType = imgResp.headers.get("Content-Type") || "";
-        if (!imgContentType.startsWith("image/")) {
+        const imgContentTypeLower = imgContentType.toLowerCase();
+        if (!imgContentTypeLower.startsWith("image/")) {
           return new Response("Not an image", { status: 403 });
+        }
+        if (imgContentTypeLower.startsWith("image/svg+xml")) {
+          return new Response("SVG images are not allowed", { status: 403 });
         }
         const headers = new Headers();
         headers.set("Content-Type", imgContentType);
         headers.set("Access-Control-Allow-Origin", "*");
         headers.set("Cache-Control", "public, max-age=86400");
+        headers.set("Content-Security-Policy", "default-src 'none'");
+        headers.set("X-Content-Type-Options", "nosniff");
         return new Response(imgResp.body, { status: 200, headers });
       } catch {
         return new Response("Image fetch failed", { status: 502 });
@@ -177,7 +212,11 @@ export default {
     // No target URL → landing page
     if (!targetUrl) {
       return new Response(landingPageHTML(host), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": LANDING_CSP,
+          "X-Frame-Options": "DENY",
+        },
       });
     }
 
@@ -253,9 +292,11 @@ export default {
         fetchHeaders["Referer"] = "https://mp.weixin.qq.com/";
       }
 
-      let response = await fetch(targetUrl, {
+      let currentUrl = targetUrl;
+      let response = await fetch(currentUrl, {
         headers: fetchHeaders,
         redirect: "manual",
+        signal: AbortSignal.timeout(BROWSER_TIMEOUT),
       });
 
       // Follow up to 5 redirects, validating each hop
@@ -266,7 +307,7 @@ export default {
       ) {
         const location = response.headers.get("Location");
         if (!location) break;
-        const redirectUrl = new URL(location, targetUrl).href;
+        const redirectUrl = new URL(location, currentUrl).href;
         if (!isSafeUrl(redirectUrl)) {
           return errorResponse(
             "Blocked",
@@ -275,9 +316,11 @@ export default {
             jsonErrors,
           );
         }
-        response = await fetch(redirectUrl, {
+        currentUrl = redirectUrl;
+        response = await fetch(currentUrl, {
           headers: fetchHeaders,
           redirect: "manual",
+          signal: AbortSignal.timeout(BROWSER_TIMEOUT),
         });
         redirects++;
       }
@@ -367,28 +410,45 @@ export default {
 
         // Native markdown path
         if (isMarkdown) {
+          let nativeOutput: string;
+          switch (format) {
+            case "json":
+              nativeOutput = JSON.stringify({
+                url: targetUrl,
+                title: "",
+                markdown: body,
+                method: "native",
+                timestamp: new Date().toISOString(),
+              });
+              break;
+            case "html":
+              nativeOutput = markdownToBasicHtml(body);
+              break;
+            case "text":
+              nativeOutput = body;
+              break;
+            default:
+              nativeOutput = body;
+          }
+
           // Cache the native markdown
           if (!noCache) {
             await setCache(env, targetUrl, format, {
-              content: body,
+              content: nativeOutput,
               method: "native",
               title: "",
             }, selector);
           }
 
-          if (wantsRaw || format !== "markdown") {
-            return new Response(body, {
-              headers: {
-                "Content-Type": "text/markdown; charset=utf-8",
-                "X-Source-URL": targetUrl,
-                "X-Markdown-Tokens": tokenCount,
-                "Access-Control-Allow-Origin": "*",
-              },
-            });
-          }
-          return new Response(
-            renderedPageHTML(host, body, targetUrl, tokenCount, "native"),
-            { headers: { "Content-Type": "text/html; charset=utf-8" } },
+          return buildResponse(
+            nativeOutput,
+            targetUrl,
+            host,
+            "native",
+            format,
+            wantsRaw,
+            tokenCount,
+            false,
           );
         }
 
@@ -511,6 +571,7 @@ function buildResponse(
         "X-Markdown-Native": method === "native" ? "true" : "false",
         "X-Markdown-Method": method,
         "X-Cache-Status": cached ? "HIT" : "MISS",
+        ...(tokenCount ? { "X-Markdown-Tokens": tokenCount } : {}),
         // Security headers for HTML format
         ...(format === "html"
           ? {
@@ -591,7 +652,7 @@ async function handleBatch(
 
   // P1-3: Body size limit (100 KB)
   const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
-  if (contentLength > 100_000) {
+  if (contentLength > BATCH_BODY_MAX_BYTES) {
     return Response.json(
       { error: "Request too large", message: "Maximum body size is 100 KB" },
       { status: 413, headers: CORS_HEADERS },
@@ -599,7 +660,14 @@ async function handleBatch(
   }
 
   try {
-    const body = await request.json() as { urls?: string[] };
+    const bodyText = await request.text();
+    if (new TextEncoder().encode(bodyText).length > BATCH_BODY_MAX_BYTES) {
+      return Response.json(
+        { error: "Request too large", message: "Maximum body size is 100 KB" },
+        { status: 413, headers: CORS_HEADERS },
+      );
+    }
+    const body = JSON.parse(bodyText) as { urls?: string[] };
     if (!body.urls || !Array.isArray(body.urls)) {
       return Response.json(
         { error: "Request body must contain 'urls' array" },
@@ -642,12 +710,14 @@ async function handleBatch(
           method = "browser+readability+turndown";
         } else {
           // P0-1: Use redirect:"manual" and validate each hop (same as main handler)
-          let resp = await fetch(targetUrl, {
+          let currentUrl = targetUrl;
+          let resp = await fetch(currentUrl, {
             headers: {
               Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
               "User-Agent": `${host}/1.0 (Markdown Converter)`,
             },
             redirect: "manual",
+            signal: AbortSignal.timeout(BROWSER_TIMEOUT),
           });
           let redirects = 0;
           while (
@@ -656,16 +726,18 @@ async function handleBatch(
           ) {
             const location = resp.headers.get("Location");
             if (!location) break;
-            const redirectUrl = new URL(location, targetUrl).href;
+            const redirectUrl = new URL(location, currentUrl).href;
             if (!isSafeUrl(redirectUrl)) {
               return { url: targetUrl, error: "Redirect target blocked" };
             }
-            resp = await fetch(redirectUrl, {
+            currentUrl = redirectUrl;
+            resp = await fetch(currentUrl, {
               headers: {
                 Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
                 "User-Agent": `${host}/1.0 (Markdown Converter)`,
               },
               redirect: "manual",
+              signal: AbortSignal.timeout(BROWSER_TIMEOUT),
             });
             redirects++;
           }
@@ -711,9 +783,13 @@ async function handleBatch(
     return Response.json({ results: output }, {
       headers: CORS_HEADERS,
     });
-  } catch {
+  } catch (error) {
+    console.error("Batch request processing failed:", error);
     return Response.json(
-      { error: "Invalid request body" },
+      {
+        error: "Invalid request body",
+        message: "Body must be valid JSON and include a 'urls' array.",
+      },
       { status: 400, headers: CORS_HEADERS },
     );
   }
