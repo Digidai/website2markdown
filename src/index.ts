@@ -99,11 +99,13 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           if (!ct.includes("image") && !ct.includes("octet-stream")) return;
           const buf = await resp.buffer();
           if (buf.length < 100 || buf.length > 4 * 1024 * 1024) return;
-          const bytes = new Uint8Array(buf.buffer || buf);
+          // IMPORTANT: new Uint8Array(buf) copies just the relevant slice.
+          // Do NOT use buf.buffer — Node.js Buffers share a pool ArrayBuffer
+          // that is larger than the actual data, producing corrupt base64.
+          const bytes = new Uint8Array(buf);
           let binary = "";
-          const chunk = 8192;
-          for (let i = 0; i < bytes.length; i += chunk) {
-            binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
           }
           const mime = ct.split(";")[0].trim() || "image/png";
           capturedImages.set(rUrl, `data:${mime};base64,${btoa(binary)}`);
