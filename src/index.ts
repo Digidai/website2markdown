@@ -179,11 +179,12 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           });
 
-          // 1. Remove Feishu UI noise — but preserve elements containing
-          // content images (class "docx-image"), because selectors like
-          // 'header' can accidentally remove the first image's container.
+          // 1. Remove Feishu UI noise.
+          // NOTE: generic HTML5 tags (header/footer/nav) are intentionally
+          // excluded — Feishu's SPA may wrap content blocks inside <header>,
+          // and the class-based selectors below already cover Feishu's UI
+          // (suite-header, lark-header, wiki-header, wiki-nav, etc.).
           var uiNoise = [
-            'nav', 'header', 'footer',
             '[class*="sidebar"]', '[class*="Sidebar"]', '[class*="side-bar"]',
             '[class*="catalog"]', '[class*="Catalog"]',
             '[class*="header-bar"]', '[class*="HeaderBar"]',
@@ -202,10 +203,7 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             '[class*="wiki-header"]', '[class*="wiki-nav"]'
           ];
           uiNoise.forEach(function(sel) {
-            try { document.querySelectorAll(sel).forEach(function(el) {
-              if (el.querySelector && el.querySelector('img.docx-image')) return;
-              el.remove();
-            }); } catch(e) {}
+            try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
           });
 
           // 2. Find content container
@@ -376,11 +374,7 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           }
 
-          // 5. Pre-harvest: capture whatever is currently visible before virtual
-          // scroll disable (which may cause reflows that unmount elements).
-          harvest();
-
-          // 6. Disable virtual scroll
+          // 5. Disable virtual scroll
           document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
             if (c.scrollHeight > c.clientHeight) {
               c.style.overflow = 'visible';
