@@ -231,17 +231,7 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
               document.querySelector('[class*="scroll"]') || document.documentElement;
           }
 
-          // 4. Disable virtual scroll
-          document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
-            if (c.scrollHeight > c.clientHeight) {
-              c.style.overflow = 'visible';
-              c.style.maxHeight = 'none';
-              c.style.height = 'auto';
-            }
-          });
-          await new Promise(function(r) { setTimeout(r, 2000); });
-
-          // 5. Filters
+          // 4. Filters (defined before virtual scroll disable so we can pre-harvest)
           var uiStrings = [
             'Help Center', 'Keyboard Shortcuts', 'Shared With Me',
             'Last updated', 'Share', 'Copy Link', 'More', 'Comments',
@@ -381,7 +371,22 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           }
 
-          // 6. Scroll and harvest
+          // 5. Pre-harvest: capture content visible BEFORE virtual scroll disable.
+          // Feishu's virtual scroller may unmount DOM nodes when we change overflow,
+          // so the first image (visible on initial load) can disappear after step 6.
+          harvest();
+
+          // 6. Disable virtual scroll
+          document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
+            if (c.scrollHeight > c.clientHeight) {
+              c.style.overflow = 'visible';
+              c.style.maxHeight = 'none';
+              c.style.height = 'auto';
+            }
+          });
+          await new Promise(function(r) { setTimeout(r, 2000); });
+
+          // 7. Scroll and harvest
           var totalH = Math.max(scrollEl.scrollHeight, document.body.scrollHeight, 8000);
           for (var y = 0; y < totalH; y += 300) {
             scrollEl.scrollTop = y;
