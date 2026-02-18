@@ -113,6 +113,24 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           capturedImages.set(rUrl, dataUrl);
           // Also store by pathname for fuzzy matching (evaluate may see different query params)
           try { capturedImages.set(new URL(rUrl).pathname, dataUrl); } catch {}
+          // Store under all URLs in the redirect chain — the evaluate sees the
+          // original pre-redirect URL while resp.url() is the final URL.
+          try {
+            const chain = resp.request().redirectChain();
+            for (const req of chain) {
+              const origUrl: string = req.url();
+              capturedImages.set(origUrl, dataUrl);
+              try { capturedImages.set(new URL(origUrl).pathname, dataUrl); } catch {}
+            }
+          } catch {}
+          // Also store under the request URL (before redirect) if different from response URL
+          try {
+            const reqUrl: string = resp.request().url();
+            if (reqUrl !== rUrl) {
+              capturedImages.set(reqUrl, dataUrl);
+              try { capturedImages.set(new URL(reqUrl).pathname, dataUrl); } catch {}
+            }
+          } catch {}
         } catch {}
       });
     }
