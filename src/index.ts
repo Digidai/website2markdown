@@ -371,10 +371,29 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             });
           }
 
-          // 5. Pre-harvest: capture content visible BEFORE virtual scroll disable.
-          // Feishu's virtual scroller may unmount DOM nodes when we change overflow,
-          // so the first image (visible on initial load) can disappear after step 6.
+          // 5. Pre-harvest: capture content images from the ENTIRE document before
+          // virtual scroll disable. The first image may be outside contentRoot
+          // (e.g. rendered above the editable area) or get unmounted when we
+          // change overflow. harvest() only scans contentRoot, so we also need
+          // a document-wide scan for Feishu content images (class "docx-image").
           harvest();
+          // Document-wide fallback: find content images that harvest() missed
+          // because they're outside contentRoot.
+          document.querySelectorAll('img.docx-image, img[class*="docx-image"]').forEach(function(img) {
+            if (!isContentImage(img)) return;
+            var src = img.getAttribute('src') || img.getAttribute('data-src') || '';
+            if (!src || src.indexOf('data:') === 0) return;
+            var pathKey = '';
+            try { pathKey = new URL(src, location.href).pathname; } catch(e) {}
+            var key = pathKey || src;
+            if (!seenText.has('IMG:' + key)) {
+              seenText.add('IMG:' + key);
+              imgUrls.push(src);
+              // Insert at position 0 — these are typically above-the-fold images
+              // that precede the scrollable content area
+              collected.unshift('{{IMG:' + src + '}}');
+            }
+          });
 
           // 6. Disable virtual scroll
           document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
