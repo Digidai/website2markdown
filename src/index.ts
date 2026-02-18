@@ -269,30 +269,75 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
 
-          return { text: collected.join('\\n\\n'), images: imgs };
+          // 7. Also sweep entire document for images (fallback if contentRoot missed them)
+          document.querySelectorAll('img').forEach(function(img) {
+            var src = img.getAttribute('src') || img.getAttribute('data-src') || img.getAttribute('data-origin-src') || '';
+            if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
+              imgs.push(src);
+            }
+          });
+
+          // 8. Convert images to base64 data URLs (browser has session cookies)
+          // Without this, Feishu image URLs require auth and won't load for end users.
+          var imgDataMap = {};
+          var maxConvert = Math.min(imgs.length, 15);
+          for (var k = 0; k < maxConvert; k++) {
+            try {
+              var imgResp = await fetch(imgs[k], { credentials: 'include' });
+              if (!imgResp.ok) continue;
+              var ct = imgResp.headers.get('content-type') || '';
+              if (ct.indexOf('image') === -1) continue;
+              var imgBlob = await imgResp.blob();
+              if (imgBlob.size > 2 * 1024 * 1024) continue;
+              var dataUrl = await new Promise(function(resolve) {
+                var reader = new FileReader();
+                reader.onloadend = function() { resolve(reader.result); };
+                reader.onerror = function() { resolve(null); };
+                reader.readAsDataURL(imgBlob);
+              });
+              if (dataUrl) imgDataMap[imgs[k]] = dataUrl;
+            } catch(e) {}
+          }
+
+          // Replace image markers with base64 data URLs
+          for (var m = 0; m < collected.length; m++) {
+            var markerMatch = collected[m].match(/^\{\{IMG:(.+)\}\}$/);
+            if (markerMatch && imgDataMap[markerMatch[1]]) {
+              collected[m] = '{{IMG:' + imgDataMap[markerMatch[1]] + '}}';
+            }
+          }
+
+          // Build base64 image list for any extras not in markers
+          var b64imgs = [];
+          for (var key in imgDataMap) {
+            b64imgs.push(imgDataMap[key]);
+          }
+
+          return { text: collected.join('\\n\\n'), images: b64imgs };
         })()
       `);
 
       const feishuResult = content as { text?: string; images?: string[] } | null;
       if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
         const title = await page.title();
-        // Build a clean HTML document — images are inline via {{IMG:url}} markers
+        // Build a clean HTML document — images are inline via {{IMG:dataurl}} markers
         let html = `<html><head><title>${title}</title></head><body>`;
         html += `<h1>${title}</h1>`;
         const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
+        const usedImgs = new Set<string>();
         html += feishuResult.text.split('\n\n').map((block: string) => {
           const imgMatch = block.match(imgMarkerRe);
-          if (imgMatch) return `<figure><img src="${imgMatch[1]}" /></figure>`;
+          if (imgMatch) {
+            usedImgs.add(imgMatch[1]);
+            return `<figure><img src="${imgMatch[1]}" /></figure>`;
+          }
           if (block.startsWith('#')) return `<p>${block}</p>`;
           return `<p>${block}</p>`;
         }).join('\n');
-        // Append any remaining images not already inline
+        // Append remaining base64 images not already placed inline
         if (feishuResult.images && feishuResult.images.length > 0) {
-          const inlineUrls = new Set(
-            feishuResult.text.match(/\{\{IMG:(.+?)\}\}/g)?.map((m: string) => m.slice(6, -2)) || []
-          );
           feishuResult.images.forEach((src: string) => {
-            if (!inlineUrls.has(src)) {
+            if (!usedImgs.has(src)) {
               html += `<figure><img src="${src}" /></figure>`;
             }
           });
