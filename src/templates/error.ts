@@ -8,6 +8,9 @@ export function errorPageHTML(title: string, message: string, statusCode?: numbe
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Error &mdash; ${escapeHtml(title)}</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta property="og:title" content="Error — ${escapeHtml(title)}">
+  <meta property="og:type" content="website">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">

@@ -8,6 +8,23 @@ export function landingPageHTML(host: string): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${h} - Convert Any URL to Markdown</title>
+  <meta name="description" content="Convert any URL to clean, readable Markdown instantly. Three conversion paths: native edge Markdown, Readability + Turndown, and headless browser rendering. For AI agents, LLMs, and developers.">
+  <link rel="canonical" href="https://${h}/">
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="${h} — Convert Any URL to Markdown">
+  <meta property="og:description" content="Prepend ${h}/ before any URL. Clean, readable Markdown for AI agents, LLMs, and developers. Powered by Cloudflare Workers.">
+  <meta property="og:url" content="https://${h}/">
+  <meta property="og:site_name" content="${h}">
+  <meta property="og:image" content="https://${h}/api/og">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="en_US">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${h} — Convert Any URL to Markdown">
+  <meta name="twitter:description" content="Prepend ${h}/ before any URL. Clean, readable Markdown for AI agents, LLMs, and developers.">
+  <meta name="twitter:image" content="https://${h}/api/og">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -306,6 +323,18 @@ export function landingPageHTML(host: string): string {
     Built on Cloudflare Workers &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Markdown for Agents</a>
   </footer>
 
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "${h}",
+    "description": "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
+    "url": "https://${h}/",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Any",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
   <script>
     function handleSubmit(e) {
       e.preventDefault();

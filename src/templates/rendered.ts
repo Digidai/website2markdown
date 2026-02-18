@@ -1,5 +1,22 @@
 import { escapeHtml } from "../security";
 
+/** Extract a plain-text snippet from markdown for use as description. */
+function contentSnippet(content: string, maxLen = 160): string {
+  const plain = content
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/~~(.+?)~~/g, "$1")
+    .replace(/`(.+?)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^[-*+]\s/gm, "")
+    .replace(/^>\s/gm, "")
+    .replace(/\n+/g, " ")
+    .trim();
+  return plain.length > maxLen ? plain.slice(0, maxLen - 1) + "\u2026" : plain;
+}
+
 export function renderedPageHTML(
   host: string,
   content: string,
@@ -7,8 +24,12 @@ export function renderedPageHTML(
   tokenCount: string,
   method: "native" | "fallback" | "browser",
   cached: boolean = false,
+  articleTitle: string = "",
 ): string {
   const escapedContent = escapeHtml(content);
+  const ogTitle = articleTitle || sourceUrl;
+  const ogDescription = contentSnippet(content);
+  const ogImageUrl = `https://${host}/api/og?title=${encodeURIComponent(ogTitle)}`;
   const statusConfig: Record<string, { label: string; cls: string }> = {
     native: { label: "Native Markdown", cls: "st-native" },
     fallback: { label: "Readability + Turndown", cls: "st-fallback" },
@@ -22,7 +43,23 @@ export function renderedPageHTML(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MD &mdash; ${escapeHtml(sourceUrl)}</title>
+  <title>${escapeHtml(ogTitle)} &mdash; ${escapeHtml(host)}</title>
+  <meta name="description" content="${escapeHtml(ogDescription)}">
+  <link rel="canonical" href="https://${escapeHtml(host)}/${escapeHtml(sourceUrl)}">
+  <!-- Open Graph -->
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="${escapeHtml(ogTitle)}">
+  <meta property="og:description" content="${escapeHtml(ogDescription)}">
+  <meta property="og:url" content="https://${escapeHtml(host)}/${escapeHtml(sourceUrl)}">
+  <meta property="og:site_name" content="${escapeHtml(host)}">
+  <meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(ogTitle)}">
+  <meta name="twitter:description" content="${escapeHtml(ogDescription)}">
+  <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
