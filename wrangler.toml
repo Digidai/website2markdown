@@ -9,7 +9,7 @@ binding = "MYBROWSER"
 # KV namespace for caching converted markdown
 [[kv_namespaces]]
 binding = "CACHE_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "ce411570e9734bae989e03c705804c94"
 
 # R2 bucket for storing images
 [[r2_buckets]]
