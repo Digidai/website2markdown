@@ -144,6 +144,41 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
 
       const content = await page.evaluate(`
         (async function() {
+          // 0. Debug: snapshot ALL images BEFORE any removal
+          var preNoiseImgs = [];
+          document.querySelectorAll('img').forEach(function(img) {
+            var src = img.getAttribute('src') || '';
+            var dataSrc = img.getAttribute('data-src') || '';
+            var cls = img.className || '';
+            var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
+            var h = img.naturalHeight || parseInt(img.getAttribute('height')) || 0;
+            var parentChain = [];
+            var p = img.parentElement;
+            for (var d = 0; d < 5 && p; d++) {
+              parentChain.push(p.tagName + (p.className ? '.' + (p.className || '').substring(0, 60) : ''));
+              p = p.parentElement;
+            }
+            preNoiseImgs.push({
+              src: src.substring(0, 200),
+              dataSrc: dataSrc.substring(0, 200),
+              cls: cls.substring(0, 80),
+              w: w, h: h,
+              parentChain: parentChain
+            });
+          });
+          // Also look for elements with background-image or data attributes referencing the missing image ID
+          var coverElements = [];
+          document.querySelectorAll('[style*="background-image"], [data-cover], [class*="cover"], [class*="banner"]').forEach(function(el) {
+            var style = el.getAttribute('style') || '';
+            var bgMatch = style.match(/url\\(["']?([^"')]+)["']?\\)/);
+            coverElements.push({
+              tag: el.tagName,
+              cls: (el.className || '').substring(0, 80),
+              bgUrl: bgMatch ? bgMatch[1].substring(0, 200) : '',
+              dataCover: (el.getAttribute('data-cover') || '').substring(0, 200)
+            });
+          });
+
           // 1. Remove Feishu UI noise
           var uiNoise = [
             'nav', 'header', 'footer',
@@ -257,10 +292,11 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
               }
             });
 
-            // Debug: collect info about ALL images in DOM
-            if (debugImgs.length === 0) {
-              document.querySelectorAll('img').forEach(function(img) {
-                var src = img.getAttribute('src') || '';
+            // Debug: track ALL unique image srcs seen across all scroll positions
+            scope.querySelectorAll('img').forEach(function(img) {
+              var src = img.getAttribute('src') || '';
+              if (src && !seenText.has('DEBUG_IMG:' + src.substring(0, 100))) {
+                seenText.add('DEBUG_IMG:' + src.substring(0, 100));
                 var dataSrc = img.getAttribute('data-src') || '';
                 var cls = img.className || '';
                 var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
@@ -270,8 +306,8 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
                 var parentTag = img.parentElement ? img.parentElement.tagName : 'none';
                 var parentCls = img.parentElement ? (img.parentElement.className || '').substring(0, 80) : '';
                 debugImgs.push({
-                  src: src.substring(0, 150),
-                  dataSrc: dataSrc.substring(0, 150),
+                  src: src.substring(0, 200),
+                  dataSrc: dataSrc.substring(0, 200),
                   cls: cls.substring(0, 80),
                   w: w, h: h,
                   inScope: inScope,
@@ -279,8 +315,8 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
                   parentTag: parentTag,
                   parentCls: parentCls
                 });
-              });
-            }
+              }
+            });
 
             // Collect text and images in DOM order
             var blocks = scope.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, img, figure, [class*="image-block"]');
@@ -358,14 +394,14 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
           await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
 
-          return { text: collected.join('\\n\\n'), images: imgUrls, debugImgs: debugImgs };
+          return { text: collected.join('\\n\\n'), images: imgUrls, debugImgs: debugImgs, preNoiseImgs: preNoiseImgs, coverElements: coverElements };
         })()
       `);
 
       // Wait for pending response handlers to finish
       await new Promise((r) => setTimeout(r, 1000));
 
-      const feishuResult = content as { text?: string; images?: string[]; debugImgs?: any[] } | null;
+      const feishuResult = content as { text?: string; images?: string[]; debugImgs?: any[]; preNoiseImgs?: any[]; coverElements?: any[] } | null;
       if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
         const title = await page.title();
 
@@ -413,7 +449,9 @@ async function fetchWithBrowser(url: string, env: Env, debug = false): Promise<s
             capturedKeys,
             imgMarkersInText: (feishuResult.text.match(/\{\{IMG:[^}]+\}\}/g) || []).map((m: string) => m.substring(0, 200)),
             resolveLog,
-            allDomImages: feishuResult.debugImgs,
+            preNoiseImgs: feishuResult.preNoiseImgs,
+            coverElements: feishuResult.coverElements,
+            allDomImgsAcrossScrolls: feishuResult.debugImgs,
             collectedImgUrls: feishuResult.images,
           };
           return `__FEISHU_DEBUG__${JSON.stringify(debugData)}`;
