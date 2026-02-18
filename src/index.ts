@@ -89,6 +89,7 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
 
     // Capture image responses during page load (Feishu tokens are single-use,
     // so a second fetch() for the same URL will fail).
+    // Store by both full URL and pathname for fuzzy matching.
     const capturedImages = new Map<string, string>();
     if (isFeishu) {
       page.on("response", async (resp: any) => {
@@ -96,19 +97,22 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           if (resp.status() !== 200) return;
           const rUrl: string = resp.url();
           const ct: string = resp.headers()["content-type"] || "";
+          // Skip non-image responses and SVGs (icons)
+          if (ct.includes("svg")) return;
           if (!ct.includes("image") && !ct.includes("octet-stream")) return;
           const buf = await resp.buffer();
-          if (buf.length < 100 || buf.length > 4 * 1024 * 1024) return;
-          // IMPORTANT: new Uint8Array(buf) copies just the relevant slice.
-          // Do NOT use buf.buffer — Node.js Buffers share a pool ArrayBuffer
-          // that is larger than the actual data, producing corrupt base64.
+          // Skip tiny images (< 5KB = likely emoji/icon) and huge ones
+          if (buf.length < 5000 || buf.length > 4 * 1024 * 1024) return;
           const bytes = new Uint8Array(buf);
           let binary = "";
           for (let i = 0; i < bytes.length; i++) {
             binary += String.fromCharCode(bytes[i]);
           }
           const mime = ct.split(";")[0].trim() || "image/png";
-          capturedImages.set(rUrl, `data:${mime};base64,${btoa(binary)}`);
+          const dataUrl = `data:${mime};base64,${btoa(binary)}`;
+          capturedImages.set(rUrl, dataUrl);
+          // Also store by pathname for fuzzy matching (evaluate may see different query params)
+          try { capturedImages.set(new URL(rUrl).pathname, dataUrl); } catch {}
         } catch {}
       });
     }
@@ -122,30 +126,31 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
 
       const content = await page.evaluate(`
         (async function() {
-          // 1. Remove known Feishu UI noise before harvesting
+          // 1. Remove Feishu UI noise
           var uiNoise = [
-            'nav', 'header',
+            'nav', 'header', 'footer',
             '[class*="sidebar"]', '[class*="Sidebar"]', '[class*="side-bar"]',
-            '[class*="catalog-"]', '[class*="Catalog"]',
+            '[class*="catalog"]', '[class*="Catalog"]',
             '[class*="header-bar"]', '[class*="HeaderBar"]',
             '[class*="help-center"]', '[class*="HelpCenter"]',
             '[class*="shortcut"]', '[class*="Shortcut"]',
-            '[class*="share-"]', '[class*="Share"]',
-            '[class*="comment-"]', '[class*="Comment"]',
+            '[class*="share-"]', '[class*="comment-"]', '[class*="Comment"]',
             '[class*="navigation"]', '[class*="Navigation"]',
             '[class*="breadcrumb"]', '[class*="Breadcrumb"]',
             '[class*="toast"]', '[class*="Toast"]',
             '[class*="modal"]', '[class*="Modal"]',
             '[class*="toolbar"]', '[class*="Toolbar"]',
-            '[class*="suite-header"]', '[class*="lark-header"]'
+            '[class*="suite-header"]', '[class*="lark-header"]',
+            '[class*="reaction"]', '[class*="Reaction"]',
+            '[class*="emoji-panel"]', '[class*="quick-action"]',
+            '[class*="doc-meta"]', '[class*="last-edit"]',
+            '[class*="wiki-header"]', '[class*="wiki-nav"]'
           ];
           uiNoise.forEach(function(sel) {
-            try {
-              document.querySelectorAll(sel).forEach(function(el) { el.remove(); });
-            } catch(e) {}
+            try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
           });
 
-          // 2. Find the document content container (scope harvesting here)
+          // 2. Find content container
           var contentRoot =
             document.querySelector('[data-content-editable-root="true"]') ||
             document.querySelector('[class*="wiki-content"]') ||
@@ -156,7 +161,7 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
             document.querySelector('article') ||
             document.body;
 
-          // 3. Find the scrollable ancestor of the content
+          // 3. Find scrollable ancestor
           var scrollEl = null;
           var el = contentRoot;
           while (el && el !== document.body) {
@@ -169,13 +174,11 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
             el = el.parentElement;
           }
           if (!scrollEl) {
-            scrollEl =
-              document.querySelector('[class*="docx-scroller"]') ||
-              document.querySelector('[class*="scroll"]') ||
-              document.documentElement;
+            scrollEl = document.querySelector('[class*="docx-scroller"]') ||
+              document.querySelector('[class*="scroll"]') || document.documentElement;
           }
 
-          // 4. Try to disable virtual scroll
+          // 4. Disable virtual scroll
           document.querySelectorAll('[style*="overflow"]').forEach(function(c) {
             if (c.scrollHeight > c.clientHeight) {
               c.style.overflow = 'visible';
@@ -185,22 +188,49 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
           });
           await new Promise(function(r) { setTimeout(r, 2000); });
 
-          // 5. Known UI strings to filter out
+          // 5. Filters
           var uiStrings = [
             'Help Center', 'Keyboard Shortcuts', 'Shared With Me',
             'Last updated', 'Share', 'Copy Link', 'More', 'Comments',
-            'Table of Contents', 'Getting Started'
+            'Table of Contents', 'Getting Started', 'Created by',
+            'Feishu Docs', 'Wiki', 'Lark Docs'
           ];
+
+          function isUiText(text) {
+            for (var i = 0; i < uiStrings.length; i++) {
+              if (text === uiStrings[i]) return true;
+              if (text.length < 30 && text.indexOf(uiStrings[i]) !== -1) return true;
+            }
+            // Skip date-only strings like "Feb 17", "2024-01-01"
+            if (text.length < 20 && text.match(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\\d/)) return true;
+            return false;
+          }
+
+          function isContentImage(img) {
+            var w = img.naturalWidth || parseInt(img.getAttribute('width')) || 0;
+            var h = img.naturalHeight || parseInt(img.getAttribute('height')) || 0;
+            // Skip tiny images: emoji, stickers, icons (< 80px either dimension)
+            if (w > 0 && w < 80) return false;
+            if (h > 0 && h < 80) return false;
+            // Skip by class name
+            var cls = (img.className || '').toLowerCase();
+            if (cls.indexOf('emoji') !== -1 || cls.indexOf('reaction') !== -1 ||
+                cls.indexOf('sticker') !== -1 || cls.indexOf('icon') !== -1 ||
+                cls.indexOf('avatar') !== -1) return false;
+            // Skip SVG data URIs (icons)
+            var src = img.getAttribute('src') || '';
+            if (src.indexOf('data:image/svg') === 0) return false;
+            return true;
+          }
 
           var collected = [];
           var seenText = new Set();
-          var imgs = [];
+          var imgUrls = [];
 
           function harvest() {
-            // IMPORTANT: scope to contentRoot, not document
             var scope = contentRoot || document;
 
-            // Swap lazy-loaded images FIRST (data-src, data-origin-src, etc.)
+            // Swap lazy-loaded images
             scope.querySelectorAll('img').forEach(function(img) {
               var real = img.getAttribute('data-src') || img.getAttribute('data-origin-src') || img.getAttribute('data-original');
               if (real && (!img.getAttribute('src') || img.getAttribute('src').indexOf('data:') === 0)) {
@@ -208,49 +238,52 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
               }
             });
 
-            // Query both text and image blocks in DOM order for proper interleaving
-            var blocks = scope.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, figcaption, img, figure, [class*="text-block"], [class*="heading-block"], [class*="image-block"], [class*="img-block"]');
+            // Collect text and images in DOM order
+            var blocks = scope.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, img, figure, [class*="image-block"]');
             blocks.forEach(function(b) {
               var tag = b.tagName.toLowerCase();
 
-              // Handle img elements inline
+              // Handle images
               if (tag === 'img') {
+                if (!isContentImage(b)) return;
                 var src = b.getAttribute('src') || b.getAttribute('data-src') || '';
-                if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
-                  imgs.push(src);
-                  var marker = '{{IMG:' + src + '}}';
-                  if (!seenText.has(marker)) {
-                    seenText.add(marker);
-                    collected.push(marker);
-                  }
+                if (!src || src.indexOf('data:') === 0) return;
+                // Store both full URL and pathname for matching
+                var pathKey = '';
+                try { pathKey = new URL(src, location.href).pathname; } catch(e) {}
+                var key = pathKey || src;
+                if (!seenText.has('IMG:' + key)) {
+                  seenText.add('IMG:' + key);
+                  imgUrls.push(src);
+                  collected.push('{{IMG:' + src + '}}');
                 }
                 return;
               }
 
               // Handle figure / image-block containers
-              if (tag === 'figure' || (b.className && (b.className.indexOf('image') !== -1 || b.className.indexOf('img-block') !== -1))) {
+              if (tag === 'figure' || (b.className && b.className.indexOf('image') !== -1)) {
                 var imgEl = b.querySelector('img');
-                if (imgEl) {
+                if (imgEl && isContentImage(imgEl)) {
                   var src = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
-                  if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
-                    imgs.push(src);
-                    var marker = '{{IMG:' + src + '}}';
-                    if (!seenText.has(marker)) {
-                      seenText.add(marker);
-                      collected.push(marker);
-                    }
+                  if (!src || src.indexOf('data:') === 0) return;
+                  var pathKey = '';
+                  try { pathKey = new URL(src, location.href).pathname; } catch(e) {}
+                  var key = pathKey || src;
+                  if (!seenText.has('IMG:' + key)) {
+                    seenText.add('IMG:' + key);
+                    imgUrls.push(src);
+                    collected.push('{{IMG:' + src + '}}');
                   }
                 }
                 return;
               }
 
+              // Handle text
               var text = b.textContent.trim();
-              if (text.length === 0 || seenText.has(text)) return;
-              // Skip known UI strings
-              for (var i = 0; i < uiStrings.length; i++) {
-                if (text === uiStrings[i] || (text.length < 30 && text.indexOf(uiStrings[i]) !== -1)) return;
-              }
+              if (text.length < 2 || seenText.has(text)) return;
+              if (isUiText(text)) return;
               seenText.add(text);
+
               if (tag.match(/^h[1-6]$/)) {
                 var level = tag.charAt(1);
                 var prefix = '';
@@ -263,25 +296,12 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
               } else if (tag === 'pre') {
                 collected.push('\\n\`\`\`\\n' + text + '\\n\`\`\`\\n');
               } else {
-                // Check if this text block also contains images
-                var innerImgs = b.querySelectorAll('img');
-                innerImgs.forEach(function(img) {
-                  var src = img.getAttribute('src') || img.getAttribute('data-src') || '';
-                  if (src && src.indexOf('data:') !== 0 && !imgs.includes(src)) {
-                    imgs.push(src);
-                    var marker = '{{IMG:' + src + '}}';
-                    if (!seenText.has(marker)) {
-                      seenText.add(marker);
-                      collected.push(marker);
-                    }
-                  }
-                });
                 collected.push(text);
               }
             });
           }
 
-          // 6. Scroll and harvest — use both scroll targets for safety
+          // 6. Scroll and harvest
           var totalH = Math.max(scrollEl.scrollHeight, document.body.scrollHeight, 8000);
           for (var y = 0; y < totalH; y += 300) {
             scrollEl.scrollTop = y;
@@ -289,111 +309,52 @@ async function fetchWithBrowser(url: string, env: Env): Promise<string> {
             await new Promise(function(r) { setTimeout(r, 350); });
             harvest();
           }
-          // Scroll to very bottom and do final harvests
           scrollEl.scrollTop = 999999;
           window.scrollTo(0, 999999);
           await new Promise(function(r) { setTimeout(r, 500); });
           harvest();
 
-          // 7. Also sweep entire document for images (fallback if contentRoot missed them)
-          document.querySelectorAll('img').forEach(function(img) {
-            var attrs = ['src', 'data-src', 'data-origin-src', 'data-original', 'data-actualsrc'];
-            for (var a = 0; a < attrs.length; a++) {
-              var val = img.getAttribute(attrs[a]);
-              if (val && val.indexOf('data:') !== 0 && val.indexOf('http') === 0 && !imgs.includes(val)) {
-                imgs.push(val);
-                break;
-              }
-            }
-          });
-          // Also look for background-image URLs (some Feishu images use div backgrounds)
-          document.querySelectorAll('[style*="background-image"]').forEach(function(el) {
-            var bg = el.style.backgroundImage || '';
-            var urlMatch = bg.match(/url\\(["']?(https?:\\/\\/.+?)["']?\\)/);
-            if (urlMatch && !imgs.includes(urlMatch[1])) {
-              imgs.push(urlMatch[1]);
-            }
-          });
-
-          // 8. Fallback: try in-browser fetch for images not captured by response interception
-          var imgDataMap = {};
-          var maxConvert = Math.min(imgs.length, 20);
-          for (var k = 0; k < maxConvert; k++) {
-            try {
-              var imgResp = await fetch(imgs[k], { credentials: 'include' });
-              if (!imgResp.ok) continue;
-              var ct = imgResp.headers.get('content-type') || '';
-              if (ct.indexOf('image') === -1 && ct.indexOf('octet-stream') === -1) continue;
-              var imgBlob = await imgResp.blob();
-              if (imgBlob.size < 100 || imgBlob.size > 4 * 1024 * 1024) continue;
-              var dataUrl = await new Promise(function(resolve) {
-                var reader = new FileReader();
-                reader.onloadend = function() { resolve(reader.result); };
-                reader.onerror = function() { resolve(null); };
-                reader.readAsDataURL(imgBlob);
-              });
-              if (dataUrl) imgDataMap[imgs[k]] = dataUrl;
-            } catch(e) {}
-          }
-
-          // Replace image markers with in-browser base64 (fallback)
-          for (var m = 0; m < collected.length; m++) {
-            var markerMatch = collected[m].match(/^\{\{IMG:(.+)\}\}$/);
-            if (markerMatch && imgDataMap[markerMatch[1]]) {
-              collected[m] = '{{IMG:' + imgDataMap[markerMatch[1]] + '}}';
-            }
-          }
-
-          return { text: collected.join('\\n\\n'), images: imgs };
+          return { text: collected.join('\\n\\n'), images: imgUrls };
         })()
       `);
 
-      // Wait for any pending response handlers to finish capturing images
+      // Wait for pending response handlers to finish
       await new Promise((r) => setTimeout(r, 1000));
 
       const feishuResult = content as { text?: string; images?: string[] } | null;
       if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
         const title = await page.title();
 
-        // Build a URL → base64 map: response-captured images (primary) + evaluate fallback
-        // Response interception captures images on first load (before tokens expire).
-        const imgMap = new Map<string, string>();
-        // Add response-captured base64 data (most reliable — single-use tokens handled)
-        for (const [imgUrl, dataUrl] of capturedImages) {
-          imgMap.set(imgUrl, dataUrl);
+        // Resolve image URL to captured base64. Try exact match, then pathname match.
+        function resolveImage(rawUrl: string): string {
+          const exact = capturedImages.get(rawUrl);
+          if (exact) return exact;
+          try {
+            const pathMatch = capturedImages.get(new URL(rawUrl).pathname);
+            if (pathMatch) return pathMatch;
+          } catch {}
+          // Last resort: find any captured URL containing the same path segment
+          try {
+            const path = new URL(rawUrl).pathname;
+            for (const [key, val] of capturedImages) {
+              if (key.includes(path) || path.includes(key)) return val;
+            }
+          } catch {}
+          return rawUrl; // Return raw URL if no match found
         }
-
-        // For each raw URL from evaluate, check if we have it captured
-        // The evaluate text may contain {{IMG:data:...}} (already base64 from fallback)
-        // or {{IMG:https://...}} (raw URL needing mapping)
 
         let html = `<html><head><title>${title}</title></head><body>`;
         html += `<h1>${title}</h1>`;
         const imgMarkerRe = /^\{\{IMG:(.+)\}\}$/;
-        const usedImgs = new Set<string>();
         html += feishuResult.text.split('\n\n').map((block: string) => {
           const imgMatch = block.match(imgMarkerRe);
           if (imgMatch) {
-            let src = imgMatch[1];
-            // If it's a raw URL, try to map to response-captured base64
-            if (src.startsWith("http")) {
-              const captured = imgMap.get(src);
-              if (captured) src = captured;
-            }
-            usedImgs.add(src);
+            const src = resolveImage(imgMatch[1]);
             return `<figure><img src="${src}" /></figure>`;
           }
           if (block.startsWith('#')) return `<p>${block}</p>`;
           return `<p>${block}</p>`;
         }).join('\n');
-
-        // Append remaining captured images not already placed inline
-        for (const [, dataUrl] of capturedImages) {
-          if (!usedImgs.has(dataUrl)) {
-            html += `<figure><img src="${dataUrl}" /></figure>`;
-            usedImgs.add(dataUrl);
-          }
-        }
         html += `</body></html>`;
         return html;
       }
