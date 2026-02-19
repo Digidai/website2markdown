@@ -1,5 +1,260 @@
 import { MAX_URL_LENGTH } from "./config";
 
+const SAFE_URL_MEMO_MAX_SIZE = 2048;
+const safeUrlMemo = new Map<string, boolean>();
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+const IDEMPOTENT_METHODS = new Set([
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PUT",
+  "DELETE",
+  "TRACE",
+]);
+const DEFAULT_FETCH_RETRIES = 2;
+const DEFAULT_RETRY_DELAY_MS = 80;
+const DEFAULT_MAX_RETRY_DELAY_MS = 400;
+const REBIND_SUFFIXES = [".nip.io", ".sslip.io", ".xip.io", ".localtest.me"];
+
+type FetchRetryOptions = {
+  maxRetries?: number;
+  retryDelayMs?: number;
+  maxRetryDelayMs?: number;
+};
+
+function normalizeHostname(parsed: URL): string {
+  // Strip trailing dot (FQDN notation: "localhost." bypasses exact match)
+  return parsed.hostname.toLowerCase().replace(/\.$/, "");
+}
+
+function getSafeUrlMemoKey(protocol: string, hostname: string): string {
+  return `${protocol}//${hostname}`;
+}
+
+function memoizeSafeUrlResult(key: string, value: boolean): void {
+  if (safeUrlMemo.size >= SAFE_URL_MEMO_MAX_SIZE) {
+    const oldestKey = safeUrlMemo.keys().next().value;
+    if (oldestKey !== undefined) {
+      safeUrlMemo.delete(oldestKey);
+    }
+  }
+  safeUrlMemo.set(key, value);
+}
+
+function isSafeUrlForParsed(protocol: string, hostname: string): boolean {
+  // Loopback
+  if (
+    hostname === "localhost" ||
+    /^127\./.test(hostname) ||
+    hostname === "[::1]" ||
+    hostname === "::1"
+  )
+    return false;
+
+  // Unspecified / wildcard
+  if (hostname === "0.0.0.0") return false;
+
+  // Carrier-grade NAT (100.64.0.0/10)
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(hostname))
+    return false;
+
+  // IPv4 private ranges
+  if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname))
+    return false;
+
+  // AWS / cloud metadata
+  if (hostname === "169.254.169.254") return false;
+
+  // Link-local IPv4
+  if (/^169\.254\./.test(hostname)) return false;
+
+  // IPv6 private / link-local (bracket-stripped)
+  const bare = hostname.replace(/^\[|\]$/g, "");
+
+  // Standard IPv6 private/link-local
+  if (/^(fc|fd|fe80)/i.test(bare)) return false;
+
+  // IPv6 loopback — all representations
+  if (
+    bare === "::1" ||
+    bare === "0:0:0:0:0:0:0:1" ||
+    bare === "0000:0000:0000:0000:0000:0000:0000:0001" ||
+    /^0*:0*:0*:0*:0*:0*:0*:0*1$/.test(bare)
+  )
+    return false;
+
+  // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
+  // These are equivalent to the IPv4 address and bypass simple hostname checks
+  const v4MappedMatch = bare.match(
+    /^(?:0*:)*:?(?:ffff:?)?((?:\d{1,3}\.){3}\d{1,3})$/i,
+  );
+  if (v4MappedMatch) {
+    const mappedIp = v4MappedMatch[1];
+    // Check the embedded IPv4 against private ranges
+    if (mappedIp === "127.0.0.1" || mappedIp.startsWith("127."))
+      return false;
+    if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(mappedIp))
+      return false;
+    if (/^169\.254\./.test(mappedIp)) return false;
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
+      return false;
+    if (mappedIp === "0.0.0.0") return false;
+  }
+
+  // IPv4-compatible IPv6 in hex form (e.g., ::ffff:7f00:0001 = 127.0.0.1)
+  const hexMappedMatch = bare.match(
+    /^(?:0*:)*:?ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i,
+  );
+  if (hexMappedMatch) {
+    const hi = parseInt(hexMappedMatch[1], 16);
+    const lo = parseInt(hexMappedMatch[2], 16);
+    const ip1 = (hi >> 8) & 0xff;
+    const ip2 = hi & 0xff;
+    const ip3 = (lo >> 8) & 0xff;
+    const ip4 = lo & 0xff;
+    const mappedIp = `${ip1}.${ip2}.${ip3}.${ip4}`;
+    if (mappedIp.startsWith("127.") || mappedIp.startsWith("10."))
+      return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
+    if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
+      return false;
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
+      return false;
+    if (mappedIp === "0.0.0.0") return false;
+  }
+
+  // IPv4-compatible IPv6 WITHOUT ffff (e.g., ::7f00:1 from ::127.0.0.1)
+  // Deprecated but still parsed by URL implementations
+  const hexCompatMatch = bare.match(
+    /^(?:0*:)*:?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i,
+  );
+  if (hexCompatMatch && !hexMappedMatch) {
+    const hi = parseInt(hexCompatMatch[1], 16);
+    const lo = parseInt(hexCompatMatch[2], 16);
+    const ip1 = (hi >> 8) & 0xff;
+    const ip2 = hi & 0xff;
+    const ip3 = (lo >> 8) & 0xff;
+    const ip4 = lo & 0xff;
+    const mappedIp = `${ip1}.${ip2}.${ip3}.${ip4}`;
+    if (mappedIp.startsWith("127.") || mappedIp.startsWith("10."))
+      return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
+    if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
+      return false;
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
+      return false;
+    if (mappedIp === "0.0.0.0") return false;
+  }
+
+  // Internal / local TLDs
+  if (
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    hostname.endsWith(".localhost") ||
+    hostname.endsWith(".test") ||
+    hostname.endsWith(".invalid")
+  )
+    return false;
+
+  // Must be HTTP(S)
+  if (protocol !== "http:" && protocol !== "https:")
+    return false;
+
+  // Decimal integer IP (e.g., 2130706433 = 127.0.0.1)
+  if (/^\d+$/.test(hostname)) return false;
+
+  // Hex IP (e.g., 0x7f000001)
+  if (/^0x[0-9a-f]+$/i.test(hostname)) return false;
+
+  // DNS rebinding services that resolve to arbitrary IPs
+  for (const d of REBIND_SUFFIXES) {
+    if (hostname.endsWith(d)) return false;
+  }
+
+  return true;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || (status >= 500 && status <= 599);
+}
+
+function isIdempotentRequest(init: RequestInit): boolean {
+  const method = (init.method ?? "GET").toUpperCase();
+  return IDEMPOTENT_METHODS.has(method);
+}
+
+function normalizeRetryOptions(
+  retryOptions?: FetchRetryOptions,
+): Required<FetchRetryOptions> {
+  return {
+    maxRetries: Math.max(0, retryOptions?.maxRetries ?? DEFAULT_FETCH_RETRIES),
+    retryDelayMs: Math.max(
+      0,
+      retryOptions?.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS,
+    ),
+    maxRetryDelayMs: Math.max(
+      0,
+      retryOptions?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS,
+    ),
+  };
+}
+
+function waitMs(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getRetryDelayMs(
+  attempt: number,
+  retryDelayMs: number,
+  maxRetryDelayMs: number,
+): number {
+  return Math.min(retryDelayMs * 2 ** attempt, maxRetryDelayMs);
+}
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  retryable: boolean,
+  retryOptions: Required<FetchRetryOptions>,
+): Promise<Response> {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= retryOptions.maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, {
+        ...init,
+        redirect: "manual",
+      });
+
+      if (
+        !retryable ||
+        !isRetryableStatus(response.status) ||
+        attempt === retryOptions.maxRetries
+      ) {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+      if (!retryable || attempt === retryOptions.maxRetries) {
+        throw error;
+      }
+    }
+
+    const delay = getRetryDelayMs(
+      attempt,
+      retryOptions.retryDelayMs,
+      retryOptions.maxRetryDelayMs,
+    );
+    await waitMs(delay);
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error("No response received");
+}
+
 /**
  * Validate that a URL is safe to fetch (no SSRF).
  * Blocks localhost, private/internal IPs (v4 + v6 + mapped), link-local, AWS metadata.
@@ -7,140 +262,16 @@ import { MAX_URL_LENGTH } from "./config";
 export function isSafeUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    // Strip trailing dot (FQDN notation: "localhost." bypasses exact match)
-    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
-
-    // Loopback
-    if (
-      hostname === "localhost" ||
-      /^127\./.test(hostname) ||
-      hostname === "[::1]" ||
-      hostname === "::1"
-    )
-      return false;
-
-    // Unspecified / wildcard
-    if (hostname === "0.0.0.0") return false;
-
-    // Carrier-grade NAT (100.64.0.0/10)
-    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(hostname))
-      return false;
-
-    // IPv4 private ranges
-    if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname))
-      return false;
-
-    // AWS / cloud metadata
-    if (hostname === "169.254.169.254") return false;
-
-    // Link-local IPv4
-    if (/^169\.254\./.test(hostname)) return false;
-
-    // IPv6 private / link-local (bracket-stripped)
-    const bare = hostname.replace(/^\[|\]$/g, "");
-
-    // Standard IPv6 private/link-local
-    if (/^(fc|fd|fe80)/i.test(bare)) return false;
-
-    // IPv6 loopback — all representations
-    if (
-      bare === "::1" ||
-      bare === "0:0:0:0:0:0:0:1" ||
-      bare === "0000:0000:0000:0000:0000:0000:0000:0001" ||
-      /^0*:0*:0*:0*:0*:0*:0*:0*1$/.test(bare)
-    )
-      return false;
-
-    // IPv4-mapped IPv6 addresses (::ffff:x.x.x.x)
-    // These are equivalent to the IPv4 address and bypass simple hostname checks
-    const v4MappedMatch = bare.match(
-      /^(?:0*:)*:?(?:ffff:?)?((?:\d{1,3}\.){3}\d{1,3})$/i,
-    );
-    if (v4MappedMatch) {
-      const mappedIp = v4MappedMatch[1];
-      // Check the embedded IPv4 against private ranges
-      if (mappedIp === "127.0.0.1" || mappedIp.startsWith("127."))
-        return false;
-      if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(mappedIp))
-        return false;
-      if (/^169\.254\./.test(mappedIp)) return false;
-      if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
-        return false;
-      if (mappedIp === "0.0.0.0") return false;
+    const hostname = normalizeHostname(parsed);
+    const cacheKey = getSafeUrlMemoKey(parsed.protocol, hostname);
+    const cached = safeUrlMemo.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
     }
 
-    // IPv4-compatible IPv6 in hex form (e.g., ::ffff:7f00:0001 = 127.0.0.1)
-    const hexMappedMatch = bare.match(
-      /^(?:0*:)*:?ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i,
-    );
-    if (hexMappedMatch) {
-      const hi = parseInt(hexMappedMatch[1], 16);
-      const lo = parseInt(hexMappedMatch[2], 16);
-      const ip1 = (hi >> 8) & 0xff;
-      const ip2 = hi & 0xff;
-      const ip3 = (lo >> 8) & 0xff;
-      const ip4 = lo & 0xff;
-      const mappedIp = `${ip1}.${ip2}.${ip3}.${ip4}`;
-      if (mappedIp.startsWith("127.") || mappedIp.startsWith("10."))
-        return false;
-      if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
-      if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
-        return false;
-      if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
-        return false;
-      if (mappedIp === "0.0.0.0") return false;
-    }
-
-    // IPv4-compatible IPv6 WITHOUT ffff (e.g., ::7f00:1 from ::127.0.0.1)
-    // Deprecated but still parsed by URL implementations
-    const hexCompatMatch = bare.match(
-      /^(?:0*:)*:?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i,
-    );
-    if (hexCompatMatch && !hexMappedMatch) {
-      const hi = parseInt(hexCompatMatch[1], 16);
-      const lo = parseInt(hexCompatMatch[2], 16);
-      const ip1 = (hi >> 8) & 0xff;
-      const ip2 = hi & 0xff;
-      const ip3 = (lo >> 8) & 0xff;
-      const ip4 = lo & 0xff;
-      const mappedIp = `${ip1}.${ip2}.${ip3}.${ip4}`;
-      if (mappedIp.startsWith("127.") || mappedIp.startsWith("10."))
-        return false;
-      if (/^172\.(1[6-9]|2\d|3[01])\./.test(mappedIp)) return false;
-      if (mappedIp.startsWith("192.168.") || mappedIp.startsWith("169.254."))
-        return false;
-      if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(mappedIp))
-        return false;
-      if (mappedIp === "0.0.0.0") return false;
-    }
-
-    // Internal / local TLDs
-    if (
-      hostname.endsWith(".local") ||
-      hostname.endsWith(".internal") ||
-      hostname.endsWith(".localhost") ||
-      hostname.endsWith(".test") ||
-      hostname.endsWith(".invalid")
-    )
-      return false;
-
-    // Must be HTTP(S)
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-      return false;
-
-    // Decimal integer IP (e.g., 2130706433 = 127.0.0.1)
-    if (/^\d+$/.test(hostname)) return false;
-
-    // Hex IP (e.g., 0x7f000001)
-    if (/^0x[0-9a-f]+$/i.test(hostname)) return false;
-
-    // DNS rebinding services that resolve to arbitrary IPs
-    const rebindDomains = ['.nip.io', '.sslip.io', '.xip.io', '.localtest.me'];
-    for (const d of rebindDomains) {
-      if (hostname.endsWith(d)) return false;
-    }
-
-    return true;
+    const result = isSafeUrlForParsed(parsed.protocol, hostname);
+    memoizeSafeUrlResult(cacheKey, result);
+    return result;
   } catch {
     return false;
   }
@@ -207,17 +338,22 @@ export async function fetchWithSafeRedirects(
   url: string,
   init: RequestInit,
   maxHops: number = 5,
+  retryOptions?: FetchRetryOptions,
 ): Promise<{ response: Response; finalUrl: string }> {
   let currentUrl = url;
   let response: Response | null = null;
+  const retryable = isIdempotentRequest(init);
+  const normalizedRetryOptions = normalizeRetryOptions(retryOptions);
 
   for (let hops = 0; hops <= maxHops; hops++) {
-    response = await fetch(currentUrl, {
-      ...init,
-      redirect: "manual",
-    });
+    response = await fetchWithRetry(
+      currentUrl,
+      init,
+      retryable,
+      normalizedRetryOptions,
+    );
 
-    if (![301, 302, 303, 307, 308].includes(response.status)) {
+    if (!REDIRECT_STATUS_CODES.has(response.status)) {
       break;
     }
 

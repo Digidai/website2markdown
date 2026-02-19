@@ -1,6 +1,7 @@
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env, SiteAdapter } from "../types";
 import {
+  BROWSER_CONCURRENCY,
   BROWSER_TIMEOUT,
   FEISHU_BROWSER_TIMEOUT,
   FEISHU_SCROLL_BUDGET,
@@ -24,6 +25,131 @@ import { juejinAdapter } from "./adapters/juejin";
 import { genericAdapter } from "./adapters/generic";
 // Feishu has its own dedicated function (not adapter-based)
 import { feishuAdapter } from "./adapters/feishu";
+
+const BROWSER_QUEUE_TIMEOUT_MS = 10_000;
+const LOW_VALUE_RESOURCE_TYPES = new Set([
+  "font",
+  "manifest",
+  "media",
+  "texttrack",
+]);
+
+type PermitRelease = () => void;
+
+interface QueueEntry {
+  timer: ReturnType<typeof setTimeout>;
+  resolve: (release: PermitRelease) => void;
+}
+
+/**
+ * Global in-memory concurrency gate for browser rendering.
+ * Shared across requests within the same worker isolate.
+ */
+export class BrowserCapacityGate {
+  private readonly maxConcurrent: number;
+  private readonly queueTimeoutMs: number;
+  private readonly now: () => number;
+  private active = 0;
+  private readonly queue: QueueEntry[] = [];
+
+  constructor(
+    maxConcurrent: number,
+    queueTimeoutMs: number,
+    now: () => number = () => Date.now(),
+  ) {
+    if (!Number.isFinite(maxConcurrent) || maxConcurrent < 1) {
+      throw new Error("BrowserCapacityGate maxConcurrent must be >= 1");
+    }
+    if (!Number.isFinite(queueTimeoutMs) || queueTimeoutMs < 1) {
+      throw new Error("BrowserCapacityGate queueTimeoutMs must be >= 1");
+    }
+    this.maxConcurrent = Math.floor(maxConcurrent);
+    this.queueTimeoutMs = Math.floor(queueTimeoutMs);
+    this.now = now;
+  }
+
+  getActiveCount(): number {
+    return this.active;
+  }
+
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  async acquire(label: string = "unknown"): Promise<PermitRelease> {
+    if (this.active < this.maxConcurrent) {
+      this.active++;
+      return this.createRelease();
+    }
+
+    return new Promise<PermitRelease>((resolve, reject) => {
+      const enqueuedAt = this.now();
+      const entry = {} as QueueEntry;
+      const timer = setTimeout(() => {
+        const idx = this.queue.indexOf(entry);
+        if (idx >= 0) this.queue.splice(idx, 1);
+        const waitedMs = this.now() - enqueuedAt;
+        reject(
+          new Error(
+            `Browser rendering queue timeout after ${waitedMs}ms (limit=${this.maxConcurrent}, queued_url=${label})`,
+          ),
+        );
+      }, this.queueTimeoutMs);
+
+      entry.timer = timer;
+      entry.resolve = resolve;
+      this.queue.push(entry);
+    });
+  }
+
+  async run<T>(task: () => Promise<T>, label: string = "unknown"): Promise<T> {
+    const release = await this.acquire(label);
+    try {
+      return await task();
+    } finally {
+      release();
+    }
+  }
+
+  private createRelease(): PermitRelease {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.active = Math.max(0, this.active - 1);
+      this.drainQueue();
+    };
+  }
+
+  private drainQueue(): void {
+    while (this.active < this.maxConcurrent && this.queue.length > 0) {
+      const entry = this.queue.shift();
+      if (!entry) return;
+      clearTimeout(entry.timer);
+      this.active++;
+      entry.resolve(this.createRelease());
+    }
+  }
+}
+
+const browserCapacityGate = new BrowserCapacityGate(
+  BROWSER_CONCURRENCY,
+  BROWSER_QUEUE_TIMEOUT_MS,
+);
+
+function handleInterceptedRequest(req: any): void {
+  const reqUrl = req.url();
+  if (!isSafeUrl(reqUrl)) {
+    req.abort("accessdenied");
+    return;
+  }
+  const resourceType = typeof req.resourceType === "function" ? req.resourceType() : "";
+  if (LOW_VALUE_RESOURCE_TYPES.has(resourceType)) {
+    req.abort("blockedbyclient");
+    return;
+  }
+  req.continue();
+}
 
 const adapters: SiteAdapter[] = [
   feishuAdapter,
@@ -59,10 +185,12 @@ export async function fetchWithBrowser(
   env: Env,
   host: string,
 ): Promise<string> {
-  if (feishuAdapter.match(url)) {
-    return fetchWithBrowserFeishu(url, env, host);
-  }
-  return fetchWithBrowserAdapter(url, env);
+  return browserCapacityGate.run(async () => {
+    if (feishuAdapter.match(url)) {
+      return fetchWithBrowserFeishu(url, env, host);
+    }
+    return fetchWithBrowserAdapter(url, env);
+  }, url);
 }
 
 /**
@@ -85,14 +213,7 @@ async function fetchWithBrowserFeishu(
     });
 
     // SSRF protection — set up handler before enabling interception
-    page.on("request", (req: any) => {
-      const reqUrl = req.url();
-      if (!isSafeUrl(reqUrl)) {
-        req.abort("accessdenied");
-      } else {
-        req.continue();
-      }
-    });
+    page.on("request", handleInterceptedRequest);
     await page.setRequestInterception(true);
 
     // Capture image responses during page load (Feishu tokens are single-use,
@@ -547,14 +668,7 @@ async function fetchWithBrowserAdapter(
     await adapter.configurePage(page, capturedImages);
 
     // SSRF protection — set up handler before enabling interception
-    page.on("request", (req: any) => {
-      const reqUrl = req.url();
-      if (!isSafeUrl(reqUrl)) {
-        req.abort("accessdenied");
-      } else {
-        req.continue();
-      }
-    });
+    page.on("request", handleInterceptedRequest);
     await page.setRequestInterception(true);
 
     // Navigate
