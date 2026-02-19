@@ -84,8 +84,7 @@ async function fetchWithBrowserFeishu(
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     });
 
-    // SSRF protection — intercept every request
-    await page.setRequestInterception(true);
+    // SSRF protection — set up handler before enabling interception
     page.on("request", (req: any) => {
       const reqUrl = req.url();
       if (!isSafeUrl(reqUrl)) {
@@ -94,6 +93,7 @@ async function fetchWithBrowserFeishu(
         req.continue();
       }
     });
+    await page.setRequestInterception(true);
 
     // Capture image responses during page load (Feishu tokens are single-use,
     // so a second fetch() for the same URL will fail).
@@ -109,7 +109,10 @@ async function fetchWithBrowserFeishu(
           const rUrl: string = resp.url();
           const ct: string = resp.headers()["content-type"] || "";
           if (ct.includes("svg")) return;
-          if (!ct.includes("image") && !ct.includes("octet-stream")) return;
+          if (!ct.includes("image")) {
+            // Only accept octet-stream from Feishu download endpoints
+            if (!ct.includes("octet-stream") || !rUrl.includes("/space/api/box/stream/download/")) return;
+          }
           if (capturedImages.has(rUrl)) return;
           if (capturedImageCount >= FEISHU_MAX_CAPTURED_IMAGES) return;
           capturedImageCount++;
@@ -118,7 +121,7 @@ async function fetchWithBrowserFeishu(
           if (buf.length < IMAGE_MIN_BYTES || buf.length > IMAGE_MAX_BYTES) return;
           // Store in R2 instead of base64 data URI
           try {
-            const key = await storeImage(env, rUrl, buf.buffer, ct.split(";")[0].trim() || "image/png");
+            const key = await storeImage(env, rUrl, new Uint8Array(buf), ct.split(";")[0].trim() || "image/png");
             const r2Url = `https://${host}/r2img/${key}`;
             capturedImages.set(rUrl, r2Url);
             try {
@@ -127,13 +130,15 @@ async function fetchWithBrowserFeishu(
             stored = true;
           } catch {
             // R2 store failed — fall back to data URI
+            // Use chunked conversion to avoid O(n²) string concatenation
             const bytes = new Uint8Array(buf);
-            let binary = "";
-            for (let i = 0; i < bytes.length; i++) {
-              binary += String.fromCharCode(bytes[i]);
+            const CHUNK = 8192;
+            const chunks: string[] = [];
+            for (let i = 0; i < bytes.length; i += CHUNK) {
+              chunks.push(String.fromCharCode(...bytes.subarray(i, i + CHUNK)));
             }
             const mime = ct.split(";")[0].trim() || "image/png";
-            const dataUrl = `data:${mime};base64,${btoa(binary)}`;
+            const dataUrl = `data:${mime};base64,${btoa(chunks.join(""))}`;
             capturedImages.set(rUrl, dataUrl);
             try {
               capturedImages.set(new URL(rUrl).pathname, dataUrl);
@@ -541,8 +546,7 @@ async function fetchWithBrowserAdapter(
     // Configure page for this site
     await adapter.configurePage(page, capturedImages);
 
-    // SSRF protection — intercept every request
-    await page.setRequestInterception(true);
+    // SSRF protection — set up handler before enabling interception
     page.on("request", (req: any) => {
       const reqUrl = req.url();
       if (!isSafeUrl(reqUrl)) {
@@ -551,6 +555,7 @@ async function fetchWithBrowserAdapter(
         req.continue();
       }
     });
+    await page.setRequestInterception(true);
 
     // Navigate
     await page.goto(url, {

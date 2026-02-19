@@ -128,6 +128,18 @@ export function isSafeUrl(url: string): boolean {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
       return false;
 
+    // Decimal integer IP (e.g., 2130706433 = 127.0.0.1)
+    if (/^\d+$/.test(hostname)) return false;
+
+    // Hex IP (e.g., 0x7f000001)
+    if (/^0x[0-9a-f]+$/i.test(hostname)) return false;
+
+    // DNS rebinding services that resolve to arbitrary IPs
+    const rebindDomains = ['.nip.io', '.sslip.io', '.xip.io', '.localtest.me'];
+    for (const d of rebindDomains) {
+      if (hostname.endsWith(d)) return false;
+    }
+
     return true;
   } catch {
     return false;
@@ -188,6 +200,45 @@ export function escapeHtml(str: string): string {
 }
 
 /**
+ * Fetch a URL following redirects manually, validating each hop for SSRF.
+ * Returns the final response or throws on failure.
+ */
+export async function fetchWithSafeRedirects(
+  url: string,
+  init: RequestInit,
+  maxHops: number = 5,
+): Promise<{ response: Response; finalUrl: string }> {
+  let currentUrl = url;
+  let response: Response | null = null;
+
+  for (let hops = 0; hops <= maxHops; hops++) {
+    response = await fetch(currentUrl, {
+      ...init,
+      redirect: "manual",
+    });
+
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      break;
+    }
+
+    const location = response.headers.get("Location");
+    if (!location) break;
+
+    const nextUrl = new URL(location, currentUrl).href;
+    if (!isSafeUrl(nextUrl)) {
+      throw new Error("Redirect target blocked by SSRF protection");
+    }
+    currentUrl = nextUrl;
+  }
+
+  if (!response) {
+    throw new Error("No response received");
+  }
+
+  return { response, finalUrl: currentUrl };
+}
+
+/**
  * Extract target URL from request path.
  * Handles bare domains, http/https prefixed, and strips our own query params.
  */
@@ -197,6 +248,16 @@ export function extractTargetUrl(
 ): string | null {
   let raw = path.slice(1); // Remove leading slash
   if (!raw) return null;
+
+  // Decode percent-encoded URLs (e.g., /https%3A%2F%2Fexample.com)
+  try {
+    const decoded = decodeURIComponent(raw);
+    if (decoded.startsWith("http://") || decoded.startsWith("https://")) {
+      raw = decoded;
+    }
+  } catch {
+    // Keep raw as-is if decoding fails
+  }
 
   // Auto-prepend https:// for bare domains
   if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
@@ -216,8 +277,8 @@ export function extractTargetUrl(
   targetSearchParams.delete("selector");
   const remainingSearch = targetSearchParams.toString();
 
-  if (remainingSearch && !raw.includes("?")) {
-    raw += "?" + remainingSearch;
+  if (remainingSearch) {
+    raw += (raw.includes("?") ? "&" : "?") + remainingSearch;
   }
 
   // Length check

@@ -107,23 +107,26 @@ function getTtlForUrl(url: string): number {
 
 /**
  * Store an image in R2 and return its key.
- * Key is derived from the image URL's pathname.
+ * Key is a SHA-256 hash of the URL for non-predictable, collision-resistant keys.
  */
 export async function storeImage(
   env: Env,
   imageUrl: string,
-  data: ArrayBuffer,
+  data: ArrayBuffer | Uint8Array,
   contentType: string,
 ): Promise<string> {
-  // Use URL pathname as key (strip leading slash)
-  let key: string;
-  try {
-    key = new URL(imageUrl).pathname.slice(1);
-  } catch {
-    key = `img/${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  }
-  // Prefix to avoid collisions
-  key = `images/${key}`;
+  // Generate a non-guessable key using SHA-256 hash of the URL
+  const hashBuf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(imageUrl),
+  );
+  const hash = Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  // Extract extension from content type
+  const ext = contentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
+  const key = `images/${hash}.${ext}`;
 
   await env.IMAGE_BUCKET.put(key, data, {
     httpMetadata: { contentType },

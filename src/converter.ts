@@ -133,8 +133,9 @@ export function htmlToMarkdown(
   let markdown = turndown.turndown(contentDoc.body as any);
 
   // Prepend title as H1 if available and not already present
-  if (title && !markdown.includes(`# ${title}`)) {
-    markdown = `# ${title}\n\n${markdown}`;
+  const cleanTitle = title.replace(/[\r\n]+/g, " ").trim();
+  if (cleanTitle && !markdown.startsWith(`# ${cleanTitle}\n`)) {
+    markdown = `# ${cleanTitle}\n\n${markdown}`;
   }
 
   return { markdown, title, contentHtml };

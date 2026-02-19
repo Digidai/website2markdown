@@ -110,6 +110,23 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl("http://192.169.0.1")).toBe(true); // not 192.168.x.x
   });
 
+  it("blocks decimal integer IP addresses", () => {
+    expect(isSafeUrl("http://2130706433")).toBe(false); // 127.0.0.1
+    expect(isSafeUrl("http://3232235521")).toBe(false); // 192.168.0.1
+  });
+
+  it("blocks hex IP addresses", () => {
+    expect(isSafeUrl("http://0x7f000001")).toBe(false);
+    expect(isSafeUrl("http://0xC0A80001")).toBe(false);
+  });
+
+  it("blocks DNS rebinding services", () => {
+    expect(isSafeUrl("http://127.0.0.1.nip.io")).toBe(false);
+    expect(isSafeUrl("http://192.168.1.1.sslip.io")).toBe(false);
+    expect(isSafeUrl("http://10.0.0.1.xip.io")).toBe(false);
+    expect(isSafeUrl("http://test.localtest.me")).toBe(false);
+  });
+
   it("blocks non-http protocols", () => {
     expect(isSafeUrl("ftp://example.com")).toBe(false);
     expect(isSafeUrl("file:///etc/passwd")).toBe(false);
@@ -210,9 +227,23 @@ describe("extractTargetUrl", () => {
     expect(result).toBe("https://example.com?foo=bar");
   });
 
+  it("handles percent-encoded URLs", () => {
+    expect(extractTargetUrl("/https%3A%2F%2Fexample.com%2Fpage", "")).toBe("https://example.com/page");
+  });
+
   it("also strips no_cache, format, selector params", () => {
     const result = extractTargetUrl("/https://example.com", "?no_cache=true&format=json&selector=.main&key=val");
     expect(result).toBe("https://example.com?key=val");
+  });
+
+  it("appends remaining params with & when target URL already has query string", () => {
+    const result = extractTargetUrl("/https://example.com/page?id=123", "?raw=true&foo=bar");
+    expect(result).toBe("https://example.com/page?id=123&foo=bar");
+  });
+
+  it("does not add ? when no remaining params exist", () => {
+    const result = extractTargetUrl("/https://example.com/page?id=123", "?raw=true&format=json");
+    expect(result).toBe("https://example.com/page?id=123");
   });
 });
 

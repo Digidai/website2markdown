@@ -6,6 +6,7 @@ import {
   VALID_FORMATS,
   BROWSER_CONCURRENCY,
   BROWSER_TIMEOUT,
+  IMAGE_MAX_BYTES,
 } from "./config";
 import {
   isSafeUrl,
@@ -13,6 +14,7 @@ import {
   needsBrowserRendering,
   extractTargetUrl,
   escapeHtml,
+  fetchWithSafeRedirects,
 } from "./security";
 import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
 import { fetchWithBrowser, alwaysNeedsBrowser } from "./browser";
@@ -88,6 +90,7 @@ function errorResponse(
         "Content-Type": "text/html; charset=utf-8",
         "Content-Security-Policy": ERROR_CSP,
         "X-Frame-Options": "DENY",
+        ...CORS_HEADERS,
       },
     },
   );
@@ -112,7 +115,7 @@ export default {
 
     // Only allow GET and HEAD for other routes
     if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("Method Not Allowed", { status: 405 });
+      return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
     }
 
     // Favicon
@@ -122,7 +125,7 @@ export default {
 
     // Health check
     if (path === "/api/health") {
-      return Response.json({ status: "ok", service: host });
+      return Response.json({ status: "ok", service: host }, { headers: CORS_HEADERS });
     }
 
     // Dynamic OG image — branded SVG for social sharing
@@ -132,18 +135,24 @@ export default {
 
     // R2 image proxy — serve stored images
     if (path.startsWith("/r2img/")) {
-      const key = path.slice(7); // strip "/r2img/"
+      const key = path.slice(7);
       if (!key || !key.startsWith("images/") || key.includes("..")) {
         return new Response("Not Found", { status: 404 });
       }
       try {
         const img = await getImage(env, key);
         if (img) {
+          // Block SVG to prevent XSS via uploaded content
+          if (img.contentType.toLowerCase().includes("svg")) {
+            return new Response("Forbidden", { status: 403 });
+          }
           return new Response(img.data as any, {
             headers: {
               "Content-Type": img.contentType,
               "Cache-Control": "public, max-age=86400",
               "Access-Control-Allow-Origin": "*",
+              "X-Content-Type-Options": "nosniff",
+              "Content-Security-Policy": "default-src 'none'",
             },
           });
         }
@@ -166,31 +175,15 @@ export default {
         return new Response("Forbidden", { status: 403 });
       }
       try {
-        let currentUrl = imgUrl;
-        let imgResp: Response | null = null;
-        // Follow redirects manually, validating each hop
-        for (let hops = 0; hops < 5; hops++) {
-          imgResp = await fetch(currentUrl, {
-            headers: {
-              Referer: new URL(currentUrl).origin + "/",
-              "User-Agent": WECHAT_UA,
-            },
-            redirect: "manual",
-            signal: AbortSignal.timeout(BROWSER_TIMEOUT),
-          });
-          if ([301, 302, 303, 307, 308].includes(imgResp.status)) {
-            const location = imgResp.headers.get("Location");
-            if (!location) break;
-            const nextUrl = new URL(location, currentUrl).href;
-            if (!isSafeUrl(nextUrl)) {
-              return new Response("Redirect target blocked", { status: 403 });
-            }
-            currentUrl = nextUrl;
-            continue;
-          }
-          break;
-        }
-        if (!imgResp || !imgResp.ok) {
+        const { response: imgResp } = await fetchWithSafeRedirects(imgUrl, {
+          headers: {
+            Referer: new URL(imgUrl).origin + "/",
+            "User-Agent": WECHAT_UA,
+          },
+          signal: AbortSignal.timeout(BROWSER_TIMEOUT),
+        });
+
+        if (!imgResp.ok) {
           return new Response("Image fetch failed", { status: 502 });
         }
         // Validate content-type is actually an image
@@ -202,6 +195,11 @@ export default {
         if (imgContentTypeLower.startsWith("image/svg+xml")) {
           return new Response("SVG images are not allowed", { status: 403 });
         }
+        // Enforce image size limit
+        const imgContentLength = parseInt(imgResp.headers.get("Content-Length") || "0", 10);
+        if (imgContentLength > IMAGE_MAX_BYTES) {
+          return new Response("Image too large", { status: 413 });
+        }
         const headers = new Headers();
         headers.set("Content-Type", imgContentType);
         headers.set("Access-Control-Allow-Origin", "*");
@@ -209,7 +207,10 @@ export default {
         headers.set("Content-Security-Policy", "default-src 'none'");
         headers.set("X-Content-Type-Options", "nosniff");
         return new Response(imgResp.body, { status: 200, headers });
-      } catch {
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("SSRF")) {
+          return new Response("Redirect target blocked", { status: 403 });
+        }
         return new Response("Image fetch failed", { status: 502 });
       }
     }
@@ -302,36 +303,19 @@ export default {
       }
 
       let currentUrl = targetUrl;
-      let response = await fetch(currentUrl, {
-        headers: fetchHeaders,
-        redirect: "manual",
-        signal: AbortSignal.timeout(BROWSER_TIMEOUT),
-      });
-
-      // Follow up to 5 redirects, validating each hop
-      let redirects = 0;
-      while (
-        redirects < 5 &&
-        [301, 302, 303, 307, 308].includes(response.status)
-      ) {
-        const location = response.headers.get("Location");
-        if (!location) break;
-        const redirectUrl = new URL(location, currentUrl).href;
-        if (!isSafeUrl(redirectUrl)) {
-          return errorResponse(
-            "Blocked",
-            "Redirect target points to an internal or private address.",
-            403,
-            jsonErrors,
-          );
-        }
-        currentUrl = redirectUrl;
-        response = await fetch(currentUrl, {
+      let response: Response;
+      try {
+        const result = await fetchWithSafeRedirects(targetUrl, {
           headers: fetchHeaders,
-          redirect: "manual",
           signal: AbortSignal.timeout(BROWSER_TIMEOUT),
         });
-        redirects++;
+        response = result.response;
+        currentUrl = result.finalUrl;
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("SSRF")) {
+          return errorResponse("Blocked", "Redirect target points to an internal or private address.", 403, jsonErrors);
+        }
+        throw e;
       }
 
       const staticFailed = !response.ok;
@@ -604,6 +588,8 @@ function buildResponse(
           "default-src 'none'; script-src https://cdn.jsdelivr.net 'unsafe-inline'; " +
           "style-src https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; " +
           "img-src * data:; font-src https://fonts.gstatic.com; connect-src 'none'",
+        "X-Frame-Options": "DENY",
+        ...CORS_HEADERS,
       },
     },
   );
@@ -719,37 +705,21 @@ async function handleBatch(
           html = await fetchWithBrowser(targetUrl, env, host);
           method = "browser+readability+turndown";
         } else {
-          // P0-1: Use redirect:"manual" and validate each hop (same as main handler)
-          let currentUrl = targetUrl;
-          let resp = await fetch(currentUrl, {
-            headers: {
-              Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
-              "User-Agent": `${host}/1.0 (Markdown Converter)`,
-            },
-            redirect: "manual",
-            signal: AbortSignal.timeout(BROWSER_TIMEOUT),
-          });
-          let redirects = 0;
-          while (
-            redirects < 5 &&
-            [301, 302, 303, 307, 308].includes(resp.status)
-          ) {
-            const location = resp.headers.get("Location");
-            if (!location) break;
-            const redirectUrl = new URL(location, currentUrl).href;
-            if (!isSafeUrl(redirectUrl)) {
-              return { url: targetUrl, error: "Redirect target blocked" };
-            }
-            currentUrl = redirectUrl;
-            resp = await fetch(currentUrl, {
+          let resp: Response;
+          try {
+            const result = await fetchWithSafeRedirects(targetUrl, {
               headers: {
                 Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
                 "User-Agent": `${host}/1.0 (Markdown Converter)`,
               },
-              redirect: "manual",
               signal: AbortSignal.timeout(BROWSER_TIMEOUT),
             });
-            redirects++;
+            resp = result.response;
+          } catch (e) {
+            if (e instanceof Error && e.message.includes("SSRF")) {
+              return { url: targetUrl, error: "Redirect target blocked" };
+            }
+            throw e;
           }
 
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
