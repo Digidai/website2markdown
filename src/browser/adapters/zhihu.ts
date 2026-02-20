@@ -5,11 +5,12 @@ export const zhihuAdapter: SiteAdapter = {
   match(url: string): boolean {
     return (
       url.includes("zhihu.com/p/") ||
+      url.includes("zhihu.com/question/") ||
       url.includes("zhuanlan.zhihu.com/")
     );
   },
 
-  alwaysBrowser: false,
+  alwaysBrowser: true,
 
   async configurePage(page: any): Promise<void> {
     await page.setUserAgent(DESKTOP_UA);
