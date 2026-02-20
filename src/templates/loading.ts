@@ -414,7 +414,7 @@ export function loadingPageHTML(
       setTimeout(function() {
         lv.style.display = 'none';
         var rv = document.getElementById('result-view');
-        rv.style.display = '';
+        rv.style.display = 'block';
         rv.classList.add('view-in');
       }, 350);
     }
