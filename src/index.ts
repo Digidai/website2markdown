@@ -21,6 +21,12 @@ import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
 import { fetchWithBrowser, alwaysNeedsBrowser, getAdapter } from "./browser";
 import { getCached, setCache, getImage } from "./cache";
 import { parseProxyUrl, fetchViaProxy } from "./proxy";
+import {
+  applyPaywallHeaders,
+  extractJsonLdArticle,
+  removePaywallElements,
+  looksPaywalled,
+} from "./paywall";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
 import { loadingPageHTML } from "./templates/loading";
@@ -340,6 +346,9 @@ async function convertUrl(
       fetchHeaders["Referer"] = "https://mp.weixin.qq.com/";
     }
 
+    // Apply paywall bypass headers for known paywalled domains
+    applyPaywallHeaders(targetUrl, fetchHeaders);
+
     let response: Response;
     let cleanupFetchSignal = () => {};
     try {
@@ -478,11 +487,25 @@ async function convertUrl(
     finalHtml = siteAdapter.postProcess(finalHtml);
   }
 
+  // 8.5. Paywall bypass: remove paywall elements and extract JSON-LD fallback
+  finalHtml = removePaywallElements(finalHtml);
+  const jsonLdHtml = extractJsonLdArticle(finalHtml);
+
   // 9. Convert
   throwIfAborted(abortSignal);
   await progress("convert", "Converting to Markdown");
-  const { markdown, title: extractedTitle, contentHtml } = htmlToMarkdown(finalHtml, targetUrl, selector);
+  let { markdown, title: extractedTitle, contentHtml } = htmlToMarkdown(finalHtml, targetUrl, selector);
   let output: string;
+
+  // If Readability produced very little content but JSON-LD has more, use JSON-LD
+  if (jsonLdHtml && markdown.length < 500 && looksPaywalled(finalHtml)) {
+    const jsonLdResult = htmlToMarkdown(jsonLdHtml, targetUrl, selector);
+    if (jsonLdResult.markdown.length > markdown.length) {
+      markdown = jsonLdResult.markdown;
+      extractedTitle = jsonLdResult.title || extractedTitle;
+      contentHtml = jsonLdResult.contentHtml;
+    }
+  }
 
   switch (format) {
     case "html":
