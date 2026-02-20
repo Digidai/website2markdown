@@ -307,6 +307,7 @@ export function loadingPageHTML(
     // Fallback for environments without EventSource support
     if (typeof EventSource === 'undefined') {
       window.location.href = '/' + C.targetUrl + (C.targetUrl.indexOf('?') >= 0 ? '&' : '?') + 'raw=true';
+      throw new Error('redirect');
     }
 
     var timer = setInterval(function() {
@@ -380,8 +381,6 @@ export function loadingPageHTML(
     }
 
     function showResult(data) {
-      rawMarkdown = data.content || '';
-
       var src = document.getElementById('r-source');
       src.href = C.targetUrl;
       src.textContent = C.targetUrl;
@@ -396,18 +395,28 @@ export function loadingPageHTML(
       if (data.cached) document.getElementById('r-cache').style.display = '';
       if (data.tokenCount) document.getElementById('r-tokens').textContent = data.tokenCount + ' tokens';
 
-      var sep = C.targetUrl.indexOf('?') >= 0 ? '&' : '?';
-      document.getElementById('r-raw').href = '/' + C.targetUrl + sep + 'raw=true';
-
-      document.getElementById('raw-content').textContent = rawMarkdown;
-      var rendered = document.getElementById('markdown-rendered');
-      if (typeof DOMPurify !== 'undefined' && typeof marked !== 'undefined') {
-        rendered.innerHTML = DOMPurify.sanitize(marked.parse(rawMarkdown));
-      } else {
-        rendered.textContent = rawMarkdown;
-      }
+      var rawUrl = data.rawUrl || ('/' + C.targetUrl + (C.targetUrl.indexOf('?') >= 0 ? '&' : '?') + 'raw=true');
+      document.getElementById('r-raw').href = rawUrl;
 
       if (data.title) document.title = data.title + ' \\u2014 ' + C.host;
+
+      // Fetch markdown content separately to avoid large SSE payloads
+      fetch(rawUrl, { headers: { 'Accept': 'text/markdown' } })
+        .then(function(r) { return r.ok ? r.text() : Promise.reject(r.status); })
+        .then(function(md) {
+          rawMarkdown = md;
+          document.getElementById('raw-content').textContent = rawMarkdown;
+          var rendered = document.getElementById('markdown-rendered');
+          if (typeof DOMPurify !== 'undefined' && typeof marked !== 'undefined') {
+            rendered.innerHTML = DOMPurify.sanitize(marked.parse(rawMarkdown));
+          } else {
+            rendered.textContent = rawMarkdown;
+          }
+        })
+        .catch(function() {
+          document.getElementById('raw-content').textContent = 'Failed to load content. Please try the Raw link above.';
+          document.getElementById('markdown-rendered').textContent = 'Failed to load content.';
+        });
 
       var lv = document.getElementById('loading-view');
       lv.classList.add('view-out');

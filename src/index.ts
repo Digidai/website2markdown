@@ -552,8 +552,9 @@ function handleStream(
         async (step, label) => { await send("step", { id: step, label }); },
         streamSignal,
       );
+      const sep = targetUrl.includes("?") ? "&" : "?";
       await send("done", {
-        content: result.content,
+        rawUrl: `/${targetUrl}${sep}raw=true`,
         title: result.title,
         method: result.method,
         tokenCount: result.tokenCount,
@@ -616,8 +617,11 @@ export default {
       return handleOgImage(url, host);
     }
 
-    // SSE stream endpoint
+    // SSE stream endpoint (GET only — HEAD would trigger conversion with no body)
     if (path === "/api/stream") {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
+      }
       return handleStream(request, env, host, url);
     }
 
@@ -754,9 +758,14 @@ export default {
       const forceBrowser = url.searchParams.get("force_browser") === "true";
       const noCache = url.searchParams.get("no_cache") === "true";
 
-      // ── Browser visit (GET, non-raw, default format) → loading experience ──
-      // HEAD requests skip loading page and go through synchronous conversion
-      if (!wantsRaw && format === "markdown" && request.method === "GET") {
+      // ── Browser document navigation → loading experience with SSE ──
+      // Only serve loading page for browser document navigations (not programmatic API calls)
+      const isDocumentNav =
+        request.method === "GET" &&
+        (request.headers.get("Sec-Fetch-Dest") === "document" ||
+          (!acceptHeader.includes("text/markdown") && !acceptHeader.includes("application/json") && acceptHeader.includes("text/html")));
+
+      if (!wantsRaw && format === "markdown" && isDocumentNav) {
         // Check cache for instant display
         if (!noCache) {
           const cached = await getCached(env, targetUrl, "markdown", selector);
@@ -981,7 +990,8 @@ async function handleBatch(
         if (e instanceof ConvertError) {
           return { url: targetUrl, error: e.message };
         }
-        return { url: targetUrl, error: e instanceof Error ? e.message : String(e) };
+        console.error("Batch item failed:", targetUrl, e instanceof Error ? e.message : e);
+        return { url: targetUrl, error: "Failed to process this URL." };
       }
     });
 
