@@ -3,6 +3,7 @@ import {
   MAX_RESPONSE_BYTES,
   CORS_HEADERS,
   WECHAT_UA,
+  DESKTOP_UA,
   VALID_FORMATS,
   BROWSER_CONCURRENCY,
   BROWSER_TIMEOUT,
@@ -19,6 +20,7 @@ import {
 import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
 import { fetchWithBrowser, alwaysNeedsBrowser } from "./browser";
 import { getCached, setCache, getImage } from "./cache";
+import { parseProxyUrl, fetchViaProxy } from "./proxy";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
 import { loadingPageHTML } from "./templates/loading";
@@ -244,13 +246,55 @@ async function convertUrl(
       method = "browser+readability+turndown";
     } catch (error) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
-      console.error("Browser rendering failed:", errorMessage(error));
-      // Surface adapter-specific messages (e.g. Zhihu login requirement)
       const msg = error instanceof Error ? error.message : "";
-      const userMessage = msg.includes("知乎") || msg.includes("Zhihu")
-        ? msg.replace(/^(Browser rendering failed: )+/, "")
-        : "Browser rendering failed for this URL.";
-      throw new ConvertError("Fetch Failed", userMessage, 502);
+
+      // Zhihu hybrid path: browser solved JS challenge but datacenter IP
+      // was blocked. Retry the fetch through ISP proxy with browser cookies.
+      if (msg.startsWith("ZHIHU_PROXY_RETRY:") || msg.includes("ZHIHU_PROXY_RETRY:")) {
+        const proxyConfig = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
+        if (!proxyConfig) {
+          throw new ConvertError(
+            "Fetch Failed",
+            "知乎要求登录验证。需要配置代理才能访问。",
+            502,
+          );
+        }
+        // Extract cookies from the error message
+        const cookieStart = msg.indexOf("ZHIHU_PROXY_RETRY:") + "ZHIHU_PROXY_RETRY:".length;
+        const cookies = msg.slice(cookieStart).replace(/^(Browser rendering failed: )+/, "");
+
+        throwIfAborted(abortSignal);
+        await progress("fetch", "Retrying via proxy");
+        try {
+          const proxyResult = await fetchViaProxy(targetUrl, proxyConfig, {
+            "User-Agent": DESKTOP_UA,
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "identity",
+            "Cookie": cookies,
+          }, 25_000);
+          if (proxyResult.status >= 200 && proxyResult.status < 400 && proxyResult.body.length > 1000) {
+            finalHtml = proxyResult.body;
+            method = "browser+readability+turndown";
+          } else {
+            throw new Error(`Proxy fetch returned ${proxyResult.status}, body ${proxyResult.body.length} bytes`);
+          }
+        } catch (proxyError) {
+          const proxyDetail = errorMessage(proxyError);
+          console.error("Proxy fetch failed:", proxyDetail);
+          throw new ConvertError(
+            "Fetch Failed",
+            `知乎代理访问失败: ${proxyDetail}`,
+            502,
+          );
+        }
+      } else {
+        console.error("Browser rendering failed:", errorMessage(error));
+        const userMessage = msg.includes("知乎") || msg.includes("Zhihu")
+          ? msg.replace(/^(Browser rendering failed: )+/, "")
+          : "Browser rendering failed for this URL.";
+        throw new ConvertError("Fetch Failed", userMessage, 502);
+      }
     }
   } else {
     // 3. Static fetch

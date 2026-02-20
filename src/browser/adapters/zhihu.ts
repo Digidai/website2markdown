@@ -1,8 +1,8 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { DESKTOP_UA } from "../../config";
 
-/** Max time to wait for article content after challenge redirect (ms). */
-const ZHIHU_CONTENT_TIMEOUT = 15_000;
+/** Max time to wait for ZSE challenge to complete (ms). */
+const ZHIHU_CHALLENGE_TIMEOUT = 15_000;
 
 const CONTENT_SELECTOR =
   ".Post-RichTextContainer, .RichContent-inner, .QuestionRichText, article";
@@ -78,27 +78,38 @@ export const zhihuAdapter: SiteAdapter = {
   },
 
   async extract(page: any): Promise<ExtractResult | null> {
-    // Zhihu uses a ZSE JS challenge that redirects based on IP reputation.
-    // Datacenter IPs (like Cloudflare) get redirected to a login page.
-    // Wait for either article content or the login redirect to settle.
+    // First check if content loaded directly (no challenge or challenge passed + good IP)
     try {
-      await page.waitForSelector(CONTENT_SELECTOR, { timeout: ZHIHU_CONTENT_TIMEOUT });
+      await page.waitForSelector(CONTENT_SELECTOR, { timeout: ZHIHU_CHALLENGE_TIMEOUT });
     } catch {
-      // Content didn't appear — check what page we're on
+      // Content didn't appear — check if we landed on the login/unhuman page
       let currentUrl = "";
       try { currentUrl = await page.evaluate("location.href"); } catch {}
 
       if (currentUrl.includes("unhuman") || currentUrl.includes("signin")) {
+        // ZSE challenge was solved but datacenter IP triggered login.
+        // Extract cookies and signal the caller to retry via proxy.
+        let cookies: Array<{ name: string; value: string; domain: string }> = [];
+        try { cookies = await page.cookies(); } catch {}
+
+        if (cookies.length > 0) {
+          // Store cookies in a special key for the caller to find
+          const cookieStr = cookies
+            .map((c: { name: string; value: string }) => `${c.name}=${c.value}`)
+            .join("; ");
+          // Throw a special error that contains the cookies
+          throw new Error(`ZHIHU_PROXY_RETRY:${cookieStr}`);
+        }
+
         throw new Error(
-          "知乎要求登录验证，无法从云端服务器访问。" +
-          "知乎会对数据中心 IP 地址强制要求登录，此限制暂时无法绕过。",
+          "知乎要求登录验证，无法从云端服务器访问。",
         );
       }
 
       throw new Error("Zhihu page did not load article content within timeout.");
     }
 
-    // Brief settle time for SPA hydration
+    // Content loaded — extract it
     await new Promise((r) => setTimeout(r, 1500));
 
     // Check for anti-bot block
@@ -109,9 +120,7 @@ export const zhihuAdapter: SiteAdapter = {
       })()
     `);
     if (blocked) {
-      throw new Error(
-        "知乎反爬机制已触发，暂时无法访问该页面。",
-      );
+      throw new Error("知乎反爬机制已触发，暂时无法访问该页面。");
     }
 
     // Remove login walls, overlays, and clean up

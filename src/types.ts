@@ -3,6 +3,8 @@ export interface Env {
   CACHE_KV: KVNamespace;
   IMAGE_BUCKET: R2Bucket;
   API_TOKEN?: string;
+  /** Bright Data proxy URL: "username:password@host:port" */
+  PROXY_URL?: string;
 }
 
 export type ConvertMethod =
