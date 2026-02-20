@@ -156,6 +156,13 @@ export function landingPageHTML(host: string): string {
       transition: background 0.2s ease; letter-spacing: 0.01em;
     }
     .input-group button:hover { background: var(--accent-hover); }
+    .input-group button:disabled { opacity: .7; cursor: wait; }
+    .btn-spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(7,8,12,.3); border-top-color: var(--bg-deep);
+      border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: .3rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     .input-hint {
       margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted);
@@ -338,9 +345,23 @@ export function landingPageHTML(host: string): string {
       e.preventDefault();
       var input = document.getElementById('urlInput').value.trim();
       if (!input) return false;
+      var btn = e.target.querySelector('button');
+      var inp = document.getElementById('urlInput');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span>Converting';
+      inp.disabled = true;
       window.location.href = '/' + input;
       return false;
     }
+    // Restore button state when page is loaded from bfcache (back/forward navigation)
+    window.addEventListener('pageshow', function(e) {
+      if (e.persisted) {
+        var btn = document.querySelector('#urlForm button');
+        var inp = document.getElementById('urlInput');
+        if (btn) { btn.disabled = false; btn.textContent = 'Convert'; }
+        if (inp) inp.disabled = false;
+      }
+    });
     // On mobile, prefix is hidden — update placeholder to show full URL hint
     if (window.matchMedia('(max-width: 768px)').matches) {
       document.getElementById('urlInput').placeholder = 'https://example.com/article';

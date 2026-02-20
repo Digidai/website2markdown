@@ -21,6 +21,7 @@ import { fetchWithBrowser, alwaysNeedsBrowser } from "./browser";
 import { getCached, setCache, getImage } from "./cache";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
+import { loadingPageHTML } from "./templates/loading";
 import { errorPageHTML } from "./templates/error";
 
 const BATCH_BODY_MAX_BYTES = 100_000;
@@ -31,6 +32,11 @@ const LANDING_CSP =
 const ERROR_CSP =
   "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; " +
   "img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'";
+const LOADING_CSP =
+  "default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; " +
+  "style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
+  "font-src https://fonts.gstatic.com; connect-src 'self'; img-src * data:; " +
+  "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 /** Convert native markdown to a minimal safe HTML response. */
 function markdownToBasicHtml(markdown: string): string {
@@ -49,7 +55,6 @@ function wantsJsonError(request: Request): boolean {
 /** Timing-safe string comparison using HMAC. Does NOT leak length. */
 async function timingSafeEqual(a: string, b: string): Promise<boolean> {
   const encoder = new TextEncoder();
-  // Use a fixed key so both inputs are always processed, regardless of length
   const fixedKey = encoder.encode("timing-safe-compare-key");
   const key = await crypto.subtle.importKey(
     "raw",
@@ -60,7 +65,6 @@ async function timingSafeEqual(a: string, b: string): Promise<boolean> {
   );
   const sig1 = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(a)));
   const sig2 = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(b)));
-  // HMAC outputs are always the same length (32 bytes for SHA-256)
   let diff = sig1.length ^ sig2.length;
   for (let i = 0; i < sig1.length; i++) diff |= sig1[i] ^ sig2[i];
   return diff === 0;
@@ -96,6 +100,320 @@ function errorResponse(
   );
 }
 
+// ─── ConvertError ────────────────────────────────────────────
+
+class ConvertError extends Error {
+  constructor(
+    public readonly title: string,
+    message: string,
+    public readonly statusCode: number,
+  ) {
+    super(message);
+  }
+}
+
+// ─── Core conversion function ────────────────────────────────
+
+interface ConvertResult {
+  content: string;
+  title: string;
+  method: ConvertMethod;
+  tokenCount: string;
+  cached: boolean;
+}
+
+async function convertUrl(
+  targetUrl: string,
+  env: Env,
+  host: string,
+  format: OutputFormat,
+  selector: string | undefined,
+  forceBrowser: boolean,
+  noCache: boolean,
+  onProgress?: (step: string, label: string) => void | Promise<void>,
+): Promise<ConvertResult> {
+  const progress = onProgress || (() => {});
+
+  // 1. Cache
+  if (!noCache) {
+    const cached = await getCached(env, targetUrl, format, selector);
+    if (cached) {
+      return {
+        content: cached.content,
+        title: cached.title || "",
+        method: cached.method as ConvertMethod,
+        tokenCount: "",
+        cached: true,
+      };
+    }
+  }
+
+  // 2. Fetch & parse
+  let finalHtml = "";
+  let method: ConvertMethod = "readability+turndown";
+
+  // Early browser path — skip redundant static fetch for sites that always need browser
+  if (alwaysNeedsBrowser(targetUrl)) {
+    await progress("browser", "Rendering with browser");
+    try {
+      finalHtml = await fetchWithBrowser(targetUrl, env, host);
+      method = "browser+readability+turndown";
+    } catch {
+      throw new ConvertError(
+        "Fetch Failed",
+        "Browser rendering failed for this URL.",
+        502,
+      );
+    }
+  } else {
+    // 3. Static fetch
+    await progress("fetch", "Fetching page");
+    const isWechat = targetUrl.includes("mp.weixin.qq.com");
+    const fetchHeaders: Record<string, string> = {
+      Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
+      "User-Agent": isWechat
+        ? WECHAT_UA
+        : `${host}/1.0 (Markdown Converter)`,
+    };
+    if (isWechat) {
+      fetchHeaders["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8";
+      fetchHeaders["Referer"] = "https://mp.weixin.qq.com/";
+    }
+
+    let response: Response;
+    try {
+      const result = await fetchWithSafeRedirects(targetUrl, {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(BROWSER_TIMEOUT),
+      });
+      response = result.response;
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("SSRF")) {
+        throw new ConvertError("Blocked", "Redirect target points to an internal or private address.", 403);
+      }
+      throw e;
+    }
+
+    const staticFailed = !response.ok;
+
+    if (staticFailed && !forceBrowser) {
+      throw new ConvertError(
+        "Fetch Failed",
+        `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
+        502,
+      );
+    }
+
+    if (staticFailed) {
+      // forceBrowser was true — go straight to browser rendering
+      await progress("browser", "Rendering with browser");
+      try {
+        finalHtml = await fetchWithBrowser(targetUrl, env, host);
+        method = "browser+readability+turndown";
+      } catch {
+        throw new ConvertError(
+          "Fetch Failed",
+          `Static fetch returned ${response.status} and browser rendering also failed.`,
+          502,
+        );
+      }
+    } else {
+      // 4. Validate content type
+      await progress("analyze", "Analyzing content");
+      const contentType = response.headers.get("Content-Type") || "";
+      const isTextContent = contentType.includes("text/html") ||
+        contentType.includes("application/xhtml") ||
+        contentType.includes("text/markdown") ||
+        contentType.includes("text/plain");
+      if (!isTextContent && !contentType.includes("text/")) {
+        throw new ConvertError(
+          "Unsupported Content",
+          `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`,
+          415,
+        );
+      }
+      if (
+        contentType.includes("text/css") ||
+        contentType.includes("text/javascript") ||
+        contentType.includes("text/csv")
+      ) {
+        throw new ConvertError(
+          "Unsupported Content",
+          `This URL returned ${contentType} which cannot be converted to Markdown.`,
+          415,
+        );
+      }
+
+      // 5. Size check
+      const contentLength = parseInt(response.headers.get("Content-Length") || "0", 10);
+      if (contentLength > MAX_RESPONSE_BYTES) {
+        throw new ConvertError("Content Too Large", "The target page exceeds the 5 MB size limit.", 413);
+      }
+
+      const body = await response.text();
+      if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
+        throw new ConvertError("Content Too Large", "The target page exceeds the 5 MB size limit.", 413);
+      }
+
+      const tokenCount = response.headers.get("x-markdown-tokens") || "";
+      const isMarkdown = contentType.includes("text/markdown");
+
+      // 6. Native markdown
+      if (isMarkdown) {
+        let nativeOutput: string;
+        switch (format) {
+          case "json":
+            nativeOutput = JSON.stringify({
+              url: targetUrl, title: "", markdown: body, method: "native",
+              timestamp: new Date().toISOString(),
+            });
+            break;
+          case "html":
+            nativeOutput = markdownToBasicHtml(body);
+            break;
+          default:
+            nativeOutput = body;
+        }
+
+        if (!noCache) {
+          await setCache(env, targetUrl, format, { content: nativeOutput, method: "native", title: "" }, selector);
+        }
+
+        return { content: nativeOutput, title: "", method: "native", tokenCount, cached: false };
+      }
+
+      // 7. Check browser rendering need
+      finalHtml = body;
+      if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
+        await progress("browser", "Rendering with browser");
+        try {
+          finalHtml = await fetchWithBrowser(targetUrl, env, host);
+          method = "browser+readability+turndown";
+        } catch (e) {
+          console.error("Browser rendering failed, using static HTML:", e instanceof Error ? e.message : e);
+        }
+      }
+    }
+  }
+
+  // 7. Size check on final HTML
+  if (new TextEncoder().encode(finalHtml).byteLength > MAX_RESPONSE_BYTES) {
+    throw new ConvertError("Content Too Large", "The rendered page exceeds the 5 MB size limit.", 413);
+  }
+
+  // 8. Convert
+  await progress("convert", "Converting to Markdown");
+  const { markdown, title: extractedTitle, contentHtml } = htmlToMarkdown(finalHtml, targetUrl, selector);
+  let output: string;
+
+  switch (format) {
+    case "html":
+      output = contentHtml;
+      break;
+    case "text":
+      output = htmlToText(finalHtml, targetUrl);
+      break;
+    case "json":
+      output = JSON.stringify({
+        url: targetUrl, title: extractedTitle, markdown, method,
+        timestamp: new Date().toISOString(),
+      });
+      break;
+    default:
+      output = markdown;
+  }
+
+  // 9. WeChat image proxy
+  if (
+    format === "markdown" &&
+    (targetUrl.includes("mmbiz.qpic.cn") || targetUrl.includes("mp.weixin.qq.com"))
+  ) {
+    output = proxyImageUrls(output, host);
+  }
+
+  // 10. Cache
+  if (!noCache) {
+    await setCache(env, targetUrl, format, { content: output, method, title: extractedTitle }, selector);
+  }
+
+  return { content: output, title: extractedTitle, method, tokenCount: "", cached: false };
+}
+
+// ─── SSE streaming ──────────────────────────────────────────
+
+function sseResponse(
+  handler: (send: (event: string, data: any) => Promise<void>) => Promise<void>,
+): Response {
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const send = async (event: string, data: any) => {
+    await writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  };
+
+  handler(send)
+    .catch((err) => { console.error("SSE handler error:", err instanceof Error ? err.message : err); })
+    .finally(() => writer.close().catch(() => {}));
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "X-Accel-Buffering": "no",
+      ...CORS_HEADERS,
+    },
+  });
+}
+
+function handleStream(
+  _request: Request,
+  env: Env,
+  host: string,
+  url: URL,
+): Response {
+  const targetUrl = url.searchParams.get("url");
+  if (!targetUrl || !isValidUrl(targetUrl)) {
+    return sseResponse(async (send) => {
+      await send("fail", { title: "Invalid URL", message: "Please provide a valid HTTP(S) URL.", status: 400 });
+    });
+  }
+  if (!isSafeUrl(targetUrl)) {
+    return sseResponse(async (send) => {
+      await send("fail", { title: "Blocked", message: "Requests to internal or private addresses are not allowed.", status: 403 });
+    });
+  }
+
+  const selector = url.searchParams.get("selector") || undefined;
+  const forceBrowser = url.searchParams.get("force_browser") === "true";
+  const noCache = url.searchParams.get("no_cache") === "true";
+
+  return sseResponse(async (send) => {
+    try {
+      const result = await convertUrl(
+        targetUrl, env, host, "markdown", selector, forceBrowser, noCache,
+        async (step, label) => { await send("step", { id: step, label }); },
+      );
+      await send("done", {
+        content: result.content,
+        title: result.title,
+        method: result.method,
+        tokenCount: result.tokenCount,
+        cached: result.cached,
+      });
+    } catch (err) {
+      if (err instanceof ConvertError) {
+        await send("fail", { title: err.title, message: err.message, status: err.statusCode });
+      } else {
+        console.error("Stream conversion error:", err);
+        await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 });
+      }
+    }
+  });
+}
+
+// ─── Main handler ────────────────────────────────────────────
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -108,7 +426,7 @@ export default {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
-    // POST /api/batch — batch conversion (requires auth)
+    // POST /api/batch
     if (request.method === "POST" && path === "/api/batch") {
       return handleBatch(request, env, host);
     }
@@ -128,12 +446,17 @@ export default {
       return Response.json({ status: "ok", service: host }, { headers: CORS_HEADERS });
     }
 
-    // Dynamic OG image — branded SVG for social sharing
+    // Dynamic OG image
     if (path === "/api/og") {
       return handleOgImage(url, host);
     }
 
-    // R2 image proxy — serve stored images
+    // SSE stream endpoint
+    if (path === "/api/stream") {
+      return handleStream(request, env, host, url);
+    }
+
+    // R2 image proxy
     if (path.startsWith("/r2img/")) {
       const key = path.slice(7);
       if (!key || !key.startsWith("images/") || key.includes("..")) {
@@ -142,7 +465,6 @@ export default {
       try {
         const img = await getImage(env, key);
         if (img) {
-          // Block SVG to prevent XSS via uploaded content
           if (img.contentType.toLowerCase().includes("svg")) {
             return new Response("Forbidden", { status: 403 });
           }
@@ -162,8 +484,7 @@ export default {
       return new Response("Not Found", { status: 404 });
     }
 
-    // Legacy image proxy — rewrites Referer so hotlink-protected images load
-    // P0-1 fix: use redirect:"manual" and validate each hop + content-type
+    // Legacy image proxy
     if (path.startsWith("/img/")) {
       let imgUrl: string;
       try {
@@ -186,7 +507,6 @@ export default {
         if (!imgResp.ok) {
           return new Response("Image fetch failed", { status: 502 });
         }
-        // Validate content-type is actually an image
         const imgContentType = imgResp.headers.get("Content-Type") || "";
         const imgContentTypeLower = imgContentType.toLowerCase();
         if (!imgContentTypeLower.startsWith("image/")) {
@@ -195,7 +515,6 @@ export default {
         if (imgContentTypeLower.startsWith("image/svg+xml")) {
           return new Response("SVG images are not allowed", { status: 403 });
         }
-        // Enforce image size limit
         const imgContentLength = parseInt(imgResp.headers.get("Content-Length") || "0", 10);
         if (imgContentLength > IMAGE_MAX_BYTES) {
           return new Response("Image too large", { status: 413 });
@@ -233,7 +552,7 @@ export default {
     if (!isValidUrl(targetUrl)) {
       return errorResponse(
         "Invalid URL",
-        `The URL is not valid. Please provide a valid HTTP(S) URL.`,
+        "The URL is not valid. Please provide a valid HTTP(S) URL.",
         400,
         jsonErrors,
       );
@@ -256,7 +575,6 @@ export default {
         url.searchParams.get("raw") === "true" ||
         acceptHeader.split(",").some((part) => part.trim().split(";")[0] === "text/markdown");
 
-      // Validate format parameter
       const rawFormat = url.searchParams.get("format") || "markdown";
       if (!VALID_FORMATS.has(rawFormat)) {
         return errorResponse(
@@ -271,252 +589,54 @@ export default {
       const forceBrowser = url.searchParams.get("force_browser") === "true";
       const noCache = url.searchParams.get("no_cache") === "true";
 
-      // Check cache first (include selector in cache key)
-      if (!noCache) {
-        const cached = await getCached(env, targetUrl, format, selector);
-        if (cached) {
-          return buildResponse(
-            cached.content,
-            targetUrl,
-            host,
-            cached.method as ConvertMethod,
-            format,
-            wantsRaw,
-            "",
-            true,
-            cached.title,
-          );
+      // ── Browser visit (GET, non-raw, default format) → loading experience ──
+      // HEAD requests skip loading page and go through synchronous conversion
+      if (!wantsRaw && format === "markdown" && request.method === "GET") {
+        // Check cache for instant display
+        if (!noCache) {
+          const cached = await getCached(env, targetUrl, "markdown", selector);
+          if (cached) {
+            return buildResponse(
+              cached.content, targetUrl, host,
+              cached.method as ConvertMethod, "markdown",
+              false, "", true, cached.title,
+            );
+          }
         }
-      }
 
-      // Static fetch with manual redirect handling
-      const isWechat = targetUrl.includes("mp.weixin.qq.com");
-      const fetchHeaders: Record<string, string> = {
-        Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
-        "User-Agent": isWechat
-          ? WECHAT_UA
-          : `${host}/1.0 (Markdown Converter)`,
-      };
-      if (isWechat) {
-        fetchHeaders["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8";
-        fetchHeaders["Referer"] = "https://mp.weixin.qq.com/";
-      }
+        // Not cached → return loading page with SSE
+        const streamParams = new URLSearchParams();
+        if (selector) streamParams.set("selector", selector);
+        if (forceBrowser) streamParams.set("force_browser", "true");
+        if (noCache) streamParams.set("no_cache", "true");
+        const sp = streamParams.toString();
 
-      let currentUrl = targetUrl;
-      let response: Response;
-      try {
-        const result = await fetchWithSafeRedirects(targetUrl, {
-          headers: fetchHeaders,
-          signal: AbortSignal.timeout(BROWSER_TIMEOUT),
-        });
-        response = result.response;
-        currentUrl = result.finalUrl;
-      } catch (e) {
-        if (e instanceof Error && e.message.includes("SSRF")) {
-          return errorResponse("Blocked", "Redirect target points to an internal or private address.", 403, jsonErrors);
-        }
-        throw e;
-      }
-
-      const staticFailed = !response.ok;
-
-      // If static fetch failed and not a browser-required site, return error
-      if (staticFailed && !forceBrowser && !alwaysNeedsBrowser(targetUrl)) {
-        return errorResponse(
-          "Fetch Failed",
-          `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
-          502,
-          jsonErrors,
+        return new Response(
+          loadingPageHTML(host, targetUrl, sp ? "&" + sp : ""),
+          {
+            headers: {
+              "Content-Type": "text/html; charset=utf-8",
+              "Content-Security-Policy": LOADING_CSP,
+              "X-Frame-Options": "DENY",
+              ...CORS_HEADERS,
+            },
+          },
         );
       }
 
-      let finalHtml = "";
-      let method: ConvertMethod = "readability+turndown";
+      // ── Raw / API calls → synchronous conversion ──
+      const result = await convertUrl(
+        targetUrl, env, host, format, selector, forceBrowser, noCache,
+      );
 
-      if (staticFailed) {
-        // Go straight to browser rendering
-        try {
-          finalHtml = await fetchWithBrowser(targetUrl, env, host);
-          method = "browser+readability+turndown";
-        } catch {
-          return errorResponse(
-            "Fetch Failed",
-            `Static fetch returned ${response.status} and browser rendering also failed.`,
-            502,
-            jsonErrors,
-          );
-        }
-      } else {
-        // Validate content type — only accept HTML-like text content
-        const contentType = response.headers.get("Content-Type") || "";
-        const isTextContent = contentType.includes("text/html") ||
-          contentType.includes("application/xhtml") ||
-          contentType.includes("text/markdown") ||
-          contentType.includes("text/plain");
-        if (!isTextContent && !contentType.includes("text/")) {
-          return errorResponse(
-            "Unsupported Content",
-            `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`,
-            415,
-            jsonErrors || wantsRaw,
-          );
-        }
-        // Reject non-HTML text types that would confuse Readability
-        if (
-          contentType.includes("text/css") ||
-          contentType.includes("text/javascript") ||
-          contentType.includes("text/csv")
-        ) {
-          return errorResponse(
-            "Unsupported Content",
-            `This URL returned ${contentType} which cannot be converted to Markdown.`,
-            415,
-            jsonErrors || wantsRaw,
-          );
-        }
-
-        const contentLength = parseInt(
-          response.headers.get("Content-Length") || "0",
-          10,
-        );
-        if (contentLength > MAX_RESPONSE_BYTES) {
-          return errorResponse(
-            "Content Too Large",
-            "The target page exceeds the 5 MB size limit.",
-            413,
-            jsonErrors || wantsRaw,
-          );
-        }
-
-        const body = await response.text();
-        if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
-          return errorResponse(
-            "Content Too Large",
-            "The target page exceeds the 5 MB size limit.",
-            413,
-            jsonErrors || wantsRaw,
-          );
-        }
-
-        const tokenCount = response.headers.get("x-markdown-tokens") || "";
-        const isMarkdown = contentType.includes("text/markdown");
-
-        // Native markdown path
-        if (isMarkdown) {
-          let nativeOutput: string;
-          switch (format) {
-            case "json":
-              nativeOutput = JSON.stringify({
-                url: targetUrl,
-                title: "",
-                markdown: body,
-                method: "native",
-                timestamp: new Date().toISOString(),
-              });
-              break;
-            case "html":
-              nativeOutput = markdownToBasicHtml(body);
-              break;
-            case "text":
-              nativeOutput = body;
-              break;
-            default:
-              nativeOutput = body;
-          }
-
-          // Cache the native markdown
-          if (!noCache) {
-            await setCache(env, targetUrl, format, {
-              content: nativeOutput,
-              method: "native",
-              title: "",
-            }, selector);
-          }
-
-          return buildResponse(
-            nativeOutput,
-            targetUrl,
-            host,
-            "native",
-            format,
-            wantsRaw,
-            tokenCount,
-            false,
-          );
-        }
-
-        // Check if browser rendering is needed
-        finalHtml = body;
-        if (
-          forceBrowser ||
-          needsBrowserRendering(body, targetUrl) ||
-          alwaysNeedsBrowser(targetUrl)
-        ) {
-          try {
-            finalHtml = await fetchWithBrowser(targetUrl, env, host);
-            method = "browser+readability+turndown";
-          } catch (e) {
-            console.error("Browser rendering failed, using static HTML:", e instanceof Error ? e.message : e);
-            // Fall back to static HTML
-          }
-        }
-      }
-
-      // Enforce size limit on browser-rendered content
-      if (new TextEncoder().encode(finalHtml).byteLength > MAX_RESPONSE_BYTES) {
-        return errorResponse(
-          "Content Too Large",
-          "The rendered page exceeds the 5 MB size limit.",
-          413,
-          jsonErrors || wantsRaw,
-        );
-      }
-
-      // Convert HTML to desired format
-      let output: string;
-      const { markdown, title, contentHtml } = htmlToMarkdown(finalHtml, targetUrl, selector);
-
-      switch (format) {
-        case "html":
-          // P0-2 fix: return Readability-processed content, NOT raw target HTML
-          output = contentHtml;
-          break;
-        case "text":
-          output = htmlToText(finalHtml, targetUrl);
-          break;
-        case "json":
-          output = JSON.stringify({
-            url: targetUrl,
-            title,
-            markdown,
-            method,
-            timestamp: new Date().toISOString(),
-          });
-          break;
-        default:
-          output = markdown;
-      }
-
-      // Rewrite hotlink-protected WeChat images
-      if (
-        format === "markdown" &&
-        (targetUrl.includes("mmbiz.qpic.cn") ||
-          targetUrl.includes("mp.weixin.qq.com"))
-      ) {
-        output = proxyImageUrls(output, host);
-      }
-
-      // Cache the result (include selector in cache key)
-      if (!noCache) {
-        await setCache(env, targetUrl, format, {
-          content: output,
-          method,
-          title,
-        }, selector);
-      }
-
-      return buildResponse(output, targetUrl, host, method, format, wantsRaw, "", false, title);
+      return buildResponse(
+        result.content, targetUrl, host, result.method, format,
+        wantsRaw, result.tokenCount, result.cached, result.title,
+      );
     } catch (err: unknown) {
+      if (err instanceof ConvertError) {
+        return errorResponse(err.title, err.message, err.statusCode, jsonErrors);
+      }
       const message = err instanceof Error ? err.message : String(err);
       console.error("Conversion error:", { url: targetUrl, error: message });
       return errorResponse(
@@ -529,7 +649,8 @@ export default {
   },
 };
 
-/** Build the appropriate response based on format and raw preference. */
+// ─── Response builder ────────────────────────────────────────
+
 function buildResponse(
   content: string,
   sourceUrl: string,
@@ -566,7 +687,6 @@ function buildResponse(
         "X-Markdown-Method": method,
         "X-Cache-Status": cached ? "HIT" : "MISS",
         ...(tokenCount ? { "X-Markdown-Tokens": tokenCount } : {}),
-        // Security headers for HTML format
         ...(format === "html"
           ? {
               "Content-Security-Policy":
@@ -594,6 +714,8 @@ function buildResponse(
     },
   );
 }
+
+// ─── Batch handler ───────────────────────────────────────────
 
 /** Simple concurrency limiter for browser rendering tasks. */
 async function pLimit<T>(
@@ -629,7 +751,7 @@ async function handleBatch(
   env: Env,
   host: string,
 ): Promise<Response> {
-  // P0-5: Require API_TOKEN to be configured
+  // Require API_TOKEN
   if (!env.API_TOKEN) {
     return Response.json(
       { error: "Service misconfigured", message: "API_TOKEN not set" },
@@ -637,7 +759,7 @@ async function handleBatch(
     );
   }
 
-  // P0-4: Timing-safe authentication check
+  // Timing-safe authentication
   const auth = request.headers.get("Authorization") || "";
   if (!auth.startsWith("Bearer ") || !(await timingSafeEqual(auth.slice(7), env.API_TOKEN))) {
     return Response.json(
@@ -646,7 +768,7 @@ async function handleBatch(
     );
   }
 
-  // P1-3: Body size limit (100 KB)
+  // Body size limit
   const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
   if (contentLength > BATCH_BODY_MAX_BYTES) {
     return Response.json(
@@ -670,7 +792,6 @@ async function handleBatch(
         { status: 400, headers: CORS_HEADERS },
       );
     }
-
     if (body.urls.length > 10) {
       return Response.json(
         { error: "Maximum 10 URLs per batch" },
@@ -678,109 +799,49 @@ async function handleBatch(
       );
     }
 
-    // Build task list with concurrency control for browser rendering
     const tasks = body.urls.map((targetUrl: string) => async () => {
       if (!isValidUrl(targetUrl) || !isSafeUrl(targetUrl)) {
         return { url: targetUrl, error: "Invalid or blocked URL" };
       }
-
-      // Check cache
-      const cached = await getCached(env, targetUrl, "markdown");
-      if (cached) {
-        return {
-          url: targetUrl,
-          markdown: cached.content,
-          title: cached.title,
-          method: cached.method,
-          cached: true,
-        };
-      }
-
-      // Fetch and convert
       try {
-        let html: string;
-        let method: ConvertMethod = "readability+turndown";
-
-        if (alwaysNeedsBrowser(targetUrl)) {
-          html = await fetchWithBrowser(targetUrl, env, host);
-          method = "browser+readability+turndown";
-        } else {
-          let resp: Response;
-          try {
-            const result = await fetchWithSafeRedirects(targetUrl, {
-              headers: {
-                Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
-                "User-Agent": `${host}/1.0 (Markdown Converter)`,
-              },
-              signal: AbortSignal.timeout(BROWSER_TIMEOUT),
-            });
-            resp = result.response;
-          } catch (e) {
-            if (e instanceof Error && e.message.includes("SSRF")) {
-              return { url: targetUrl, error: "Redirect target blocked" };
-            }
-            throw e;
-          }
-
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          html = await resp.text();
-
-          if (needsBrowserRendering(html, targetUrl)) {
-            try {
-              html = await fetchWithBrowser(targetUrl, env, host);
-              method = "browser+readability+turndown";
-            } catch {
-              // Use static HTML
-            }
-          }
-        }
-
-        const { markdown, title } = htmlToMarkdown(html, targetUrl);
-
-        // Cache
-        await setCache(env, targetUrl, "markdown", {
-          content: markdown,
-          method,
-          title,
-        });
-
-        return { url: targetUrl, markdown, title, method, cached: false };
-      } catch (e) {
+        const result = await convertUrl(targetUrl, env, host, "markdown", undefined, false, false);
         return {
           url: targetUrl,
-          error: e instanceof Error ? e.message : String(e),
+          markdown: result.content,
+          title: result.title,
+          method: result.method,
+          cached: result.cached,
         };
+      } catch (e) {
+        if (e instanceof ConvertError) {
+          return { url: targetUrl, error: e.message };
+        }
+        return { url: targetUrl, error: e instanceof Error ? e.message : String(e) };
       }
     });
 
-    // Use concurrency limiter to prevent browser rendering session exhaustion
     const results = await pLimit(tasks, BROWSER_CONCURRENCY);
-
     const output = results.map((r) =>
       r.status === "fulfilled" ? r.value : { error: "Processing failed" },
     );
 
-    return Response.json({ results: output }, {
-      headers: CORS_HEADERS,
-    });
+    return Response.json({ results: output }, { headers: CORS_HEADERS });
   } catch (error) {
     console.error("Batch request processing failed:", error);
     return Response.json(
-      {
-        error: "Invalid request body",
-        message: "Body must be valid JSON and include a 'urls' array.",
-      },
+      { error: "Invalid request body", message: "Body must be valid JSON and include a 'urls' array." },
       { status: 400, headers: CORS_HEADERS },
     );
   }
 }
+
+// ─── OG image ────────────────────────────────────────────────
 
 /** Generate a branded SVG OG image for social sharing. */
 function handleOgImage(url: URL, host: string): Response {
   const title = url.searchParams.get("title") || "";
   const displayTitle = title.length > 80 ? title.slice(0, 79) + "\u2026" : title;
 
-  // Word-wrap title into lines of ~40 chars max
   const lines: string[] = [];
   if (displayTitle) {
     const words = displayTitle.split(/\s+/);
@@ -796,7 +857,6 @@ function handleOgImage(url: URL, host: string): Response {
     if (line) lines.push(line);
   }
 
-  // Escape XML special chars
   const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   const titleLines = lines
