@@ -245,11 +245,12 @@ async function convertUrl(
     } catch (error) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
       console.error("Browser rendering failed:", errorMessage(error));
-      throw new ConvertError(
-        "Fetch Failed",
-        "Browser rendering failed for this URL.",
-        502,
-      );
+      // Surface adapter-specific messages (e.g. Zhihu login requirement)
+      const msg = error instanceof Error ? error.message : "";
+      const userMessage = msg.includes("知乎") || msg.includes("Zhihu")
+        ? msg.replace(/^(Browser rendering failed: )+/, "")
+        : "Browser rendering failed for this URL.";
+      throw new ConvertError("Fetch Failed", userMessage, 502);
     }
   } else {
     // 3. Static fetch

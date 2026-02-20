@@ -748,6 +748,8 @@ async function fetchWithBrowserAdapter(
 ): Promise<string> {
   const adapter = getAdapter(url);
   const capturedImages = new Map<string, string>();
+  // Pass the original URL so adapters can use it for retries/warm-up.
+  capturedImages.set("__targetUrl__", url);
 
   let browser: any | null = null;
   try {
@@ -763,16 +765,31 @@ async function fetchWithBrowserAdapter(
     page.on("request", handleInterceptedRequest);
     await page.setRequestInterception(true);
 
-    // Navigate
-    await withTimeoutAndAbort(
-      page.goto(url, {
-        waitUntil: "networkidle2",
-        timeout: BROWSER_TIMEOUT,
-      }),
-      BROWSER_TIMEOUT + 2000,
-      "Browser navigation timed out.",
-      abortSignal,
-    );
+    // Navigate — use "load" instead of "networkidle2" because some sites
+    // (e.g. Zhihu) serve a JS challenge that triggers a client-side redirect.
+    // With "networkidle2", goto resolves on the challenge page, then the
+    // redirect destroys the execution context. Using "load" + letting the
+    // adapter handle waiting for final content is more resilient.
+    try {
+      await withTimeoutAndAbort(
+        page.goto(url, {
+          waitUntil: "load",
+          timeout: BROWSER_TIMEOUT,
+        }),
+        BROWSER_TIMEOUT + 2000,
+        "Browser navigation timed out.",
+        abortSignal,
+      );
+    } catch (error) {
+      // "Execution context was destroyed" means a navigation (e.g. challenge
+      // redirect) happened during goto — this is expected for some sites.
+      const msg = errorMessage(error);
+      if (!msg.includes("xecution context") && !msg.includes("navigat")) {
+        throw error;
+      }
+      // Wait briefly for the new page to settle after redirect
+      await new Promise((r) => setTimeout(r, 2000));
+    }
 
     // Let adapter extract content
     const result = await withTimeoutAndAbort(
