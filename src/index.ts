@@ -26,6 +26,11 @@ import {
   extractJsonLdArticle,
   removePaywallElements,
   looksPaywalled,
+  getPaywallRule,
+  fetchWaybackSnapshot,
+  fetchArchiveToday,
+  extractAmpLink,
+  stripAmpAccessControls,
 } from "./paywall";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
@@ -369,14 +374,33 @@ async function convertUrl(
     const staticFailed = !response.ok;
 
     if (staticFailed && !forceBrowser) {
-      throw new ConvertError(
-        "Fetch Failed",
-        `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
-        502,
-      );
+      // For known paywalled sites returning 403/401, try archive sources
+      if (getPaywallRule(targetUrl)) {
+        const waybackHtml = await fetchWaybackSnapshot(targetUrl, abortSignal);
+        if (waybackHtml && waybackHtml.length > 1000) {
+          finalHtml = waybackHtml;
+        } else {
+          const archiveHtml = await fetchArchiveToday(targetUrl, abortSignal);
+          if (archiveHtml && archiveHtml.length > 1000) {
+            finalHtml = archiveHtml;
+          } else {
+            throw new ConvertError(
+              "Fetch Failed",
+              `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
+              502,
+            );
+          }
+        }
+      } else {
+        throw new ConvertError(
+          "Fetch Failed",
+          `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
+          502,
+        );
+      }
     }
 
-    if (staticFailed) {
+    if (staticFailed && !finalHtml) {
       // forceBrowser was true — go straight to browser rendering
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
@@ -489,6 +513,35 @@ async function convertUrl(
 
   // 8.5. Paywall bypass: remove paywall elements and extract JSON-LD fallback
   finalHtml = removePaywallElements(finalHtml);
+
+  // 8.6. Try AMP version if content looks paywalled
+  if (looksPaywalled(finalHtml) && getPaywallRule(targetUrl)) {
+    const ampUrl = extractAmpLink(finalHtml);
+    if (ampUrl) {
+      try {
+        const ampHeaders: Record<string, string> = { Accept: "text/html" };
+        applyPaywallHeaders(targetUrl, ampHeaders);
+        const { signal: ampSignal, cleanup: ampCleanup } = createTimeoutSignal(15_000, abortSignal);
+        try {
+          const { response: ampResp } = await fetchWithSafeRedirects(ampUrl, {
+            headers: ampHeaders,
+            signal: ampSignal,
+          });
+          if (ampResp.ok) {
+            const ampHtml = stripAmpAccessControls(await ampResp.text());
+            if (!looksPaywalled(ampHtml) && ampHtml.length > finalHtml.length / 2) {
+              finalHtml = ampHtml;
+            }
+          }
+        } finally {
+          ampCleanup();
+        }
+      } catch {
+        /* AMP fetch failed, continue with original */
+      }
+    }
+  }
+
   const jsonLdHtml = extractJsonLdArticle(finalHtml);
 
   // 9. Convert
@@ -504,6 +557,33 @@ async function convertUrl(
       markdown = jsonLdResult.markdown;
       extractedTitle = jsonLdResult.title || extractedTitle;
       contentHtml = jsonLdResult.contentHtml;
+    }
+  }
+
+  // If still looks paywalled after JSON-LD, try archive sources
+  if (markdown.length < 500 && looksPaywalled(finalHtml) && getPaywallRule(targetUrl)) {
+    // Try Wayback Machine
+    const waybackHtml = await fetchWaybackSnapshot(targetUrl, abortSignal);
+    if (waybackHtml) {
+      const wbResult = htmlToMarkdown(removePaywallElements(waybackHtml), targetUrl, selector);
+      if (wbResult.markdown.length > markdown.length) {
+        markdown = wbResult.markdown;
+        extractedTitle = wbResult.title || extractedTitle;
+        contentHtml = wbResult.contentHtml;
+      }
+    }
+
+    // If still short, try Archive.today
+    if (markdown.length < 500) {
+      const archiveHtml = await fetchArchiveToday(targetUrl, abortSignal);
+      if (archiveHtml) {
+        const arResult = htmlToMarkdown(removePaywallElements(archiveHtml), targetUrl, selector);
+        if (arResult.markdown.length > markdown.length) {
+          markdown = arResult.markdown;
+          extractedTitle = arResult.title || extractedTitle;
+          contentHtml = arResult.contentHtml;
+        }
+      }
     }
   }
 

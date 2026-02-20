@@ -1,10 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   getPaywallRule,
   applyPaywallHeaders,
   extractJsonLdArticle,
   removePaywallElements,
   looksPaywalled,
+  isPaywallScript,
+  extractAmpLink,
+  stripAmpAccessControls,
+  fetchWaybackSnapshot,
+  fetchArchiveToday,
 } from "../paywall";
 
 describe("getPaywallRule", () => {
@@ -56,9 +61,21 @@ describe("applyPaywallHeaders", () => {
     expect(headers["User-Agent"]).toContain("Googlebot");
   });
 
-  it("sets Google Referer for known sites", () => {
+  it("sets Facebook Referer for WSJ", () => {
     const headers: Record<string, string> = {};
     applyPaywallHeaders("https://www.wsj.com/articles/test", headers);
+    expect(headers["Referer"]).toBe("https://www.facebook.com/");
+  });
+
+  it("sets Facebook Referer for Barrons", () => {
+    const headers: Record<string, string> = {};
+    applyPaywallHeaders("https://www.barrons.com/articles/test", headers);
+    expect(headers["Referer"]).toBe("https://www.facebook.com/");
+  });
+
+  it("sets Google Referer for Bloomberg", () => {
+    const headers: Record<string, string> = {};
+    applyPaywallHeaders("https://www.bloomberg.com/news/article", headers);
     expect(headers["Referer"]).toBe("https://www.google.com/");
   });
 
@@ -69,11 +86,231 @@ describe("applyPaywallHeaders", () => {
     expect(headers["Referer"]).toBe("https://www.google.com/");
   });
 
+  it("sets X-Forwarded-For for sites with xForwardedFor flag", () => {
+    const headers: Record<string, string> = {};
+    applyPaywallHeaders("https://www.nytimes.com/article", headers);
+    expect(headers["X-Forwarded-For"]).toBe("66.249.66.1");
+  });
+
+  it("sets X-Forwarded-For for WSJ", () => {
+    const headers: Record<string, string> = {};
+    applyPaywallHeaders("https://www.wsj.com/articles/test", headers);
+    expect(headers["X-Forwarded-For"]).toBe("66.249.66.1");
+  });
+
+  it("does not set X-Forwarded-For for Medium", () => {
+    const headers: Record<string, string> = {};
+    applyPaywallHeaders("https://medium.com/@user/article", headers);
+    expect(headers["X-Forwarded-For"]).toBeUndefined();
+  });
+
   it("does nothing for non-paywalled sites", () => {
     const headers: Record<string, string> = { "User-Agent": "original/1.0" };
     applyPaywallHeaders("https://example.com/page", headers);
     expect(headers["User-Agent"]).toBe("original/1.0");
     expect(headers["Referer"]).toBeUndefined();
+    expect(headers["X-Forwarded-For"]).toBeUndefined();
+  });
+});
+
+describe("isPaywallScript", () => {
+  it("matches known paywall provider scripts", () => {
+    expect(isPaywallScript("https://cdn.tinypass.com/api/tinypass.min.js")).toBe(true);
+    expect(isPaywallScript("https://experience.tinypass.com/xbuilder/experience/load")).toBe(true);
+    expect(isPaywallScript("https://cdn.piano.io/sdk/v2/piano.js")).toBe(true);
+  });
+
+  it("matches metering/analytics scripts", () => {
+    expect(isPaywallScript("https://cdn.cxense.com/cx.js")).toBe(true);
+    expect(isPaywallScript("https://cdn.blueconic.net/bbc.js")).toBe(true);
+  });
+
+  it("matches NYT-specific meter scripts", () => {
+    expect(isPaywallScript("https://meter-svc.nytimes.com/meter.js")).toBe(true);
+    expect(isPaywallScript("https://mwcm.nyt.com/mwcm.js")).toBe(true);
+  });
+
+  it("matches Bloomberg fence script", () => {
+    expect(isPaywallScript("https://assets.bwbx.io/s3/fence/v1/fence.js")).toBe(true);
+  });
+
+  it("rejects normal scripts", () => {
+    expect(isPaywallScript("https://cdn.example.com/app.js")).toBe(false);
+    expect(isPaywallScript("https://cdnjs.cloudflare.com/ajax/libs/jquery.min.js")).toBe(false);
+    expect(isPaywallScript("https://www.google-analytics.com/analytics.js")).toBe(false);
+  });
+});
+
+describe("extractAmpLink", () => {
+  it("finds AMP link in HTML", () => {
+    const html = `<html><head>
+      <link rel="amphtml" href="https://www.example.com/amp/article">
+    </head><body></body></html>`;
+    expect(extractAmpLink(html)).toBe("https://www.example.com/amp/article");
+  });
+
+  it("handles single quotes", () => {
+    const html = `<html><head>
+      <link rel='amphtml' href='https://example.com/amp/page'>
+    </head><body></body></html>`;
+    expect(extractAmpLink(html)).toBe("https://example.com/amp/page");
+  });
+
+  it("returns null when no AMP link exists", () => {
+    const html = `<html><head>
+      <link rel="canonical" href="https://example.com/article">
+    </head><body></body></html>`;
+    expect(extractAmpLink(html)).toBeNull();
+  });
+
+  it("returns null for empty HTML", () => {
+    expect(extractAmpLink("")).toBeNull();
+  });
+});
+
+describe("stripAmpAccessControls", () => {
+  it("removes subscriptions-section='content-not-granted'", () => {
+    const html = `<div subscriptions-section="content-not-granted">Hidden</div>`;
+    const result = stripAmpAccessControls(html);
+    expect(result).not.toContain("subscriptions-section");
+    expect(result).toContain("Hidden");
+  });
+
+  it("removes amp-access-hide", () => {
+    const html = `<div amp-access-hide>Hidden content</div>`;
+    const result = stripAmpAccessControls(html);
+    expect(result).not.toContain("amp-access-hide");
+    expect(result).toContain("Hidden content");
+  });
+
+  it("removes subscriptions-display attributes", () => {
+    const html = `<div subscriptions-display="loggedIn">Member content</div>`;
+    const result = stripAmpAccessControls(html);
+    expect(result).not.toContain("subscriptions-display");
+    expect(result).toContain("Member content");
+  });
+
+  it("preserves normal HTML attributes", () => {
+    const html = `<div class="article" id="main"><p>Content</p></div>`;
+    const result = stripAmpAccessControls(html);
+    expect(result).toBe(html);
+  });
+});
+
+describe("fetchWaybackSnapshot", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("returns HTML when snapshot is available", async () => {
+    const fakeHtml = "<html><body>" + "Article content. ".repeat(200) + "</body></html>";
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          archived_snapshots: {
+            closest: {
+              available: true,
+              url: "https://web.archive.org/web/20240101120000/https://example.com/article",
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => fakeHtml,
+      });
+
+    const result = await fetchWaybackSnapshot("https://example.com/article");
+    expect(result).toBe(fakeHtml);
+  });
+
+  it("returns null when no snapshot available", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        archived_snapshots: {},
+      }),
+    });
+
+    const result = await fetchWaybackSnapshot("https://example.com/no-archive");
+    expect(result).toBeNull();
+  });
+
+  it("returns null on API error", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+    });
+
+    const result = await fetchWaybackSnapshot("https://example.com/error");
+    expect(result).toBeNull();
+  });
+
+  it("returns null on network error", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error("Network error"));
+
+    const result = await fetchWaybackSnapshot("https://example.com/network-fail");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when body is too short", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          archived_snapshots: {
+            closest: {
+              available: true,
+              url: "https://web.archive.org/web/20240101120000/https://example.com/short",
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "<html><body>short</body></html>",
+      });
+
+    const result = await fetchWaybackSnapshot("https://example.com/short");
+    expect(result).toBeNull();
+  });
+});
+
+describe("fetchArchiveToday", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("returns HTML when archive exists", async () => {
+    const fakeHtml = "<html><body>" + "Archived content. ".repeat(200) + "</body></html>";
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      text: async () => fakeHtml,
+    });
+
+    const result = await fetchArchiveToday("https://example.com/article");
+    expect(result).toBe(fakeHtml);
+  });
+
+  it("returns null on 404", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+    });
+
+    const result = await fetchArchiveToday("https://example.com/no-archive");
+    expect(result).toBeNull();
+  });
+
+  it("returns null on network error", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error("Network error"));
+
+    const result = await fetchArchiveToday("https://example.com/error");
+    expect(result).toBeNull();
   });
 });
 

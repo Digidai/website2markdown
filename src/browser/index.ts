@@ -14,6 +14,7 @@ import {
   IMAGE_MAX_BYTES,
 } from "../config";
 import { isSafeUrl, escapeHtml } from "../security";
+import { isPaywallScript } from "../paywall";
 import { storeImage } from "../cache";
 
 // Adapter registry for non-Feishu sites
@@ -219,6 +220,11 @@ function handleInterceptedRequest(req: any): void {
   }
   const resourceType = typeof req.resourceType === "function" ? req.resourceType() : "";
   if (LOW_VALUE_RESOURCE_TYPES.has(resourceType)) {
+    req.abort("blockedbyclient");
+    return;
+  }
+  // Block known paywall/metering scripts
+  if (resourceType === "script" && isPaywallScript(reqUrl)) {
     req.abort("blockedbyclient");
     return;
   }

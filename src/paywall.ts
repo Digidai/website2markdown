@@ -6,6 +6,11 @@
  * 2. Google Referer — sites offering free access to Google search visitors
  * 3. JSON-LD articleBody extraction — full text embedded in structured data
  * 4. Paywall DOM element removal — strip overlays, modals, truncation markers
+ * 5. Puppeteer JS script blocking — block paywall/metering provider scripts
+ * 6. Multi-Referer (Facebook/Twitter) — WSJ, Barrons bypass
+ * 7. X-Forwarded-For Googlebot IP — naively-configured sites
+ * 8. AMP page fetch + attribute stripping — sites with AMP versions
+ * 9. Wayback Machine / Archive.today fallback — archived content retrieval
  */
 
 // ─── Types ───────────────────────────────────────────────────
@@ -16,6 +21,7 @@ export interface PaywallRule {
   referer?: string;
   removeSelectors?: string[];
   jsonLd?: boolean;
+  xForwardedFor?: boolean;
 }
 
 // ─── Googlebot UA ────────────────────────────────────────────
@@ -24,6 +30,34 @@ const GOOGLEBOT_UA =
   "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
 
 const GOOGLE_REFERER = "https://www.google.com/";
+const FACEBOOK_REFERER = "https://www.facebook.com/";
+
+// ─── Paywall script domains (for Puppeteer blocking) ────────
+
+export const PAYWALL_SCRIPT_PATTERNS: string[] = [
+  // Paywall/metering providers
+  "tinypass.com",
+  "piano.io",
+  "cdn.tinypass.com",
+  // Analytics used for metering
+  "cxense.com",
+  "blueconic.net",
+  // Site-specific meter scripts
+  "meter-svc.nytimes.com",
+  "mwcm.nyt.com",
+  // Paywall SDKs
+  "poool.fr",
+  "pelcro.com",
+  "tribdss.com",
+  // Bloomberg fence
+  "assets.bwbx.io/s3/fence",
+];
+
+/** Check if a URL matches a known paywall/metering script. */
+export function isPaywallScript(url: string): boolean {
+  const lower = url.toLowerCase();
+  return PAYWALL_SCRIPT_PATTERNS.some((pattern) => lower.includes(pattern));
+}
 
 // ─── Known paywalled sites ──────────────────────────────────
 
@@ -34,13 +68,22 @@ const PAYWALL_RULES: PaywallRule[] = [
     googlebot: true,
     referer: GOOGLE_REFERER,
     jsonLd: true,
+    xForwardedFor: true,
   },
-  // Business / Finance
+  // Business / Finance — WSJ/Barrons use Facebook referer
   {
-    domains: ["wsj.com", "bloomberg.com", "ft.com", "economist.com", "barrons.com", "hbr.org", "seekingalpha.com"],
+    domains: ["wsj.com", "barrons.com"],
+    googlebot: true,
+    referer: FACEBOOK_REFERER,
+    jsonLd: true,
+    xForwardedFor: true,
+  },
+  {
+    domains: ["bloomberg.com", "ft.com", "economist.com", "hbr.org", "seekingalpha.com"],
     googlebot: true,
     referer: GOOGLE_REFERER,
     jsonLd: true,
+    xForwardedFor: true,
   },
   // Tech / Science
   {
@@ -145,7 +188,7 @@ export function getPaywallRule(url: string): PaywallRule | null {
   }
 }
 
-/** Apply Googlebot UA and Referer headers for known paywalled sites. */
+/** Apply Googlebot UA, Referer, and X-Forwarded-For headers for known paywalled sites. */
 export function applyPaywallHeaders(
   url: string,
   headers: Record<string, string>,
@@ -158,6 +201,9 @@ export function applyPaywallHeaders(
   }
   if (rule.referer) {
     headers["Referer"] = rule.referer;
+  }
+  if (rule.xForwardedFor) {
+    headers["X-Forwarded-For"] = "66.249.66.1";
   }
 }
 
@@ -329,4 +375,108 @@ export function looksPaywalled(html: string): boolean {
   }
 
   return false;
+}
+
+// ─── Wayback Machine fallback ───────────────────────────────
+
+/**
+ * Fetch an archived snapshot from the Wayback Machine.
+ * Returns raw HTML if a recent snapshot is available, null otherwise.
+ */
+export async function fetchWaybackSnapshot(
+  targetUrl: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  try {
+    const apiUrl = `https://archive.org/wayback/available?url=${encodeURIComponent(targetUrl)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5_000);
+    if (signal) {
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+    let apiResp: Response;
+    try {
+      apiResp = await fetch(apiUrl, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!apiResp.ok) return null;
+
+    const data = (await apiResp.json()) as any;
+    const snapshot = data?.archived_snapshots?.closest;
+    if (!snapshot?.available || !snapshot?.url) return null;
+
+    // Fetch raw content (add id_ suffix to get original HTML)
+    const rawUrl = snapshot.url.replace(/\/web\/(\d+)\//, "/web/$1id_/");
+    const fetchController = new AbortController();
+    const fetchTimeout = setTimeout(() => fetchController.abort(), 10_000);
+    if (signal) {
+      signal.addEventListener("abort", () => fetchController.abort(), { once: true });
+    }
+    let htmlResp: Response;
+    try {
+      htmlResp = await fetch(rawUrl, { signal: fetchController.signal });
+    } finally {
+      clearTimeout(fetchTimeout);
+    }
+    if (!htmlResp.ok) return null;
+
+    const body = await htmlResp.text();
+    return body.length > 1000 ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Archive.today fallback ─────────────────────────────────
+
+/**
+ * Fetch the newest archived page from Archive.today.
+ * Returns HTML if an archive exists, null otherwise.
+ */
+export async function fetchArchiveToday(
+  targetUrl: string,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  try {
+    const archiveUrl = `https://archive.today/newest/${encodeURIComponent(targetUrl)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    if (signal) {
+      signal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+    let resp: Response;
+    try {
+      resp = await fetch(archiveUrl, {
+        signal: controller.signal,
+        redirect: "follow",
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!resp.ok) return null;
+
+    const body = await resp.text();
+    return body.length > 1000 ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── AMP page extraction ────────────────────────────────────
+
+/** Extract AMP page URL from HTML if present. */
+export function extractAmpLink(html: string): string | null {
+  const match = html.match(/<link\s[^>]*rel\s*=\s*["']amphtml["'][^>]*>/i);
+  if (!match) return null;
+  const hrefMatch = match[0].match(/href\s*=\s*["']([^"']+)["']/i);
+  return hrefMatch ? hrefMatch[1] : null;
+}
+
+/** Strip AMP access control attributes that hide content behind paywalls. */
+export function stripAmpAccessControls(html: string): string {
+  return html
+    .replace(/\s*subscriptions-section\s*=\s*["']content-not-granted["']/gi, "")
+    .replace(/\s*amp-access-hide\b/gi, "")
+    .replace(/\s*subscriptions-display\s*=\s*["'][^"']*["']/gi, "");
 }
