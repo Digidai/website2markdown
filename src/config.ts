@@ -44,6 +44,11 @@ export const DESKTOP_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
 
+// Googlebot UA — sites allow this through anti-bot to be indexed by Google
+export const GOOGLEBOT_UA =
+  "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; " +
+  "+http://www.google.com/bot.html) Chrome/131.0.0.0 Safari/537.36";
+
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",

@@ -10,7 +10,7 @@ export const zhihuAdapter: SiteAdapter = {
     );
   },
 
-  alwaysBrowser: true,
+  alwaysBrowser: false,
 
   async configurePage(page: any): Promise<void> {
     await page.setUserAgent(DESKTOP_UA);

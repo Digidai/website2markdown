@@ -63,7 +63,7 @@ describe("alwaysNeedsBrowser", () => {
     expect(alwaysNeedsBrowser("https://example.com")).toBe(false);
   });
 
-  it("returns true for Zhihu", () => {
-    expect(alwaysNeedsBrowser("https://zhuanlan.zhihu.com/p/123")).toBe(true);
+  it("returns false for Zhihu (uses Googlebot UA for static fetch)", () => {
+    expect(alwaysNeedsBrowser("https://zhuanlan.zhihu.com/p/123")).toBe(false);
   });
 });

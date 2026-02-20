@@ -3,6 +3,7 @@ import {
   MAX_RESPONSE_BYTES,
   CORS_HEADERS,
   WECHAT_UA,
+  GOOGLEBOT_UA,
   VALID_FORMATS,
   BROWSER_CONCURRENCY,
   BROWSER_TIMEOUT,
@@ -256,15 +257,21 @@ async function convertUrl(
     throwIfAborted(abortSignal);
     await progress("fetch", "Fetching page");
     const isWechat = targetUrl.includes("mp.weixin.qq.com");
+    const isZhihu = targetUrl.includes("zhihu.com");
     const fetchHeaders: Record<string, string> = {
       Accept: "text/markdown, text/html;q=0.9, */*;q=0.8",
       "User-Agent": isWechat
         ? WECHAT_UA
-        : `${host}/1.0 (Markdown Converter)`,
+        : isZhihu
+          ? GOOGLEBOT_UA
+          : `${host}/1.0 (Markdown Converter)`,
     };
     if (isWechat) {
       fetchHeaders["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8";
       fetchHeaders["Referer"] = "https://mp.weixin.qq.com/";
+    }
+    if (isZhihu) {
+      fetchHeaders["Accept-Language"] = "zh-CN,zh;q=0.9,en;q=0.8";
     }
 
     let response: Response;
