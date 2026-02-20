@@ -30,4 +30,8 @@ export interface SiteAdapter {
   extract(page: any, capturedImages: Map<string, string>): Promise<ExtractResult | null>;
   /** Post-process HTML before Readability (optional). */
   postProcess?(html: string): string;
+  /** Transform URL before browser navigation (optional). */
+  transformUrl?(url: string): string;
+  /** Fetch content directly via API, bypassing static fetch and browser. Return HTML or null. */
+  fetchDirect?(url: string): Promise<string | null>;
 }

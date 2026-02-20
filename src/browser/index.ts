@@ -22,6 +22,13 @@ import { zhihuAdapter } from "./adapters/zhihu";
 import { yuqueAdapter } from "./adapters/yuque";
 import { notionAdapter } from "./adapters/notion";
 import { juejinAdapter } from "./adapters/juejin";
+import { csdnAdapter } from "./adapters/csdn";
+import { kr36Adapter } from "./adapters/36kr";
+import { toutiaoAdapter } from "./adapters/toutiao";
+import { neteaseAdapter } from "./adapters/netease";
+import { weiboAdapter } from "./adapters/weibo";
+import { redditAdapter } from "./adapters/reddit";
+import { twitterAdapter } from "./adapters/twitter";
 import { genericAdapter } from "./adapters/generic";
 // Feishu has its own dedicated function (not adapter-based)
 import { feishuAdapter } from "./adapters/feishu";
@@ -225,6 +232,13 @@ const adapters: SiteAdapter[] = [
   yuqueAdapter,
   notionAdapter,
   juejinAdapter,
+  csdnAdapter,
+  kr36Adapter,
+  toutiaoAdapter,
+  neteaseAdapter,
+  weiboAdapter,
+  redditAdapter,
+  twitterAdapter,
   genericAdapter, // Must be last
 ];
 
@@ -770,6 +784,8 @@ async function fetchWithBrowserAdapter(
     // With "networkidle2", goto resolves on the challenge page, then the
     // redirect destroys the execution context. Using "load" + letting the
     // adapter handle waiting for final content is more resilient.
+    // Note: URL transformation (e.g. Reddit → old.reddit.com) is already
+    // applied at the top level in index.ts before reaching this function.
     try {
       await withTimeoutAndAbort(
         page.goto(url, {

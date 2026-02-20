@@ -18,7 +18,7 @@ import {
   fetchWithSafeRedirects,
 } from "./security";
 import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
-import { fetchWithBrowser, alwaysNeedsBrowser } from "./browser";
+import { fetchWithBrowser, alwaysNeedsBrowser, getAdapter } from "./browser";
 import { getCached, setCache, getImage } from "./cache";
 import { parseProxyUrl, fetchViaProxy } from "./proxy";
 import { landingPageHTML } from "./templates/landing";
@@ -237,8 +237,29 @@ async function convertUrl(
   let finalHtml = "";
   let method: ConvertMethod = "readability+turndown";
 
+  // Apply adapter URL transformation (e.g. reddit.com → old.reddit.com)
+  const fetchAdapter = getAdapter(targetUrl);
+  if (fetchAdapter.transformUrl) {
+    targetUrl = fetchAdapter.transformUrl(targetUrl);
+  }
+
+  // Direct fetch path — adapter handles fetching entirely (e.g. API-based sites)
+  if (fetchAdapter.fetchDirect) {
+    throwIfAborted(abortSignal);
+    await progress("fetch", "Fetching via API");
+    try {
+      const directHtml = await fetchAdapter.fetchDirect(targetUrl);
+      if (directHtml) {
+        finalHtml = directHtml;
+        method = "readability+turndown";
+      }
+    } catch (e) {
+      console.error("fetchDirect failed, falling through:", errorMessage(e));
+    }
+  }
+
   // Early browser path — skip redundant static fetch for sites that always need browser
-  if (alwaysNeedsBrowser(targetUrl)) {
+  if (!finalHtml && alwaysNeedsBrowser(targetUrl)) {
     throwIfAborted(abortSignal);
     await progress("browser", "Rendering with browser");
     try {
@@ -248,19 +269,19 @@ async function convertUrl(
       if (abortSignal?.aborted) throw new RequestAbortedError();
       const msg = error instanceof Error ? error.message : "";
 
-      // Zhihu hybrid path: browser solved JS challenge but datacenter IP
+      // Hybrid proxy path: browser solved JS challenge but datacenter IP
       // was blocked. Retry the fetch through ISP proxy with browser cookies.
-      if (msg.startsWith("ZHIHU_PROXY_RETRY:") || msg.includes("ZHIHU_PROXY_RETRY:")) {
+      if (msg.startsWith("PROXY_RETRY:") || msg.includes("PROXY_RETRY:")) {
         const proxyConfig = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
         if (!proxyConfig) {
           throw new ConvertError(
             "Fetch Failed",
-            "知乎要求登录验证。需要配置代理才能访问。",
+            "Site requires proxy access. Please configure PROXY_URL.",
             502,
           );
         }
         // Extract cookies from the error message
-        const cookieStart = msg.indexOf("ZHIHU_PROXY_RETRY:") + "ZHIHU_PROXY_RETRY:".length;
+        const cookieStart = msg.indexOf("PROXY_RETRY:") + "PROXY_RETRY:".length;
         const cookies = msg.slice(cookieStart).replace(/^(Browser rendering failed: )+/, "");
 
         throwIfAborted(abortSignal);
@@ -274,6 +295,16 @@ async function convertUrl(
             "Cookie": cookies,
           }, 25_000);
           if (proxyResult.status >= 200 && proxyResult.status < 400 && proxyResult.body.length > 1000) {
+            // Check if proxy returned a login/challenge page instead of real content
+            const lower = proxyResult.body.toLowerCase();
+            const isGarbage =
+              (lower.includes("passport.weibo") || lower.includes("qrcode_login") || lower.includes("login_type")) ||
+              (lower.includes("verify") && lower.includes("captcha") && proxyResult.body.length < 5000) ||
+              (lower.includes("cf-browser-verification") || lower.includes("cf-challenge")) ||
+              (lower.includes("just a moment") && lower.includes("cloudflare") && proxyResult.body.length < 10000);
+            if (isGarbage) {
+              throw new Error(`Proxy returned login/challenge page (${proxyResult.body.length} bytes)`);
+            }
             finalHtml = proxyResult.body;
             method = "browser+readability+turndown";
           } else {
@@ -284,19 +315,16 @@ async function convertUrl(
           console.error("Proxy fetch failed:", proxyDetail);
           throw new ConvertError(
             "Fetch Failed",
-            `知乎代理访问失败: ${proxyDetail}`,
+            `Proxy access failed: ${proxyDetail}`,
             502,
           );
         }
       } else {
         console.error("Browser rendering failed:", errorMessage(error));
-        const userMessage = msg.includes("知乎") || msg.includes("Zhihu")
-          ? msg.replace(/^(Browser rendering failed: )+/, "")
-          : "Browser rendering failed for this URL.";
-        throw new ConvertError("Fetch Failed", userMessage, 502);
+        throw new ConvertError("Fetch Failed", "Browser rendering failed for this URL.", 502);
       }
     }
-  } else {
+  } else if (!finalHtml) {
     // 3. Static fetch
     throwIfAborted(abortSignal);
     await progress("fetch", "Fetching page");
@@ -444,7 +472,13 @@ async function convertUrl(
     throw new ConvertError("Content Too Large", "The rendered page exceeds the 5 MB size limit.", 413);
   }
 
-  // 8. Convert
+  // 8. Apply adapter post-processing before conversion
+  const siteAdapter = getAdapter(targetUrl);
+  if (siteAdapter.postProcess) {
+    finalHtml = siteAdapter.postProcess(finalHtml);
+  }
+
+  // 9. Convert
   throwIfAborted(abortSignal);
   await progress("convert", "Converting to Markdown");
   const { markdown, title: extractedTitle, contentHtml } = htmlToMarkdown(finalHtml, targetUrl, selector);

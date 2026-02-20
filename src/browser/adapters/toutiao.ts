@@ -1,11 +1,11 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { applyStealthAndDesktop } from "../stealth";
 
-const CONTENT_SELECTOR = ".article-content, .markdown-body, [class*='article-viewer']";
+const CONTENT_SELECTOR = '.article-content, [class*="articleDetail"], .content-article';
 
-export const juejinAdapter: SiteAdapter = {
+export const toutiaoAdapter: SiteAdapter = {
   match(url: string): boolean {
-    return url.includes("juejin.cn/post/");
+    return url.includes("toutiao.com/");
   },
 
   alwaysBrowser: true,
@@ -15,7 +15,7 @@ export const juejinAdapter: SiteAdapter = {
   },
 
   async extract(page: any): Promise<ExtractResult | null> {
-    // Wait for article content to render
+    // Wait for article content
     try {
       await page.waitForSelector(CONTENT_SELECTOR, { timeout: 12_000 });
     } catch {
@@ -29,25 +29,21 @@ export const juejinAdapter: SiteAdapter = {
           .join("; ");
         throw new Error(`PROXY_RETRY:${cookieStr}`);
       }
-      throw new Error("Juejin page did not load article content within timeout.");
+      throw new Error("Toutiao page did not load article content within timeout.");
     }
 
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, 1500));
 
-    // Remove UI noise and expand collapsed content
+    // Remove noise
     await page.evaluate(`
       (function() {
         var noise = [
-          '[class*="login-guide"]', '[class*="sidebar"]',
-          '[class*="recommended"]', '[class*="comment-box"]',
-          '[class*="article-end"]', '[class*="extension"]'
+          '[class*="sidebar"]', '[class*="recommend"]', '[class*="comment"]',
+          '[class*="login"]', '[class*="modal"]', '[class*="banner"]',
+          '[class*="footer"]', '[class*="download-guide"]'
         ];
         noise.forEach(function(sel) {
           try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
-        });
-        document.querySelectorAll('[class*="code-block-extension"]').forEach(function(el) {
-          el.style.maxHeight = 'none';
-          el.style.overflow = 'visible';
         });
         document.querySelectorAll('img[data-src]').forEach(function(img) {
           var real = img.getAttribute('data-src');
