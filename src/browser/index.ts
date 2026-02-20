@@ -27,12 +27,79 @@ import { genericAdapter } from "./adapters/generic";
 import { feishuAdapter } from "./adapters/feishu";
 
 const BROWSER_QUEUE_TIMEOUT_MS = 10_000;
+const BROWSER_CLOSE_TIMEOUT_MS = 5000;
 const LOW_VALUE_RESOURCE_TYPES = new Set([
   "font",
   "manifest",
   "media",
   "texttrack",
 ]);
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error("Browser rendering aborted by client disconnect.");
+  }
+}
+
+async function withTimeoutAndAbort<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+  abortSignal?: AbortSignal,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let abortListener: (() => void) | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    if (abortSignal) {
+      abortListener = () =>
+        reject(new Error("Browser rendering aborted by client disconnect."));
+      if (abortSignal.aborted) {
+        abortListener();
+        return;
+      }
+      abortSignal.addEventListener("abort", abortListener, { once: true });
+    }
+  });
+
+  try {
+    return await Promise.race([task, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+    if (abortSignal && abortListener) {
+      abortSignal.removeEventListener("abort", abortListener);
+    }
+  }
+}
+
+async function launchBrowser(env: Env): Promise<any> {
+  try {
+    return await puppeteer.launch(env.MYBROWSER);
+  } catch (error) {
+    throw new Error(`Browser launch failed: ${errorMessage(error)}`);
+  }
+}
+
+async function closeBrowserSafely(browser: any | null): Promise<void> {
+  if (!browser) return;
+  try {
+    await withTimeoutAndAbort(
+      browser.close(),
+      BROWSER_CLOSE_TIMEOUT_MS,
+      "Browser close timed out.",
+    );
+  } catch (error) {
+    console.error("Browser close error:", errorMessage(error));
+  }
+}
 
 type PermitRelease = () => void;
 
@@ -184,12 +251,14 @@ export async function fetchWithBrowser(
   url: string,
   env: Env,
   host: string,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   return browserCapacityGate.run(async () => {
+    throwIfAborted(abortSignal);
     if (feishuAdapter.match(url)) {
-      return fetchWithBrowserFeishu(url, env, host);
+      return fetchWithBrowserFeishu(url, env, host, abortSignal);
     }
-    return fetchWithBrowserAdapter(url, env);
+    return fetchWithBrowserAdapter(url, env, abortSignal);
   }, url);
 }
 
@@ -203,9 +272,13 @@ async function fetchWithBrowserFeishu(
   url: string,
   env: Env,
   host: string,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
-  const browser = await puppeteer.launch(env.MYBROWSER);
+  let browser: any | null = null;
   try {
+    browser = await launchBrowser(env);
+    throwIfAborted(abortSignal);
+
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900 });
     await page.setExtraHTTPHeaders({
@@ -274,7 +347,12 @@ async function fetchWithBrowserFeishu(
       pendingCaptures.push(p);
     });
 
-    await page.goto(url, { waitUntil: "networkidle2", timeout: FEISHU_BROWSER_TIMEOUT });
+    await withTimeoutAndAbort(
+      page.goto(url, { waitUntil: "networkidle2", timeout: FEISHU_BROWSER_TIMEOUT }),
+      FEISHU_BROWSER_TIMEOUT + 2000,
+      "Browser navigation timed out.",
+      abortSignal,
+    );
     await new Promise((r) => setTimeout(r, FEISHU_SETTLE_WAIT));
 
     // Pre-scroll using Puppeteer keyboard to trigger Feishu's virtual scroll.
@@ -299,7 +377,8 @@ async function fetchWithBrowserFeishu(
     // passed directly to page.evaluate(). Storing it in a variable and
     // interpolating it causes double-escaping issues that silently break
     // text collection.
-    const content = await page.evaluate(`
+    throwIfAborted(abortSignal);
+    const content = await withTimeoutAndAbort(page.evaluate(`
       (async function() {
         // 1. Remove Feishu UI noise
         var uiNoise = [
@@ -560,14 +639,20 @@ async function fetchWithBrowserFeishu(
 
         return { text: collected.join('\\n\\n'), images: imgUrls };
       })()
-    `);
+    `), FEISHU_BROWSER_TIMEOUT + 3000, "Browser content extraction timed out.", abortSignal);
 
     // Wait for all pending image capture handlers to complete
     await Promise.allSettled(pendingCaptures);
 
     const feishuResult = content as { text?: string; images?: string[] } | null;
     if (feishuResult && feishuResult.text && feishuResult.text.length > 100) {
-      const title = await page.title();
+      const titleRaw = await withTimeoutAndAbort<string>(
+        page.title() as Promise<string>,
+        5000,
+        "Browser title extraction timed out.",
+        abortSignal,
+      );
+      const title = typeof titleRaw === "string" ? titleRaw : "";
 
       // Resolve image URL to captured R2 URL (or fallback to original)
       function resolveImage(rawUrl: string): string {
@@ -639,14 +724,17 @@ async function fetchWithBrowserFeishu(
     }
 
     // Fallback: return raw page content
-    const html = await page.content();
+    const html = await withTimeoutAndAbort<string>(
+      page.content() as Promise<string>,
+      BROWSER_TIMEOUT,
+      "Browser page content read timed out.",
+      abortSignal,
+    );
     return html;
+  } catch (error) {
+    throw new Error(`Browser rendering failed: ${errorMessage(error)}`);
   } finally {
-    try {
-      await browser.close();
-    } catch (e) {
-      console.error("Browser close error:", e instanceof Error ? e.message : e);
-    }
+    await closeBrowserSafely(browser);
   }
 }
 
@@ -656,12 +744,16 @@ async function fetchWithBrowserFeishu(
 async function fetchWithBrowserAdapter(
   url: string,
   env: Env,
+  abortSignal?: AbortSignal,
 ): Promise<string> {
   const adapter = getAdapter(url);
   const capturedImages = new Map<string, string>();
 
-  const browser = await puppeteer.launch(env.MYBROWSER);
+  let browser: any | null = null;
   try {
+    browser = await launchBrowser(env);
+    throwIfAborted(abortSignal);
+
     const page = await browser.newPage();
 
     // Configure page for this site
@@ -672,25 +764,38 @@ async function fetchWithBrowserAdapter(
     await page.setRequestInterception(true);
 
     // Navigate
-    await page.goto(url, {
-      waitUntil: "networkidle2",
-      timeout: BROWSER_TIMEOUT,
-    });
+    await withTimeoutAndAbort(
+      page.goto(url, {
+        waitUntil: "networkidle2",
+        timeout: BROWSER_TIMEOUT,
+      }),
+      BROWSER_TIMEOUT + 2000,
+      "Browser navigation timed out.",
+      abortSignal,
+    );
 
     // Let adapter extract content
-    const result = await adapter.extract(page, capturedImages);
+    const result = await withTimeoutAndAbort(
+      adapter.extract(page, capturedImages),
+      BROWSER_TIMEOUT + 3000,
+      "Browser content extraction timed out.",
+      abortSignal,
+    );
     if (result?.html) {
       return result.html;
     }
 
     // Fallback: return raw page content
-    const html = await page.content();
+    const html = await withTimeoutAndAbort<string>(
+      page.content() as Promise<string>,
+      BROWSER_TIMEOUT,
+      "Browser page content read timed out.",
+      abortSignal,
+    );
     return html;
+  } catch (error) {
+    throw new Error(`Browser rendering failed: ${errorMessage(error)}`);
   } finally {
-    try {
-      await browser.close();
-    } catch (e) {
-      console.error("Browser close error:", e instanceof Error ? e.message : e);
-    }
+    await closeBrowserSafely(browser);
   }
 }

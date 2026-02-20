@@ -13,6 +13,78 @@ const HASH_MEMO_CAPACITY = 256;
 const CACHE_KEY_MEMO_CAPACITY = 512;
 const hashMemo = new Map<string, string>();
 const cacheKeyMemo = new Map<string, string>();
+const CACHE_READ_TIMEOUT_MS = 800;
+const CACHE_WRITE_TIMEOUT_MS = 1500;
+const R2_OP_TIMEOUT_MS = 3000;
+const TRANSIENT_RETRY_COUNT = 1;
+const TRANSIENT_RETRY_DELAY_MS = 60;
+
+function waitMs(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function isTransientStorageError(error: unknown): boolean {
+  const lower = errorMessage(error).toLowerCase();
+  return (
+    lower.includes("timed out") ||
+    lower.includes("timeout") ||
+    lower.includes("econnreset") ||
+    lower.includes("connection reset") ||
+    lower.includes("socket hang up") ||
+    lower.includes("temporarily unavailable") ||
+    lower.includes("service unavailable") ||
+    lower.includes("internal error") ||
+    lower.includes("network")
+  );
+}
+
+async function withTimeout<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+  });
+
+  try {
+    return await Promise.race([task, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+async function withTransientRetry<T>(
+  task: () => Promise<T>,
+  retries: number = TRANSIENT_RETRY_COUNT,
+): Promise<T> {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (attempt === retries || !isTransientStorageError(error)) {
+        throw error;
+      }
+      await waitMs(TRANSIENT_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Storage operation failed");
+}
 
 function touchBoundedMap<T>(
   map: Map<string, T>,
@@ -162,7 +234,11 @@ export async function getCached(
     const hot = getHotCache(key);
     if (hot) return hot;
 
-    const raw = await env.CACHE_KV.get(key, "text");
+    const raw = await withTimeout(
+      env.CACHE_KV.get(key, "text"),
+      CACHE_READ_TIMEOUT_MS,
+      "KV read timed out",
+    );
     if (!raw) return null;
     const parsed = parseCachedPayload(raw);
     if (!parsed) return null;
@@ -186,9 +262,15 @@ export async function setCache(
     const key = await cacheKey(url, format, selector);
     const effectiveTtl = ttl ?? getTtlForUrl(url);
     putHotCache(key, data, hotTtlMs(effectiveTtl));
-    await env.CACHE_KV.put(key, JSON.stringify(data), {
-      expirationTtl: effectiveTtl,
-    });
+    await withTransientRetry(() =>
+      withTimeout(
+        env.CACHE_KV.put(key, JSON.stringify(data), {
+          expirationTtl: effectiveTtl,
+        }),
+        CACHE_WRITE_TIMEOUT_MS,
+        "KV write timed out",
+      ),
+    );
   } catch (e) {
     console.error("Cache write failed:", e instanceof Error ? e.message : e);
   }
@@ -226,24 +308,34 @@ export async function storeImage(
   data: ArrayBuffer | Uint8Array,
   contentType: string,
 ): Promise<string> {
-  // Generate a non-guessable key using SHA-256 hash of the URL
-  const hashBuf = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(imageUrl),
-  );
-  const hash = Array.from(new Uint8Array(hashBuf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  try {
+    // Generate a non-guessable key using SHA-256 hash of the URL
+    const hashBuf = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(imageUrl),
+    );
+    const hash = Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
 
-  // Extract extension from content type
-  const ext = contentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
-  const key = `images/${hash}.${ext}`;
+    // Extract extension from content type
+    const ext = contentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
+    const key = `images/${hash}.${ext}`;
 
-  await env.IMAGE_BUCKET.put(key, data, {
-    httpMetadata: { contentType },
-  });
+    await withTransientRetry(() =>
+      withTimeout(
+        env.IMAGE_BUCKET.put(key, data, {
+          httpMetadata: { contentType },
+        }),
+        R2_OP_TIMEOUT_MS,
+        "R2 write timed out",
+      ),
+    );
 
-  return key;
+    return key;
+  } catch (error) {
+    throw new Error(`Image storage failed: ${errorMessage(error)}`);
+  }
 }
 
 /** Get an image from R2. */
@@ -252,7 +344,13 @@ export async function getImage(
   key: string,
 ): Promise<{ data: ReadableStream; contentType: string } | null> {
   try {
-    const obj = await env.IMAGE_BUCKET.get(key);
+    const obj = await withTransientRetry(() =>
+      withTimeout(
+        env.IMAGE_BUCKET.get(key),
+        R2_OP_TIMEOUT_MS,
+        "R2 read timed out",
+      ),
+    );
     if (!obj) return null;
     return {
       data: obj.body,

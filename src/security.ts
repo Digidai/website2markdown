@@ -212,6 +212,78 @@ function getRetryDelayMs(
   return Math.min(retryDelayMs * 2 ** attempt, maxRetryDelayMs);
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function errorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+  const direct = (error as { code?: unknown }).code;
+  if (typeof direct === "string") return direct.toUpperCase();
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause && typeof cause === "object") {
+    const causeCode = (cause as { code?: unknown }).code;
+    if (typeof causeCode === "string") return causeCode.toUpperCase();
+  }
+  return "";
+}
+
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "target host";
+  }
+}
+
+function normalizeFetchFailure(error: unknown, requestUrl: string): Error {
+  if (
+    error instanceof Error &&
+    error.message.includes("Redirect target blocked by SSRF protection")
+  ) {
+    return error;
+  }
+
+  const code = errorCode(error);
+  const message = errorMessage(error);
+  const lower = message.toLowerCase();
+  const host = hostnameOf(requestUrl);
+
+  if (
+    code === "ENOTFOUND" ||
+    code === "EAI_AGAIN" ||
+    lower.includes("enotfound") ||
+    lower.includes("eai_again") ||
+    lower.includes("dns") ||
+    lower.includes("could not resolve host") ||
+    lower.includes("name or service not known")
+  ) {
+    return new Error(`DNS resolution failed for ${host}.`);
+  }
+
+  if (
+    code === "ECONNRESET" ||
+    lower.includes("econnreset") ||
+    lower.includes("socket hang up") ||
+    lower.includes("connection reset") ||
+    lower.includes("network reset")
+  ) {
+    return new Error("Connection reset while fetching the target URL.");
+  }
+
+  if (
+    code === "ETIMEDOUT" ||
+    lower.includes("etimedout") ||
+    lower.includes("timed out") ||
+    lower.includes("timeout")
+  ) {
+    return new Error("Request timed out while fetching the target URL.");
+  }
+
+  return error instanceof Error ? error : new Error(message);
+}
+
 async function fetchWithRetry(
   url: string,
   init: RequestInit,
@@ -235,9 +307,16 @@ async function fetchWithRetry(
         return response;
       }
     } catch (error) {
-      lastError = error;
-      if (!retryable || attempt === retryOptions.maxRetries) {
-        throw error;
+      const normalizedError = normalizeFetchFailure(error, url);
+      lastError = normalizedError;
+
+      // Abort errors should not be retried
+      const aborted =
+        init.signal?.aborted ||
+        (error instanceof DOMException && error.name === "AbortError");
+
+      if (aborted || !retryable || attempt === retryOptions.maxRetries) {
+        throw normalizedError;
       }
     }
 
@@ -346,12 +425,16 @@ export async function fetchWithSafeRedirects(
   const normalizedRetryOptions = normalizeRetryOptions(retryOptions);
 
   for (let hops = 0; hops <= maxHops; hops++) {
-    response = await fetchWithRetry(
-      currentUrl,
-      init,
-      retryable,
-      normalizedRetryOptions,
-    );
+    try {
+      response = await fetchWithRetry(
+        currentUrl,
+        init,
+        retryable,
+        normalizedRetryOptions,
+      );
+    } catch (error) {
+      throw normalizeFetchFailure(error, currentUrl);
+    }
 
     if (!REDIRECT_STATUS_CODES.has(response.status)) {
       break;

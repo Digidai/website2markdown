@@ -10,6 +10,9 @@ const turndown = new TurndownService({
   emDelimiter: "*",
 });
 
+const MAX_REGEX_INPUT_CHARS = 2_000_000;
+const MAX_REGEX_LINE_LENGTH = 20_000;
+
 // Strikethrough support
 turndown.addRule("strikethrough", {
   filter: ["del", "s"],
@@ -63,6 +66,41 @@ turndown.addRule("simpleTable", {
   },
 });
 
+function fallbackMarkdownFromHtml(html: string): string {
+  const trimmed = html.trim();
+  if (!trimmed) return "";
+
+  try {
+    const wrapped = trimmed.includes("<html")
+      ? trimmed
+      : `<html><head></head><body>${trimmed}</body></html>`;
+    const { document } = parseHTML(wrapped);
+    const text = (document.body?.textContent || "")
+      .replace(/\r\n?/g, "\n")
+      .trim();
+    if (text) return text;
+  } catch {
+    // Fall through to raw trimmed input
+  }
+
+  return trimmed;
+}
+
+function clampRegexInput(input: string): string {
+  if (!input) return "";
+  const bounded =
+    input.length > MAX_REGEX_INPUT_CHARS
+      ? input.slice(0, MAX_REGEX_INPUT_CHARS)
+      : input;
+  const lines = bounded.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].length > MAX_REGEX_LINE_LENGTH) {
+      lines[i] = lines[i].slice(0, MAX_REGEX_LINE_LENGTH);
+    }
+  }
+  return lines.join("\n");
+}
+
 /**
  * Convert HTML to Markdown using Readability + Turndown.
  * Optionally scope extraction to a CSS selector.
@@ -72,11 +110,26 @@ export function htmlToMarkdown(
   url: string,
   selector?: string,
 ): { markdown: string; title: string; contentHtml: string } {
+  const sourceHtml = html || "";
+  if (!sourceHtml.trim()) {
+    return { markdown: "", title: "", contentHtml: "" };
+  }
+
   // Ensure full document structure
-  const wrappedHtml = html.includes("<html")
-    ? html
-    : `<html><head></head><body>${html}</body></html>`;
-  const { document } = parseHTML(wrappedHtml);
+  const wrappedHtml = sourceHtml.includes("<html")
+    ? sourceHtml
+    : `<html><head></head><body>${sourceHtml}</body></html>`;
+
+  let document: any;
+  try {
+    ({ document } = parseHTML(wrappedHtml));
+  } catch {
+    return {
+      markdown: fallbackMarkdownFromHtml(sourceHtml),
+      title: "",
+      contentHtml: sourceHtml,
+    };
+  }
 
   // Set <base> for Readability to resolve relative links
   try {
@@ -92,7 +145,7 @@ export function htmlToMarkdown(
     // Ignore if head is not available
   }
 
-  let contentHtml = html;
+  let contentHtml = sourceHtml;
   let title = "";
   try {
     title = document.title || "";
@@ -126,11 +179,29 @@ export function htmlToMarkdown(
     }
   }
 
+  if (!contentHtml.trim()) {
+    const cleanEmptyTitle = title.replace(/[\r\n]+/g, " ").trim();
+    return {
+      markdown: cleanEmptyTitle ? `# ${cleanEmptyTitle}` : "",
+      title,
+      contentHtml: "",
+    };
+  }
+
   // Parse content into DOM so Turndown receives a node (not a string)
-  const { document: contentDoc } = parseHTML(
-    `<html><body>${contentHtml}</body></html>`,
-  );
-  let markdown = turndown.turndown(contentDoc.body as any);
+  let markdown = "";
+  try {
+    const { document: contentDoc } = parseHTML(
+      `<html><body>${contentHtml}</body></html>`,
+    );
+    markdown = turndown.turndown(contentDoc.body as any);
+  } catch {
+    markdown = fallbackMarkdownFromHtml(contentHtml);
+  }
+
+  if (!markdown.trim()) {
+    markdown = fallbackMarkdownFromHtml(contentHtml);
+  }
 
   // Prepend title as H1 if available and not already present
   const cleanTitle = title.replace(/[\r\n]+/g, " ").trim();
@@ -146,8 +217,10 @@ export function htmlToMarkdown(
  */
 export function htmlToText(html: string, url: string): string {
   const { markdown } = htmlToMarkdown(html, url);
+  const boundedMarkdown = clampRegexInput(markdown);
+  if (!boundedMarkdown.trim()) return "";
   // Strip markdown formatting
-  return markdown
+  return boundedMarkdown
     .replace(/#{1,6}\s/g, "")
     .replace(/\*\*(.+?)\*\*/g, "$1")
     .replace(/\*(.+?)\*/g, "$1")

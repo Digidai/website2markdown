@@ -112,6 +112,87 @@ class ConvertError extends Error {
   }
 }
 
+class RequestAbortedError extends Error {
+  constructor() {
+    super("Request was aborted.");
+  }
+}
+
+class SseStreamClosedError extends Error {
+  constructor(message: string = "SSE stream is closed.") {
+    super(message);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new RequestAbortedError();
+  }
+}
+
+function isTimeoutLikeError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return true;
+  }
+  const lower = errorMessage(error).toLowerCase();
+  return lower.includes("timeout") || lower.includes("timed out");
+}
+
+function createTimeoutSignal(
+  timeoutMs: number,
+  parentSignal?: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  const onParentAbort = () => controller.abort();
+  if (parentSignal) {
+    if (parentSignal.aborted) {
+      onParentAbort();
+    } else {
+      parentSignal.addEventListener("abort", onParentAbort, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      if (parentSignal) {
+        parentSignal.removeEventListener("abort", onParentAbort);
+      }
+    },
+  };
+}
+
+function asFetchConvertError(error: unknown): ConvertError {
+  const message = errorMessage(error);
+  if (message.includes("SSRF")) {
+    return new ConvertError(
+      "Blocked",
+      "Redirect target points to an internal or private address.",
+      403,
+    );
+  }
+  if (isTimeoutLikeError(error)) {
+    return new ConvertError(
+      "Fetch Timeout",
+      `Fetching the target URL timed out after ${Math.round(BROWSER_TIMEOUT / 1000)} seconds.`,
+      504,
+    );
+  }
+  return new ConvertError(
+    "Fetch Failed",
+    message || "Failed to fetch the target URL.",
+    502,
+  );
+}
+
 // ─── Core conversion function ────────────────────────────────
 
 interface ConvertResult {
@@ -131,8 +212,10 @@ async function convertUrl(
   forceBrowser: boolean,
   noCache: boolean,
   onProgress?: (step: string, label: string) => void | Promise<void>,
+  abortSignal?: AbortSignal,
 ): Promise<ConvertResult> {
   const progress = onProgress || (() => {});
+  throwIfAborted(abortSignal);
 
   // 1. Cache
   if (!noCache) {
@@ -154,11 +237,14 @@ async function convertUrl(
 
   // Early browser path — skip redundant static fetch for sites that always need browser
   if (alwaysNeedsBrowser(targetUrl)) {
+    throwIfAborted(abortSignal);
     await progress("browser", "Rendering with browser");
     try {
-      finalHtml = await fetchWithBrowser(targetUrl, env, host);
+      finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
       method = "browser+readability+turndown";
-    } catch {
+    } catch (error) {
+      if (abortSignal?.aborted) throw new RequestAbortedError();
+      console.error("Browser rendering failed:", errorMessage(error));
       throw new ConvertError(
         "Fetch Failed",
         "Browser rendering failed for this URL.",
@@ -167,6 +253,7 @@ async function convertUrl(
     }
   } else {
     // 3. Static fetch
+    throwIfAborted(abortSignal);
     await progress("fetch", "Fetching page");
     const isWechat = targetUrl.includes("mp.weixin.qq.com");
     const fetchHeaders: Record<string, string> = {
@@ -181,17 +268,20 @@ async function convertUrl(
     }
 
     let response: Response;
+    let cleanupFetchSignal = () => {};
     try {
+      const { signal, cleanup } = createTimeoutSignal(BROWSER_TIMEOUT, abortSignal);
+      cleanupFetchSignal = cleanup;
       const result = await fetchWithSafeRedirects(targetUrl, {
         headers: fetchHeaders,
-        signal: AbortSignal.timeout(BROWSER_TIMEOUT),
+        signal,
       });
       response = result.response;
     } catch (e) {
-      if (e instanceof Error && e.message.includes("SSRF")) {
-        throw new ConvertError("Blocked", "Redirect target points to an internal or private address.", 403);
-      }
-      throw e;
+      if (abortSignal?.aborted) throw new RequestAbortedError();
+      throw asFetchConvertError(e);
+    } finally {
+      cleanupFetchSignal();
     }
 
     const staticFailed = !response.ok;
@@ -206,11 +296,14 @@ async function convertUrl(
 
     if (staticFailed) {
       // forceBrowser was true — go straight to browser rendering
+      throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {
-        finalHtml = await fetchWithBrowser(targetUrl, env, host);
+        finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
         method = "browser+readability+turndown";
-      } catch {
+      } catch (error) {
+        if (abortSignal?.aborted) throw new RequestAbortedError();
+        console.error("Browser fallback failed:", errorMessage(error));
         throw new ConvertError(
           "Fetch Failed",
           `Static fetch returned ${response.status} and browser rendering also failed.`,
@@ -219,6 +312,7 @@ async function convertUrl(
       }
     } else {
       // 4. Validate content type
+      throwIfAborted(abortSignal);
       await progress("analyze", "Analyzing content");
       const contentType = response.headers.get("Content-Type") || "";
       const isTextContent = contentType.includes("text/html") ||
@@ -251,6 +345,7 @@ async function convertUrl(
       }
 
       const body = await response.text();
+      throwIfAborted(abortSignal);
       if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
         throw new ConvertError("Content Too Large", "The target page exceeds the 5 MB size limit.", 413);
       }
@@ -276,6 +371,7 @@ async function convertUrl(
         }
 
         if (!noCache) {
+          throwIfAborted(abortSignal);
           await setCache(env, targetUrl, format, { content: nativeOutput, method: "native", title: "" }, selector);
         }
 
@@ -285,9 +381,10 @@ async function convertUrl(
       // 7. Check browser rendering need
       finalHtml = body;
       if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
+        throwIfAborted(abortSignal);
         await progress("browser", "Rendering with browser");
         try {
-          finalHtml = await fetchWithBrowser(targetUrl, env, host);
+          finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
           method = "browser+readability+turndown";
         } catch (e) {
           console.error("Browser rendering failed, using static HTML:", e instanceof Error ? e.message : e);
@@ -297,11 +394,13 @@ async function convertUrl(
   }
 
   // 7. Size check on final HTML
+  throwIfAborted(abortSignal);
   if (new TextEncoder().encode(finalHtml).byteLength > MAX_RESPONSE_BYTES) {
     throw new ConvertError("Content Too Large", "The rendered page exceeds the 5 MB size limit.", 413);
   }
 
   // 8. Convert
+  throwIfAborted(abortSignal);
   await progress("convert", "Converting to Markdown");
   const { markdown, title: extractedTitle, contentHtml } = htmlToMarkdown(finalHtml, targetUrl, selector);
   let output: string;
@@ -333,6 +432,7 @@ async function convertUrl(
 
   // 10. Cache
   if (!noCache) {
+    throwIfAborted(abortSignal);
     await setCache(env, targetUrl, format, { content: output, method, title: extractedTitle }, selector);
   }
 
@@ -342,19 +442,76 @@ async function convertUrl(
 // ─── SSE streaming ──────────────────────────────────────────
 
 function sseResponse(
-  handler: (send: (event: string, data: any) => Promise<void>) => Promise<void>,
+  handler: (
+    send: (event: string, data: any) => Promise<void>,
+    signal: AbortSignal,
+  ) => Promise<void>,
+  requestSignal?: AbortSignal,
 ): Response {
-  const { readable, writable } = new TransformStream();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
+  const streamAbort = new AbortController();
+  let writerOpen = true;
 
-  const send = async (event: string, data: any) => {
-    await writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+  const abortStream = () => {
+    if (!streamAbort.signal.aborted) {
+      streamAbort.abort();
+    }
   };
 
-  handler(send)
-    .catch((err) => { console.error("SSE handler error:", err instanceof Error ? err.message : err); })
-    .finally(() => writer.close().catch(() => {}));
+  const onRequestAbort = () => abortStream();
+  if (requestSignal) {
+    if (requestSignal.aborted) {
+      abortStream();
+    } else {
+      requestSignal.addEventListener("abort", onRequestAbort, { once: true });
+    }
+  }
+
+  writer.closed
+    .catch(() => {
+      writerOpen = false;
+      abortStream();
+    })
+    .finally(() => {
+      writerOpen = false;
+    });
+
+  const send = async (event: string, data: any) => {
+    if (!writerOpen || streamAbort.signal.aborted) {
+      throw new SseStreamClosedError();
+    }
+    try {
+      await writer.write(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+    } catch (error) {
+      writerOpen = false;
+      abortStream();
+      throw new SseStreamClosedError(errorMessage(error));
+    }
+  };
+
+  handler(send, streamAbort.signal)
+    .catch((err) => {
+      if (
+        err instanceof SseStreamClosedError ||
+        err instanceof RequestAbortedError ||
+        streamAbort.signal.aborted
+      ) {
+        return;
+      }
+      console.error("SSE handler error:", errorMessage(err));
+    })
+    .finally(() => {
+      if (requestSignal) {
+        requestSignal.removeEventListener("abort", onRequestAbort);
+      }
+      abortStream();
+      if (writerOpen) {
+        writerOpen = false;
+        writer.close().catch(() => {});
+      }
+    });
 
   return new Response(readable, {
     headers: {
@@ -367,7 +524,7 @@ function sseResponse(
 }
 
 function handleStream(
-  _request: Request,
+  request: Request,
   env: Env,
   host: string,
   url: URL,
@@ -376,23 +533,24 @@ function handleStream(
   if (!targetUrl || !isValidUrl(targetUrl)) {
     return sseResponse(async (send) => {
       await send("fail", { title: "Invalid URL", message: "Please provide a valid HTTP(S) URL.", status: 400 });
-    });
+    }, request.signal);
   }
   if (!isSafeUrl(targetUrl)) {
     return sseResponse(async (send) => {
       await send("fail", { title: "Blocked", message: "Requests to internal or private addresses are not allowed.", status: 403 });
-    });
+    }, request.signal);
   }
 
   const selector = url.searchParams.get("selector") || undefined;
   const forceBrowser = url.searchParams.get("force_browser") === "true";
   const noCache = url.searchParams.get("no_cache") === "true";
 
-  return sseResponse(async (send) => {
+  return sseResponse(async (send, streamSignal) => {
     try {
       const result = await convertUrl(
         targetUrl, env, host, "markdown", selector, forceBrowser, noCache,
         async (step, label) => { await send("step", { id: step, label }); },
+        streamSignal,
       );
       await send("done", {
         content: result.content,
@@ -402,6 +560,13 @@ function handleStream(
         cached: result.cached,
       });
     } catch (err) {
+      if (
+        err instanceof RequestAbortedError ||
+        err instanceof SseStreamClosedError ||
+        streamSignal.aborted
+      ) {
+        return;
+      }
       if (err instanceof ConvertError) {
         await send("fail", { title: err.title, message: err.message, status: err.statusCode });
       } else {
@@ -409,7 +574,7 @@ function handleStream(
         await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 });
       }
     }
-  });
+  }, request.signal);
 }
 
 // ─── Main handler ────────────────────────────────────────────
