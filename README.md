@@ -172,11 +172,18 @@ Special adapters for optimal extraction on these platforms:
 | Site | Features |
 |---|---|
 | **WeChat** (`mp.weixin.qq.com`) | MicroMessenger UA, image proxy for hotlink bypass |
-| **Feishu/Lark** (`.feishu.cn`, `.larksuite.com`) | Virtual scroll handling, base64 image embedding, UI noise removal |
-| **Zhihu** (`zhihu.com/p/`) | Login wall removal, lazy image swap |
+| **Feishu/Lark** (`.feishu.cn`, `.larksuite.com`) | Virtual scroll handling, R2 image storage, UI noise removal |
+| **Zhihu** (`zhihu.com/p/`) | Login wall removal, lazy image swap, hybrid proxy bypass |
 | **Yuque** (`yuque.com`) | SPA rendering, sidebar/toc removal |
 | **Notion** (`notion.site`, `notion.so`) | SPA rendering, lazy scroll loading |
 | **Juejin** (`juejin.cn/post/`) | Login popup removal, code block expansion |
+| **Twitter/X** (`twitter.com`, `x.com`) | Stealth rendering, login wall bypass |
+| **Reddit** (`reddit.com`) | URL transform to old.reddit.com, content extraction |
+| **CSDN** (`csdn.net`) | Login popup removal, code block expansion |
+| **36Kr** (`36kr.com`) | Stealth rendering, content extraction |
+| **Toutiao** (`toutiao.com`) | Stealth rendering, content extraction |
+| **NetEase** (`163.com`) | Content extraction |
+| **Weibo** (`weibo.com`) | Stealth rendering, hybrid proxy bypass |
 | **All other sites** | Generic mobile UA, lazy image handling |
 
 ### JavaScript / TypeScript
@@ -279,29 +286,24 @@ md-genedai/
 ├── src/
 │   ├── index.ts              # Worker entry: routing, fetch handler, batch API
 │   ├── types.ts              # TypeScript interfaces (Env, SiteAdapter, etc.)
+│   ├── utils.ts              # Shared utility helpers
 │   ├── config.ts             # Constants: timeouts, limits, UA strings
 │   ├── security.ts           # SSRF validation, URL parsing, XSS escaping
 │   ├── converter.ts          # Readability + Turndown conversion, image proxy
+│   ├── paywall.ts            # Paywall detection, bypass headers, archive fallbacks
+│   ├── proxy.ts              # HTTP forward proxy via Cloudflare TCP sockets
 │   ├── browser/
-│   │   ├── index.ts          # Browser launcher, adapter registry
-│   │   └── adapters/
-│   │       ├── feishu.ts     # Feishu/Lark: virtual scroll, image capture
-│   │       ├── wechat.ts     # WeChat: MicroMessenger UA, lazy images
-│   │       ├── zhihu.ts      # Zhihu: login wall removal
-│   │       ├── yuque.ts      # Yuque: SPA rendering
-│   │       ├── notion.ts     # Notion: SPA + lazy scroll
-│   │       ├── juejin.ts     # Juejin: popup removal, code blocks
-│   │       └── generic.ts    # Fallback for all other sites
+│   │   ├── index.ts          # Browser launcher, adapter registry, capacity gate
+│   │   ├── stealth.ts        # Anti-detection fingerprint patches
+│   │   └── adapters/         # 13 site-specific adapters
 │   ├── cache/
 │   │   └── index.ts          # KV cache + R2 image storage
 │   ├── templates/
 │   │   ├── landing.ts        # Landing page HTML
 │   │   ├── rendered.ts       # Markdown preview page HTML
+│   │   ├── loading.ts        # SSE loading/progress page HTML
 │   │   └── error.ts          # Error page HTML
-│   └── __tests__/
-│       ├── security.test.ts  # SSRF, URL validation, escaping tests
-│       ├── converter.test.ts # HTML→Markdown conversion tests
-│       └── adapters.test.ts  # Site adapter matching tests
+│   └── __tests__/            # 21 test files
 ├── package.json
 ├── wrangler.toml             # Worker config: browser, KV, R2 bindings
 ├── tsconfig.json

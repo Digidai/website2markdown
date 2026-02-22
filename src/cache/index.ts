@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { CACHE_TTL_DEFAULT, CACHE_TTL_SHORT } from "../config";
+import { errorMessage } from "../utils";
 
 type CachedPayload = { content: string; method: string; title: string };
 
@@ -22,11 +23,6 @@ const TRANSIENT_RETRY_DELAY_MS = 60;
 function waitMs(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
 }
 
 function isTransientStorageError(error: unknown): boolean {

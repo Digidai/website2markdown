@@ -45,6 +45,7 @@ import {
   setPaywallRulesFromJson,
   getPaywallRuleStats,
 } from "./paywall";
+import { errorMessage } from "./utils";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
 import { loadingPageHTML } from "./templates/loading";
@@ -409,11 +410,6 @@ class BodyTooLargeError extends Error {
   constructor(message: string) {
     super(message);
   }
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
 }
 
 function throwIfAborted(signal?: AbortSignal): void {

@@ -1,4 +1,5 @@
 import { MAX_URL_LENGTH } from "./config";
+import { errorMessage } from "./utils";
 
 const SAFE_URL_MEMO_MAX_SIZE = 2048;
 const safeUrlMemo = new Map<string, boolean>();
@@ -210,11 +211,6 @@ function getRetryDelayMs(
   maxRetryDelayMs: number,
 ): number {
   return Math.min(retryDelayMs * 2 ** attempt, maxRetryDelayMs);
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
 }
 
 function errorCode(error: unknown): string {
@@ -494,6 +490,7 @@ export function extractTargetUrl(
   targetSearchParams.delete("no_cache");
   targetSearchParams.delete("format");
   targetSearchParams.delete("selector");
+  targetSearchParams.delete("token");
   const remainingSearch = targetSearchParams.toString();
 
   if (remainingSearch) {

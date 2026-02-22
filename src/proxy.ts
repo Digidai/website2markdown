@@ -1,4 +1,5 @@
 import { connect } from "cloudflare:sockets";
+import { errorMessage } from "./utils";
 
 export interface ProxyConfig {
   host: string;
@@ -9,11 +10,6 @@ export interface ProxyConfig {
 
 const PROXY_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 const HEADER_SEPARATOR_BYTES = new Uint8Array([13, 10, 13, 10]); // \r\n\r\n
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 async function readWithTimeout<T>(
   task: Promise<T>,

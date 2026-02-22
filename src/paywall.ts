@@ -33,16 +33,13 @@ export interface PaywallRuleStats {
 
 // ─── Googlebot UA ────────────────────────────────────────────
 
+import { errorMessage } from "./utils";
+
 const GOOGLEBOT_UA =
   "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
 
 const GOOGLE_REFERER = "https://www.google.com/";
 const FACEBOOK_REFERER = "https://www.facebook.com/";
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 // ─── Paywall script domains (for Puppeteer blocking) ────────
 

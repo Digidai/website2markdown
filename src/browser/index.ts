@@ -1,5 +1,6 @@
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env, SiteAdapter } from "../types";
+import { errorMessage } from "../utils";
 import {
   BROWSER_CONCURRENCY,
   BROWSER_TIMEOUT,
@@ -43,11 +44,6 @@ const LOW_VALUE_RESOURCE_TYPES = new Set([
   "media",
   "texttrack",
 ]);
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) {
