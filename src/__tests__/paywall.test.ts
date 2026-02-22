@@ -10,7 +10,13 @@ import {
   stripAmpAccessControls,
   fetchWaybackSnapshot,
   fetchArchiveToday,
+  setPaywallRulesFromJson,
+  getPaywallRuleStats,
 } from "../paywall";
+
+afterEach(() => {
+  setPaywallRulesFromJson(null);
+});
 
 describe("getPaywallRule", () => {
   it("matches known US news domains", () => {
@@ -51,6 +57,31 @@ describe("getPaywallRule", () => {
   it("returns null for invalid URLs", () => {
     expect(getPaywallRule("not-a-url")).toBeNull();
     expect(getPaywallRule("")).toBeNull();
+  });
+
+  it("supports runtime paywall rules from JSON", () => {
+    const stats = setPaywallRulesFromJson(JSON.stringify([
+      {
+        domains: ["custompaywall.example"],
+        referer: "https://example.com/",
+      },
+    ]), "test");
+    const matched = getPaywallRule("https://www.custompaywall.example/article");
+
+    expect(stats.source).toBe("test");
+    expect(stats.ruleCount).toBe(1);
+    expect(matched).not.toBeNull();
+    expect(matched?.referer).toBe("https://example.com/");
+  });
+
+  it("exposes runtime paywall rule stats", () => {
+    setPaywallRulesFromJson(JSON.stringify([{ domains: ["stats.example"] }]), "stats-test");
+    const stats = getPaywallRuleStats();
+
+    expect(stats.source).toBe("stats-test");
+    expect(stats.ruleCount).toBe(1);
+    expect(stats.domainCount).toBe(1);
+    expect(typeof stats.updatedAt).toBe("string");
   });
 });
 
@@ -249,10 +280,12 @@ describe("fetchWaybackSnapshot", () => {
   });
 
   it("returns null on network error", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error("Network error"));
 
     const result = await fetchWaybackSnapshot("https://example.com/network-fail");
     expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
   });
 
   it("returns null when body is too short", async () => {
@@ -307,10 +340,12 @@ describe("fetchArchiveToday", () => {
   });
 
   it("returns null on network error", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     globalThis.fetch = vi.fn().mockRejectedValueOnce(new Error("Network error"));
 
     const result = await fetchArchiveToday("https://example.com/error");
     expect(result).toBeNull();
+    expect(warnSpy).toHaveBeenCalled();
   });
 });
 

@@ -2,6 +2,12 @@ import { describe, it, expect, vi } from "vitest";
 import { BrowserCapacityGate } from "../browser";
 
 describe("BrowserCapacityGate", () => {
+  it("validates constructor arguments", () => {
+    expect(() => new BrowserCapacityGate(0, 100)).toThrow("maxConcurrent");
+    expect(() => new BrowserCapacityGate(1, 0)).toThrow("queueTimeoutMs");
+    expect(() => new BrowserCapacityGate(1, 100, -1)).toThrow("maxQueueLength");
+  });
+
   it("limits concurrency and drains queued acquires", async () => {
     const gate = new BrowserCapacityGate(1, 1000);
 
@@ -17,6 +23,16 @@ describe("BrowserCapacityGate", () => {
     expect(gate.getQueueLength()).toBe(0);
 
     release2();
+    expect(gate.getActiveCount()).toBe(0);
+  });
+
+  it("ignores duplicate release calls", async () => {
+    const gate = new BrowserCapacityGate(1, 1000);
+    const release = await gate.acquire("dup-release");
+
+    release();
+    release();
+
     expect(gate.getActiveCount()).toBe(0);
   });
 
@@ -44,6 +60,21 @@ describe("BrowserCapacityGate", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("rejects immediately when browser queue is full", async () => {
+    const gate = new BrowserCapacityGate(1, 1000, 1);
+    const release = await gate.acquire("job-1");
+    const queuedAcquire = gate.acquire("job-2");
+
+    await expect(gate.acquire("job-3")).rejects.toThrow(
+      "Browser rendering queue is full",
+    );
+    expect(gate.getQueueLength()).toBe(1);
+
+    release();
+    const release2 = await queuedAcquire;
+    release2();
   });
 
   it("run releases capacity when task fails so queued task can continue", async () => {

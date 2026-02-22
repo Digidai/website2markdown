@@ -505,3 +505,8 @@ export function extractTargetUrl(
 
   return raw;
 }
+
+/** Build a stable raw markdown request path for a target URL. */
+export function buildRawRequestPath(targetUrl: string): string {
+  return `/${encodeURIComponent(targetUrl)}?raw=true`;
+}

@@ -1,4 +1,4 @@
-import { escapeHtml } from "../security";
+import { buildRawRequestPath, escapeHtml } from "../security";
 
 /** Extract a plain-text snippet from markdown for use as description. */
 function contentSnippet(content: string, maxLen = 160): string {
@@ -37,6 +37,7 @@ export function renderedPageHTML(
   };
   const status = statusConfig[method];
   const cacheLabel = cached ? '<span class="cache-pill">CACHED</span>' : '';
+  const rawHref = escapeHtml(buildRawRequestPath(sourceUrl));
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -137,7 +138,7 @@ export function renderedPageHTML(
       ${cacheLabel}
       ${tokenCount ? '<span class="tokens">' + escapeHtml(tokenCount) + " tokens</span>" : ""}
       <button class="btn" id="copy-btn" onclick="copyRaw()">Copy</button>
-      <a href="/${escapeHtml(sourceUrl)}${sourceUrl.includes("?") ? "&" : "?"}raw=true" class="btn btn-accent" target="_blank">Raw</a>
+      <a href="${rawHref}" class="btn btn-accent" target="_blank">Raw</a>
     </div>
   </div>
 

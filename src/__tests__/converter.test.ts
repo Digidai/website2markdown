@@ -76,6 +76,17 @@ describe("htmlToText", () => {
     expect(text).not.toContain("# ");
     expect(text).toContain("Title");
   });
+
+  it("respects selector scoping", () => {
+    const html = `<html><body>
+      <div class="sidebar">Sidebar text</div>
+      <article class="main"><h1>Main</h1><p>Body</p></article>
+    </body></html>`;
+    const text = htmlToText(html, "https://example.com", ".main");
+    expect(text).toContain("Main");
+    expect(text).toContain("Body");
+    expect(text).not.toContain("Sidebar text");
+  });
 });
 
 describe("proxyImageUrls", () => {

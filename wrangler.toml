@@ -19,11 +19,15 @@ bucket_name = "md-images"
 [observability]
 enabled = true
 
-# Rate limiting: configure via Cloudflare Dashboard → Security → WAF → Rate Limiting Rules
-# Recommended: limit /api/batch to 10 req/min per IP, and all routes to 60 req/min per IP
+# Built-in Worker code applies per-IP limits when cf-connecting-ip is present.
+# Keep Cloudflare WAF rate limiting enabled as an outer layer.
 
-# Secrets (set via `wrangler secret put API_TOKEN`):
+# Secrets (set via wrangler secret):
 # API_TOKEN — Bearer token for POST /api/batch authentication
+# PUBLIC_API_TOKEN — optional token for raw API + /api/stream
+# PAYWALL_RULES_JSON — optional JSON array of runtime paywall rules
+# Optional var:
+# PAYWALL_RULES_KV_KEY — KV key name containing JSON paywall rules (overrides PAYWALL_RULES_JSON)
 
 # Custom domain configuration — update with your actual domain
 # routes = [

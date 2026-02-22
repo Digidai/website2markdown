@@ -3,6 +3,7 @@ export const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 
 /** Maximum URL length to prevent abuse. */
 export const MAX_URL_LENGTH = 4096;
+export const MAX_SELECTOR_LENGTH = 256;
 
 /** Cache TTL defaults (seconds). */
 export const CACHE_TTL_DEFAULT = 3600; // 1 hour
@@ -24,6 +25,12 @@ export const IMAGE_MAX_BYTES = 4 * 1024 * 1024;
 
 /** Max concurrent browser sessions in batch mode. */
 export const BROWSER_CONCURRENCY = 2;
+
+/** Per-IP request limits (per 60 second window, when client IP is available). */
+export const RATE_LIMIT_WINDOW_SECONDS = 60;
+export const RATE_LIMIT_CONVERT_PER_WINDOW = 60;
+export const RATE_LIMIT_STREAM_PER_WINDOW = 30;
+export const RATE_LIMIT_BATCH_PER_WINDOW = 10;
 
 /** Valid output formats. */
 export const VALID_FORMATS = new Set(["markdown", "html", "text", "json"]);

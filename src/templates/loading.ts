@@ -1,4 +1,4 @@
-import { escapeHtml } from "../security";
+import { buildRawRequestPath, escapeHtml } from "../security";
 
 export function loadingPageHTML(
   host: string,
@@ -14,9 +14,7 @@ export function loadingPageHTML(
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
-  const rawHref = escapeHtml(
-    `/${targetUrl}${targetUrl.includes("?") ? "&" : "?"}raw=true`,
-  );
+  const rawHref = escapeHtml(buildRawRequestPath(targetUrl));
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -306,7 +304,7 @@ export function loadingPageHTML(
 
     // Fallback for environments without EventSource support
     if (typeof EventSource === 'undefined') {
-      window.location.href = '/' + C.targetUrl + (C.targetUrl.indexOf('?') >= 0 ? '&' : '?') + 'raw=true';
+      window.location.href = '/'+ encodeURIComponent(C.targetUrl) + '?raw=true';
       throw new Error('redirect');
     }
 
@@ -395,7 +393,7 @@ export function loadingPageHTML(
       if (data.cached) document.getElementById('r-cache').style.display = '';
       if (data.tokenCount) document.getElementById('r-tokens').textContent = data.tokenCount + ' tokens';
 
-      var rawUrl = data.rawUrl || ('/' + C.targetUrl + (C.targetUrl.indexOf('?') >= 0 ? '&' : '?') + 'raw=true');
+      var rawUrl = data.rawUrl || ('/' + encodeURIComponent(C.targetUrl) + '?raw=true');
       document.getElementById('r-raw').href = rawUrl;
 
       if (data.title) document.title = data.title + ' \\u2014 ' + C.host;

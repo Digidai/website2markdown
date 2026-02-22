@@ -1,6 +1,7 @@
 import type { Env, OutputFormat, ConvertMethod } from "./types";
 import {
   MAX_RESPONSE_BYTES,
+  MAX_SELECTOR_LENGTH,
   CORS_HEADERS,
   WECHAT_UA,
   DESKTOP_UA,
@@ -8,17 +9,27 @@ import {
   BROWSER_CONCURRENCY,
   BROWSER_TIMEOUT,
   IMAGE_MAX_BYTES,
+  RATE_LIMIT_WINDOW_SECONDS,
+  RATE_LIMIT_CONVERT_PER_WINDOW,
+  RATE_LIMIT_STREAM_PER_WINDOW,
+  RATE_LIMIT_BATCH_PER_WINDOW,
 } from "./config";
 import {
   isSafeUrl,
   isValidUrl,
   needsBrowserRendering,
   extractTargetUrl,
+  buildRawRequestPath,
   escapeHtml,
   fetchWithSafeRedirects,
 } from "./security";
 import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
-import { fetchWithBrowser, alwaysNeedsBrowser, getAdapter } from "./browser";
+import {
+  fetchWithBrowser,
+  alwaysNeedsBrowser,
+  getAdapter,
+  getBrowserCapacityStats,
+} from "./browser";
 import { getCached, setCache, getImage } from "./cache";
 import { parseProxyUrl, fetchViaProxy } from "./proxy";
 import {
@@ -31,6 +42,8 @@ import {
   fetchArchiveToday,
   extractAmpLink,
   stripAmpAccessControls,
+  setPaywallRulesFromJson,
+  getPaywallRuleStats,
 } from "./paywall";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
@@ -50,6 +63,261 @@ const LOADING_CSP =
   "style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
   "font-src https://fonts.gstatic.com; connect-src 'self'; img-src * data:; " +
   "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+type RateLimitRoute = "convert" | "stream" | "batch";
+
+interface RuntimeCounters {
+  requestsTotal: number;
+  conversionsTotal: number;
+  conversionFailures: number;
+  streamRequests: number;
+  batchRequests: number;
+  cacheHits: number;
+  browserRenderCalls: number;
+  paywallDetections: number;
+  paywallFallbacks: number;
+  rateLimited: number;
+}
+
+interface RateLimitDecision {
+  exceeded: boolean;
+  limit: number;
+  remaining: number;
+  retryAfterSeconds: number;
+}
+
+interface ConvertDiagnostics {
+  cacheHit: boolean;
+  browserRendered: boolean;
+  paywallDetected: boolean;
+  fallbacks: string[];
+}
+
+const runtimeStartedAt = Date.now();
+const runtimeCounters: RuntimeCounters = {
+  requestsTotal: 0,
+  conversionsTotal: 0,
+  conversionFailures: 0,
+  streamRequests: 0,
+  batchRequests: 0,
+  cacheHits: 0,
+  browserRenderCalls: 0,
+  paywallDetections: 0,
+  paywallFallbacks: 0,
+  rateLimited: 0,
+};
+const localRateCounters = new Map<string, { count: number; expiresAt: number }>();
+const PAYWALL_RULES_REFRESH_MS = 60_000;
+let lastPaywallRulesSyncAt = 0;
+let lastPaywallRulesSource = "default";
+let lastPaywallRulesRaw = "";
+
+function incrementCounter(name: keyof RuntimeCounters, delta: number = 1): void {
+  runtimeCounters[name] += delta;
+}
+
+function logMetric(event: string, data: Record<string, unknown>): void {
+  console.log(JSON.stringify({
+    event,
+    ts: new Date().toISOString(),
+    ...data,
+  }));
+}
+
+function isDocumentNavigationRequest(request: Request, acceptHeader: string): boolean {
+  return request.method === "GET" &&
+    (request.headers.get("Sec-Fetch-Dest") === "document" ||
+      (!acceptHeader.includes("text/markdown") &&
+        !acceptHeader.includes("application/json") &&
+        acceptHeader.includes("text/html")));
+}
+
+function getClientIp(request: Request): string | null {
+  const cfIp = request.headers.get("cf-connecting-ip");
+  if (cfIp && cfIp.trim()) return cfIp.trim();
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor && forwardedFor.trim()) {
+    return forwardedFor.split(",")[0].trim() || null;
+  }
+  return null;
+}
+
+function limitForRoute(route: RateLimitRoute): number {
+  switch (route) {
+    case "batch":
+      return RATE_LIMIT_BATCH_PER_WINDOW;
+    case "stream":
+      return RATE_LIMIT_STREAM_PER_WINDOW;
+    default:
+      return RATE_LIMIT_CONVERT_PER_WINDOW;
+  }
+}
+
+function consumeLocalRateCounter(
+  route: RateLimitRoute,
+  ip: string,
+  nowMs: number,
+): number {
+  const windowMs = RATE_LIMIT_WINDOW_SECONDS * 1000;
+  const bucket = Math.floor(nowMs / windowMs);
+  const key = `rl:${route}:${ip}:${bucket}`;
+  const existing = localRateCounters.get(key);
+  const expiresAt = (bucket + 1) * windowMs + 5_000;
+  const nextCount = (existing?.count || 0) + 1;
+  localRateCounters.set(key, { count: nextCount, expiresAt });
+
+  if (localRateCounters.size > 2000) {
+    for (const [counterKey, entry] of localRateCounters) {
+      if (entry.expiresAt <= nowMs) {
+        localRateCounters.delete(counterKey);
+      }
+    }
+  }
+  return nextCount;
+}
+
+async function consumeDistributedRateCounter(
+  env: Env,
+  route: RateLimitRoute,
+  ip: string,
+  nowMs: number,
+): Promise<number | null> {
+  const windowMs = RATE_LIMIT_WINDOW_SECONDS * 1000;
+  const bucket = Math.floor(nowMs / windowMs);
+  const key = `rl:v1:${route}:${ip}:${bucket}`;
+  try {
+    const raw = await env.CACHE_KV.get(key, "text");
+    const current = Math.max(0, parseInt(raw || "0", 10) || 0);
+    const next = current + 1;
+    await env.CACHE_KV.put(key, String(next), {
+      expirationTtl: RATE_LIMIT_WINDOW_SECONDS + 5,
+    });
+    return next;
+  } catch {
+    return null;
+  }
+}
+
+async function consumeRateLimit(
+  request: Request,
+  env: Env,
+  route: RateLimitRoute,
+): Promise<RateLimitDecision | null> {
+  const ip = getClientIp(request);
+  if (!ip) return null;
+
+  const nowMs = Date.now();
+  const limit = limitForRoute(route);
+  const localCount = consumeLocalRateCounter(route, ip, nowMs);
+  const distributedCount = await consumeDistributedRateCounter(env, route, ip, nowMs);
+  const count = distributedCount ? Math.max(localCount, distributedCount) : localCount;
+
+  const windowMs = RATE_LIMIT_WINDOW_SECONDS * 1000;
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil((((Math.floor(nowMs / windowMs) + 1) * windowMs) - nowMs) / 1000),
+  );
+  return {
+    exceeded: count > limit,
+    limit,
+    remaining: Math.max(0, limit - count),
+    retryAfterSeconds,
+  };
+}
+
+function withExtraHeaders(
+  response: Response,
+  headersToMerge: Record<string, string>,
+): Response {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(headersToMerge)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function rateLimitHeaders(decision: RateLimitDecision): Record<string, string> {
+  return {
+    "Retry-After": String(decision.retryAfterSeconds),
+    "X-RateLimit-Limit": String(decision.limit),
+    "X-RateLimit-Remaining": String(decision.remaining),
+    "X-RateLimit-Reset": String(decision.retryAfterSeconds),
+  };
+}
+
+function rateLimitedResponse(
+  route: RateLimitRoute,
+  decision: RateLimitDecision,
+  asJson: boolean,
+): Response {
+  incrementCounter("rateLimited");
+  logMetric("rate_limit.blocked", {
+    route,
+    limit: decision.limit,
+    retry_after_s: decision.retryAfterSeconds,
+  });
+  const message = `Too many requests. Retry in ${decision.retryAfterSeconds} seconds.`;
+  const base = errorResponse("Rate Limited", message, 429, asJson);
+  return withExtraHeaders(base, rateLimitHeaders(decision));
+}
+
+async function isAuthorizedByToken(
+  request: Request,
+  expectedToken: string,
+  queryToken?: string | null,
+): Promise<boolean> {
+  const auth = request.headers.get("Authorization") || "";
+  if (auth.startsWith("Bearer ") && await timingSafeEqual(auth.slice(7), expectedToken)) {
+    return true;
+  }
+  if (queryToken && await timingSafeEqual(queryToken, expectedToken)) {
+    return true;
+  }
+  return false;
+}
+
+async function syncPaywallRules(env: Env): Promise<void> {
+  const nowMs = Date.now();
+  if (nowMs - lastPaywallRulesSyncAt < PAYWALL_RULES_REFRESH_MS) {
+    return;
+  }
+
+  let source = "default";
+  let raw = "";
+
+  if (env.PAYWALL_RULES_JSON && env.PAYWALL_RULES_JSON.trim()) {
+    source = "env:PAYWALL_RULES_JSON";
+    raw = env.PAYWALL_RULES_JSON;
+  }
+  if (env.PAYWALL_RULES_KV_KEY) {
+    try {
+      const kvRules = await env.CACHE_KV.get(env.PAYWALL_RULES_KV_KEY, "text");
+      if (kvRules && kvRules.trim()) {
+        source = `kv:${env.PAYWALL_RULES_KV_KEY}`;
+        raw = kvRules;
+      }
+    } catch (error) {
+      console.warn("Failed to refresh paywall rules from KV:", errorMessage(error));
+    }
+  }
+
+  if (source !== lastPaywallRulesSource || raw !== lastPaywallRulesRaw) {
+    setPaywallRulesFromJson(raw, source);
+    lastPaywallRulesSource = source;
+    lastPaywallRulesRaw = raw;
+    const stats = getPaywallRuleStats();
+    logMetric("paywall.rules_updated", {
+      source: stats.source,
+      rules: stats.ruleCount,
+      domains: stats.domainCount,
+    });
+  }
+  lastPaywallRulesSyncAt = nowMs;
+}
 
 /** Convert native markdown to a minimal safe HTML response. */
 function markdownToBasicHtml(markdown: string): string {
@@ -137,6 +405,12 @@ class SseStreamClosedError extends Error {
   }
 }
 
+class BodyTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -183,6 +457,64 @@ function createTimeoutSignal(
   };
 }
 
+async function readBodyWithLimit(
+  body: ReadableStream<Uint8Array> | null,
+  maxBytes: number,
+  tooLargeMessage: string,
+  abortSignal?: AbortSignal,
+): Promise<Uint8Array> {
+  if (!body) return new Uint8Array();
+
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    while (true) {
+      throwIfAborted(abortSignal);
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        throw new BodyTooLargeError(tooLargeMessage);
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    try { await reader.cancel(); } catch {}
+    throw error;
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+
+  if (chunks.length === 0) return new Uint8Array();
+  if (chunks.length === 1) return chunks[0];
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged;
+}
+
+async function readTextWithLimit(
+  response: Response,
+  maxBytes: number,
+  tooLargeMessage: string,
+  abortSignal?: AbortSignal,
+): Promise<string> {
+  const bytes = await readBodyWithLimit(
+    response.body,
+    maxBytes,
+    tooLargeMessage,
+    abortSignal,
+  );
+  return new TextDecoder().decode(bytes);
+}
+
 function asFetchConvertError(error: unknown): ConvertError {
   const message = errorMessage(error);
   if (message.includes("SSRF")) {
@@ -214,6 +546,7 @@ interface ConvertResult {
   method: ConvertMethod;
   tokenCount: string;
   cached: boolean;
+  diagnostics: ConvertDiagnostics;
 }
 
 async function convertUrl(
@@ -229,6 +562,9 @@ async function convertUrl(
 ): Promise<ConvertResult> {
   const progress = onProgress || (() => {});
   throwIfAborted(abortSignal);
+  const fallbacks = new Set<string>();
+  let browserRendered = false;
+  let paywallDetected = false;
 
   // 1. Cache
   if (!noCache) {
@@ -240,6 +576,12 @@ async function convertUrl(
         method: cached.method as ConvertMethod,
         tokenCount: "",
         cached: true,
+        diagnostics: {
+          cacheHit: true,
+          browserRendered: false,
+          paywallDetected: false,
+          fallbacks: [],
+        },
       };
     }
   }
@@ -247,11 +589,13 @@ async function convertUrl(
   // 2. Fetch & parse
   let finalHtml = "";
   let method: ConvertMethod = "readability+turndown";
+  let resolvedUrl = targetUrl;
 
   // Apply adapter URL transformation (e.g. reddit.com → old.reddit.com)
   const fetchAdapter = getAdapter(targetUrl);
   if (fetchAdapter.transformUrl) {
     targetUrl = fetchAdapter.transformUrl(targetUrl);
+    resolvedUrl = targetUrl;
   }
 
   // Direct fetch path — adapter handles fetching entirely (e.g. API-based sites)
@@ -263,6 +607,7 @@ async function convertUrl(
       if (directHtml) {
         finalHtml = directHtml;
         method = "readability+turndown";
+        fallbacks.add("direct_fetch");
       }
     } catch (e) {
       console.error("fetchDirect failed, falling through:", errorMessage(e));
@@ -276,6 +621,8 @@ async function convertUrl(
     try {
       finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
       method = "browser+readability+turndown";
+      browserRendered = true;
+      fallbacks.add("always_browser");
     } catch (error) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
       const msg = error instanceof Error ? error.message : "";
@@ -304,7 +651,7 @@ async function convertUrl(
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             "Accept-Encoding": "identity",
             "Cookie": cookies,
-          }, 25_000);
+          }, 25_000, abortSignal);
           if (proxyResult.status >= 200 && proxyResult.status < 400 && proxyResult.body.length > 1000) {
             // Check if proxy returned a login/challenge page instead of real content
             const lower = proxyResult.body.toLowerCase();
@@ -318,6 +665,8 @@ async function convertUrl(
             }
             finalHtml = proxyResult.body;
             method = "browser+readability+turndown";
+            browserRendered = true;
+            fallbacks.add("proxy_retry");
           } else {
             throw new Error(`Proxy fetch returned ${proxyResult.status}, body ${proxyResult.body.length} bytes`);
           }
@@ -364,6 +713,7 @@ async function convertUrl(
         signal,
       });
       response = result.response;
+      resolvedUrl = result.finalUrl;
     } catch (e) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
       throw asFetchConvertError(e);
@@ -375,14 +725,17 @@ async function convertUrl(
 
     if (staticFailed && !forceBrowser) {
       // For known paywalled sites returning 403/401, try archive sources
-      if (getPaywallRule(targetUrl)) {
-        const waybackHtml = await fetchWaybackSnapshot(targetUrl, abortSignal);
+      if (getPaywallRule(resolvedUrl)) {
+        paywallDetected = true;
+        const waybackHtml = await fetchWaybackSnapshot(resolvedUrl, abortSignal);
         if (waybackHtml && waybackHtml.length > 1000) {
           finalHtml = waybackHtml;
+          fallbacks.add("wayback_pre_fetch");
         } else {
-          const archiveHtml = await fetchArchiveToday(targetUrl, abortSignal);
+          const archiveHtml = await fetchArchiveToday(resolvedUrl, abortSignal);
           if (archiveHtml && archiveHtml.length > 1000) {
             finalHtml = archiveHtml;
+            fallbacks.add("archive_pre_fetch");
           } else {
             throw new ConvertError(
               "Fetch Failed",
@@ -407,6 +760,8 @@ async function convertUrl(
       try {
         finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
         method = "browser+readability+turndown";
+        browserRendered = true;
+        fallbacks.add("browser_after_static_failure");
       } catch (error) {
         if (abortSignal?.aborted) throw new RequestAbortedError();
         console.error("Browser fallback failed:", errorMessage(error));
@@ -450,10 +805,19 @@ async function convertUrl(
         throw new ConvertError("Content Too Large", "The target page exceeds the 5 MB size limit.", 413);
       }
 
-      const body = await response.text();
-      throwIfAborted(abortSignal);
-      if (new TextEncoder().encode(body).byteLength > MAX_RESPONSE_BYTES) {
-        throw new ConvertError("Content Too Large", "The target page exceeds the 5 MB size limit.", 413);
+      let body = "";
+      try {
+        body = await readTextWithLimit(
+          response,
+          MAX_RESPONSE_BYTES,
+          "The target page exceeds the 5 MB size limit.",
+          abortSignal,
+        );
+      } catch (e) {
+        if (e instanceof BodyTooLargeError) {
+          throw new ConvertError("Content Too Large", e.message, 413);
+        }
+        throw e;
       }
 
       const tokenCount = response.headers.get("x-markdown-tokens") || "";
@@ -465,7 +829,7 @@ async function convertUrl(
         switch (format) {
           case "json":
             nativeOutput = JSON.stringify({
-              url: targetUrl, title: "", markdown: body, method: "native",
+              url: resolvedUrl, title: "", markdown: body, method: "native",
               timestamp: new Date().toISOString(),
             });
             break;
@@ -481,17 +845,31 @@ async function convertUrl(
           await setCache(env, targetUrl, format, { content: nativeOutput, method: "native", title: "" }, selector);
         }
 
-        return { content: nativeOutput, title: "", method: "native", tokenCount, cached: false };
+        return {
+          content: nativeOutput,
+          title: "",
+          method: "native",
+          tokenCount,
+          cached: false,
+          diagnostics: {
+            cacheHit: false,
+            browserRendered,
+            paywallDetected,
+            fallbacks: [...fallbacks],
+          },
+        };
       }
 
       // 7. Check browser rendering need
       finalHtml = body;
-      if (forceBrowser || needsBrowserRendering(body, targetUrl)) {
+      if (forceBrowser || needsBrowserRendering(body, resolvedUrl)) {
         throwIfAborted(abortSignal);
         await progress("browser", "Rendering with browser");
         try {
           finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
           method = "browser+readability+turndown";
+          browserRendered = true;
+          fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
         } catch (e) {
           console.error("Browser rendering failed, using static HTML:", e instanceof Error ? e.message : e);
         }
@@ -515,12 +893,14 @@ async function convertUrl(
   finalHtml = removePaywallElements(finalHtml);
 
   // 8.6. Try AMP version if content looks paywalled
-  if (looksPaywalled(finalHtml) && getPaywallRule(targetUrl)) {
+  const htmlLooksPaywalled = looksPaywalled(finalHtml);
+  if (htmlLooksPaywalled && getPaywallRule(resolvedUrl)) {
+    paywallDetected = true;
     const ampUrl = extractAmpLink(finalHtml);
     if (ampUrl) {
       try {
         const ampHeaders: Record<string, string> = { Accept: "text/html" };
-        applyPaywallHeaders(targetUrl, ampHeaders);
+        applyPaywallHeaders(resolvedUrl, ampHeaders);
         const { signal: ampSignal, cleanup: ampCleanup } = createTimeoutSignal(15_000, abortSignal);
         try {
           const { response: ampResp } = await fetchWithSafeRedirects(ampUrl, {
@@ -531,6 +911,7 @@ async function convertUrl(
             const ampHtml = stripAmpAccessControls(await ampResp.text());
             if (!looksPaywalled(ampHtml) && ampHtml.length > finalHtml.length / 2) {
               finalHtml = ampHtml;
+              fallbacks.add("amp");
             }
           }
         } finally {
@@ -547,42 +928,66 @@ async function convertUrl(
   // 9. Convert
   throwIfAborted(abortSignal);
   await progress("convert", "Converting to Markdown");
-  let { markdown, title: extractedTitle, contentHtml } = htmlToMarkdown(finalHtml, targetUrl, selector);
+  const conversionUrl = resolvedUrl || targetUrl;
+  let { markdown, title: extractedTitle, contentHtml } = htmlToMarkdown(
+    finalHtml,
+    conversionUrl,
+    selector,
+  );
   let output: string;
 
   // If Readability produced very little content but JSON-LD has more, use JSON-LD
-  if (jsonLdHtml && markdown.length < 500 && looksPaywalled(finalHtml)) {
-    const jsonLdResult = htmlToMarkdown(jsonLdHtml, targetUrl, selector);
+  const stillLooksPaywalled = looksPaywalled(finalHtml);
+  if (stillLooksPaywalled) {
+    paywallDetected = true;
+  }
+  if (jsonLdHtml && markdown.length < 500 && stillLooksPaywalled) {
+    const jsonLdResult = htmlToMarkdown(jsonLdHtml, conversionUrl, selector);
     if (jsonLdResult.markdown.length > markdown.length) {
       markdown = jsonLdResult.markdown;
       extractedTitle = jsonLdResult.title || extractedTitle;
       contentHtml = jsonLdResult.contentHtml;
+      fallbacks.add("jsonld");
     }
   }
 
   // If still looks paywalled after JSON-LD, try archive sources
-  if (markdown.length < 500 && looksPaywalled(finalHtml) && getPaywallRule(targetUrl)) {
+  if (markdown.length < 500 && stillLooksPaywalled && getPaywallRule(conversionUrl)) {
     // Try Wayback Machine
-    const waybackHtml = await fetchWaybackSnapshot(targetUrl, abortSignal);
+    const waybackHtml = await fetchWaybackSnapshot(conversionUrl, abortSignal);
     if (waybackHtml) {
-      const wbResult = htmlToMarkdown(removePaywallElements(waybackHtml), targetUrl, selector);
+      const wbResult = htmlToMarkdown(
+        removePaywallElements(waybackHtml),
+        conversionUrl,
+        selector,
+      );
       if (wbResult.markdown.length > markdown.length) {
         markdown = wbResult.markdown;
         extractedTitle = wbResult.title || extractedTitle;
         contentHtml = wbResult.contentHtml;
+        fallbacks.add("wayback_post_convert");
       }
+    } else {
+      console.debug("Wayback fallback unavailable", { url: targetUrl });
     }
 
     // If still short, try Archive.today
     if (markdown.length < 500) {
-      const archiveHtml = await fetchArchiveToday(targetUrl, abortSignal);
+      const archiveHtml = await fetchArchiveToday(conversionUrl, abortSignal);
       if (archiveHtml) {
-        const arResult = htmlToMarkdown(removePaywallElements(archiveHtml), targetUrl, selector);
+        const arResult = htmlToMarkdown(
+          removePaywallElements(archiveHtml),
+          conversionUrl,
+          selector,
+        );
         if (arResult.markdown.length > markdown.length) {
           markdown = arResult.markdown;
           extractedTitle = arResult.title || extractedTitle;
           contentHtml = arResult.contentHtml;
+          fallbacks.add("archive_post_convert");
         }
+      } else {
+        console.debug("Archive.today fallback unavailable", { url: targetUrl });
       }
     }
   }
@@ -592,11 +997,11 @@ async function convertUrl(
       output = contentHtml;
       break;
     case "text":
-      output = htmlToText(finalHtml, targetUrl);
+      output = htmlToText(finalHtml, conversionUrl, selector);
       break;
     case "json":
       output = JSON.stringify({
-        url: targetUrl, title: extractedTitle, markdown, method,
+        url: conversionUrl, title: extractedTitle, markdown, method,
         timestamp: new Date().toISOString(),
       });
       break;
@@ -607,7 +1012,7 @@ async function convertUrl(
   // 9. WeChat image proxy
   if (
     format === "markdown" &&
-    (targetUrl.includes("mmbiz.qpic.cn") || targetUrl.includes("mp.weixin.qq.com"))
+    (conversionUrl.includes("mmbiz.qpic.cn") || conversionUrl.includes("mp.weixin.qq.com"))
   ) {
     output = proxyImageUrls(output, host);
   }
@@ -618,7 +1023,19 @@ async function convertUrl(
     await setCache(env, targetUrl, format, { content: output, method, title: extractedTitle }, selector);
   }
 
-  return { content: output, title: extractedTitle, method, tokenCount: "", cached: false };
+  return {
+    content: output,
+    title: extractedTitle,
+    method,
+    tokenCount: "",
+    cached: false,
+    diagnostics: {
+      cacheHit: false,
+      browserRendered,
+      paywallDetected,
+      fallbacks: [...fallbacks],
+    },
+  };
 }
 
 // ─── SSE streaming ──────────────────────────────────────────
@@ -724,6 +1141,15 @@ function handleStream(
   }
 
   const selector = url.searchParams.get("selector") || undefined;
+  if (selector && selector.length > MAX_SELECTOR_LENGTH) {
+    return sseResponse(async (send) => {
+      await send("fail", {
+        title: "Invalid Selector",
+        message: `selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
+        status: 400,
+      });
+    }, request.signal);
+  }
   const forceBrowser = url.searchParams.get("force_browser") === "true";
   const noCache = url.searchParams.get("no_cache") === "true";
 
@@ -734,13 +1160,27 @@ function handleStream(
         async (step, label) => { await send("step", { id: step, label }); },
         streamSignal,
       );
-      const sep = targetUrl.includes("?") ? "&" : "?";
       await send("done", {
-        rawUrl: `/${targetUrl}${sep}raw=true`,
+        rawUrl: buildRawRequestPath(targetUrl),
         title: result.title,
         method: result.method,
         tokenCount: result.tokenCount,
         cached: result.cached,
+        fallbacks: result.diagnostics.fallbacks,
+      });
+      incrementCounter("conversionsTotal");
+      if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");
+      if (result.diagnostics.browserRendered || result.method === "browser+readability+turndown") {
+        incrementCounter("browserRenderCalls");
+      }
+      if (result.diagnostics.paywallDetected) incrementCounter("paywallDetections");
+      if (result.diagnostics.fallbacks.length > 0) {
+        incrementCounter("paywallFallbacks", result.diagnostics.fallbacks.length);
+      }
+      logMetric("stream.convert_done", {
+        method: result.method,
+        cached: result.cached,
+        fallbacks: result.diagnostics.fallbacks,
       });
     } catch (err) {
       if (
@@ -751,9 +1191,11 @@ function handleStream(
         return;
       }
       if (err instanceof ConvertError) {
+        incrementCounter("conversionFailures");
         await send("fail", { title: err.title, message: err.message, status: err.statusCode });
       } else {
         console.error("Stream conversion error:", err);
+        incrementCounter("conversionFailures");
         await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 });
       }
     }
@@ -768,19 +1210,43 @@ export default {
     const host = url.host;
     const path = url.pathname;
     const jsonErrors = wantsJsonError(request);
+    incrementCounter("requestsTotal");
 
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
+    await syncPaywallRules(env);
+
     // POST /api/batch
     if (request.method === "POST" && path === "/api/batch") {
+      const decision = await consumeRateLimit(request, env, "batch");
+      if (decision?.exceeded) {
+        return rateLimitedResponse("batch", decision, true);
+      }
       return handleBatch(request, env, host);
     }
 
     // Only allow GET and HEAD for other routes
     if (request.method !== "GET" && request.method !== "HEAD") {
+      return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
+    }
+
+    // Avoid expensive side effects on HEAD requests.
+    if (request.method === "HEAD") {
+      if (path === "/favicon.ico") {
+        return new Response(null, { status: 204 });
+      }
+      if (path === "/api/health") {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            ...CORS_HEADERS,
+          },
+        });
+      }
       return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
     }
 
@@ -791,7 +1257,16 @@ export default {
 
     // Health check
     if (path === "/api/health") {
-      return Response.json({ status: "ok", service: host }, { headers: CORS_HEADERS });
+      return Response.json({
+        status: "ok",
+        service: host,
+        uptime_seconds: Math.max(0, Math.floor((Date.now() - runtimeStartedAt) / 1000)),
+        metrics: {
+          ...runtimeCounters,
+        },
+        browser: getBrowserCapacityStats(),
+        paywall: getPaywallRuleStats(),
+      }, { headers: CORS_HEADERS });
     }
 
     // Dynamic OG image
@@ -804,6 +1279,24 @@ export default {
       if (request.method !== "GET") {
         return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
       }
+      if (env.PUBLIC_API_TOKEN) {
+        const authorized = await isAuthorizedByToken(
+          request,
+          env.PUBLIC_API_TOKEN,
+          url.searchParams.get("token"),
+        );
+        if (!authorized) {
+          return Response.json(
+            { error: "Unauthorized", message: "Valid token required for /api/stream" },
+            { status: 401, headers: CORS_HEADERS },
+          );
+        }
+      }
+      const decision = await consumeRateLimit(request, env, "stream");
+      if (decision?.exceeded) {
+        return rateLimitedResponse("stream", decision, true);
+      }
+      incrementCounter("streamRequests");
       return handleStream(request, env, host, url);
     }
 
@@ -870,13 +1363,28 @@ export default {
         if (imgContentLength > IMAGE_MAX_BYTES) {
           return new Response("Image too large", { status: 413 });
         }
+
+        let imgBytes: Uint8Array;
+        try {
+          imgBytes = await readBodyWithLimit(
+            imgResp.body,
+            IMAGE_MAX_BYTES,
+            "Image too large",
+          );
+        } catch (e) {
+          if (e instanceof BodyTooLargeError) {
+            return new Response("Image too large", { status: 413 });
+          }
+          throw e;
+        }
+
         const headers = new Headers();
         headers.set("Content-Type", imgContentType);
         headers.set("Access-Control-Allow-Origin", "*");
         headers.set("Cache-Control", "public, max-age=86400");
         headers.set("Content-Security-Policy", "default-src 'none'");
         headers.set("X-Content-Type-Options", "nosniff");
-        return new Response(imgResp.body, { status: 200, headers });
+        return new Response(imgBytes, { status: 200, headers });
       } catch (e) {
         if (e instanceof Error && e.message.includes("SSRF")) {
           return new Response("Redirect target blocked", { status: 403 });
@@ -922,6 +1430,7 @@ export default {
     try {
       // Parse request parameters
       const acceptHeader = request.headers.get("Accept") || "";
+      const isDocumentNav = isDocumentNavigationRequest(request, acceptHeader);
       const wantsRaw =
         url.searchParams.get("raw") === "true" ||
         acceptHeader.split(",").some((part) => part.trim().split(";")[0] === "text/markdown");
@@ -937,25 +1446,64 @@ export default {
       }
       const format = rawFormat as OutputFormat;
       const selector = url.searchParams.get("selector") || undefined;
+      if (selector && selector.length > MAX_SELECTOR_LENGTH) {
+        return errorResponse(
+          "Invalid Selector",
+          `selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
+          400,
+          jsonErrors,
+        );
+      }
       const forceBrowser = url.searchParams.get("force_browser") === "true";
       const noCache = url.searchParams.get("no_cache") === "true";
+      const queryToken = url.searchParams.get("token");
+
+      // Optional API auth for non-document requests.
+      const isApiStyleRequest =
+        !isDocumentNav ||
+        wantsRaw ||
+        format !== "markdown" ||
+        acceptHeader.includes("application/json") ||
+        acceptHeader.includes("text/markdown");
+      if (env.PUBLIC_API_TOKEN && isApiStyleRequest) {
+        const authorized = await isAuthorizedByToken(request, env.PUBLIC_API_TOKEN, queryToken);
+        if (!authorized) {
+          return errorResponse(
+            "Unauthorized",
+            "Valid token required for API access.",
+            401,
+            true,
+          );
+        }
+      }
+
+      const rateDecision = await consumeRateLimit(request, env, "convert");
+      if (rateDecision?.exceeded) {
+        return rateLimitedResponse("convert", rateDecision, jsonErrors);
+      }
 
       // ── Browser document navigation → loading experience with SSE ──
-      // Only serve loading page for browser document navigations (not programmatic API calls)
-      const isDocumentNav =
-        request.method === "GET" &&
-        (request.headers.get("Sec-Fetch-Dest") === "document" ||
-          (!acceptHeader.includes("text/markdown") && !acceptHeader.includes("application/json") && acceptHeader.includes("text/html")));
-
       if (!wantsRaw && format === "markdown" && isDocumentNav) {
         // Check cache for instant display
         if (!noCache) {
           const cached = await getCached(env, targetUrl, "markdown", selector);
           if (cached) {
+            incrementCounter("conversionsTotal");
+            incrementCounter("cacheHits");
+            logMetric("convert.cache_hit", {
+              route: "document",
+              method: cached.method,
+            });
             return buildResponse(
               cached.content, targetUrl, host,
               cached.method as ConvertMethod, "markdown",
               false, "", true, cached.title,
+              {
+                cacheHit: true,
+                browserRendered: cached.method === "browser+readability+turndown",
+                paywallDetected: false,
+                fallbacks: [],
+              },
             );
           }
         }
@@ -965,6 +1513,7 @@ export default {
         if (selector) streamParams.set("selector", selector);
         if (forceBrowser) streamParams.set("force_browser", "true");
         if (noCache) streamParams.set("no_cache", "true");
+        if (queryToken) streamParams.set("token", queryToken);
         const sp = streamParams.toString();
 
         return new Response(
@@ -985,16 +1534,44 @@ export default {
         targetUrl, env, host, format, selector, forceBrowser, noCache,
       );
 
+      incrementCounter("conversionsTotal");
+      if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");
+      if (result.method === "browser+readability+turndown" || result.diagnostics.browserRendered) {
+        incrementCounter("browserRenderCalls");
+      }
+      if (result.diagnostics.paywallDetected) incrementCounter("paywallDetections");
+      if (result.diagnostics.fallbacks.length > 0) {
+        incrementCounter("paywallFallbacks", result.diagnostics.fallbacks.length);
+      }
+      logMetric("convert.completed", {
+        method: result.method,
+        cached: result.cached,
+        format,
+        browser_rendered: result.diagnostics.browserRendered,
+        paywall_detected: result.diagnostics.paywallDetected,
+        fallbacks: result.diagnostics.fallbacks,
+      });
+
       return buildResponse(
         result.content, targetUrl, host, result.method, format,
-        wantsRaw, result.tokenCount, result.cached, result.title,
+        wantsRaw, result.tokenCount, result.cached, result.title, result.diagnostics,
       );
     } catch (err: unknown) {
       if (err instanceof ConvertError) {
+        incrementCounter("conversionFailures");
+        logMetric("convert.failed", {
+          title: err.title,
+          status: err.statusCode,
+        });
         return errorResponse(err.title, err.message, err.statusCode, jsonErrors);
       }
       const message = err instanceof Error ? err.message : String(err);
       console.error("Conversion error:", { url: targetUrl, error: message });
+      incrementCounter("conversionFailures");
+      logMetric("convert.failed", {
+        title: "Error",
+        status: 500,
+      });
       return errorResponse(
         "Error",
         "Failed to process the URL. Please try again later.",
@@ -1017,6 +1594,7 @@ function buildResponse(
   tokenCount: string,
   cached: boolean,
   title: string = "",
+  diagnostics?: ConvertDiagnostics,
 ): Response {
   const methodLabel =
     method === "browser+readability+turndown"
@@ -1042,6 +1620,11 @@ function buildResponse(
         "X-Markdown-Native": method === "native" ? "true" : "false",
         "X-Markdown-Method": method,
         "X-Cache-Status": cached ? "HIT" : "MISS",
+        ...(diagnostics?.fallbacks.length
+          ? { "X-Markdown-Fallbacks": diagnostics.fallbacks.join(",") }
+          : {}),
+        ...(diagnostics?.browserRendered ? { "X-Browser-Rendered": "true" } : {}),
+        ...(diagnostics?.paywallDetected ? { "X-Paywall-Detected": "true" } : {}),
         ...(tokenCount ? { "X-Markdown-Tokens": tokenCount } : {}),
         ...(format === "html"
           ? {
@@ -1101,12 +1684,71 @@ async function pLimit<T>(
   return results;
 }
 
+interface BatchUrlObjectInput {
+  url: string;
+  format?: OutputFormat;
+  selector?: string;
+  force_browser?: boolean;
+  no_cache?: boolean;
+}
+
+interface BatchNormalizedItem {
+  url: string;
+  format: OutputFormat;
+  selector?: string;
+  forceBrowser: boolean;
+  noCache: boolean;
+}
+
+function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
+  if (typeof input === "string") {
+    return {
+      url: input,
+      format: "markdown",
+      selector: undefined,
+      forceBrowser: false,
+      noCache: false,
+    };
+  }
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+  const item = input as Partial<BatchUrlObjectInput>;
+  if (typeof item.url !== "string") {
+    return null;
+  }
+  const format = item.format || "markdown";
+  if (!VALID_FORMATS.has(format)) {
+    return null;
+  }
+  if (item.selector !== undefined && typeof item.selector !== "string") {
+    return null;
+  }
+  if (item.selector && item.selector.length > MAX_SELECTOR_LENGTH) {
+    return null;
+  }
+  if (item.force_browser !== undefined && typeof item.force_browser !== "boolean") {
+    return null;
+  }
+  if (item.no_cache !== undefined && typeof item.no_cache !== "boolean") {
+    return null;
+  }
+  return {
+    url: item.url,
+    format: format as OutputFormat,
+    selector: item.selector,
+    forceBrowser: item.force_browser === true,
+    noCache: item.no_cache === true,
+  };
+}
+
 /** Handle POST /api/batch — convert multiple URLs. */
 async function handleBatch(
   request: Request,
   env: Env,
   host: string,
 ): Promise<Response> {
+  incrementCounter("batchRequests");
   // Require API_TOKEN
   if (!env.API_TOKEN) {
     return Response.json(
@@ -1134,15 +1776,34 @@ async function handleBatch(
   }
 
   try {
-    const bodyText = await request.text();
-    if (new TextEncoder().encode(bodyText).length > BATCH_BODY_MAX_BYTES) {
+    let bodyText = "";
+    try {
+      const bodyBytes = await readBodyWithLimit(
+        request.body,
+        BATCH_BODY_MAX_BYTES,
+        "Maximum body size is 100 KB",
+        request.signal,
+      );
+      bodyText = new TextDecoder().decode(bodyBytes);
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        return Response.json(
+          { error: "Request too large", message: "Maximum body size is 100 KB" },
+          { status: 413, headers: CORS_HEADERS },
+        );
+      }
+      throw error;
+    }
+
+    if (!bodyText.trim()) {
       return Response.json(
-        { error: "Request too large", message: "Maximum body size is 100 KB" },
-        { status: 413, headers: CORS_HEADERS },
+        { error: "Invalid request body", message: "Body must be valid JSON and include a 'urls' array." },
+        { status: 400, headers: CORS_HEADERS },
       );
     }
-    const body = JSON.parse(bodyText) as { urls?: string[] };
-    if (!body.urls || !Array.isArray(body.urls)) {
+
+    const body = JSON.parse(bodyText) as { urls?: unknown };
+    if (!Array.isArray(body.urls)) {
       return Response.json(
         { error: "Request body must contain 'urls' array" },
         { status: 400, headers: CORS_HEADERS },
@@ -1154,26 +1815,61 @@ async function handleBatch(
         { status: 400, headers: CORS_HEADERS },
       );
     }
+    const items = body.urls
+      .map((item) => normalizeBatchItem(item))
+      .filter((item): item is BatchNormalizedItem => item !== null);
 
-    const tasks = body.urls.map((targetUrl: string) => async () => {
-      if (!isValidUrl(targetUrl) || !isSafeUrl(targetUrl)) {
-        return { url: targetUrl, error: "Invalid or blocked URL" };
+    if (items.length !== body.urls.length) {
+      return Response.json(
+        {
+          error:
+            "Each batch item must be either a URL string or { url, format?, selector?, force_browser?, no_cache? }",
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+
+    const tasks = items.map((item) => async () => {
+      if (!isValidUrl(item.url) || !isSafeUrl(item.url)) {
+        return { url: item.url, format: item.format, error: "Invalid or blocked URL" };
       }
       try {
-        const result = await convertUrl(targetUrl, env, host, "markdown", undefined, false, false);
+        const result = await convertUrl(
+          item.url,
+          env,
+          host,
+          item.format,
+          item.selector,
+          item.forceBrowser,
+          item.noCache,
+        );
+        incrementCounter("conversionsTotal");
+        if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");
+        if (result.method === "browser+readability+turndown" || result.diagnostics.browserRendered) {
+          incrementCounter("browserRenderCalls");
+        }
+        if (result.diagnostics.paywallDetected) incrementCounter("paywallDetections");
+        if (result.diagnostics.fallbacks.length > 0) {
+          incrementCounter("paywallFallbacks", result.diagnostics.fallbacks.length);
+        }
         return {
-          url: targetUrl,
-          markdown: result.content,
+          url: item.url,
+          format: item.format,
+          content: result.content,
+          ...(item.format === "markdown" ? { markdown: result.content } : {}),
           title: result.title,
           method: result.method,
           cached: result.cached,
+          fallbacks: result.diagnostics.fallbacks,
         };
       } catch (e) {
         if (e instanceof ConvertError) {
-          return { url: targetUrl, error: e.message };
+          incrementCounter("conversionFailures");
+          return { url: item.url, format: item.format, error: e.message };
         }
-        console.error("Batch item failed:", targetUrl, e instanceof Error ? e.message : e);
-        return { url: targetUrl, error: "Failed to process this URL." };
+        incrementCounter("conversionFailures");
+        console.error("Batch item failed:", item.url, e instanceof Error ? e.message : e);
+        return { url: item.url, format: item.format, error: "Failed to process this URL." };
       }
     });
 
@@ -1182,6 +1878,10 @@ async function handleBatch(
       r.status === "fulfilled" ? r.value : { error: "Processing failed" },
     );
 
+    logMetric("batch.completed", {
+      items: items.length,
+      failures: output.filter((item: any) => !!item.error).length,
+    });
     return Response.json({ results: output }, { headers: CORS_HEADERS });
   } catch (error) {
     console.error("Batch request processing failed:", error);

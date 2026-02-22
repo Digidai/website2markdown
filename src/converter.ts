@@ -215,8 +215,12 @@ export function htmlToMarkdown(
 /**
  * Convert HTML to plain text (strip all formatting).
  */
-export function htmlToText(html: string, url: string): string {
-  const { markdown } = htmlToMarkdown(html, url);
+export function htmlToText(
+  html: string,
+  url: string,
+  selector?: string,
+): string {
+  const { markdown } = htmlToMarkdown(html, url, selector);
   const boundedMarkdown = clampRegexInput(markdown);
   if (!boundedMarkdown.trim()) return "";
   // Strip markdown formatting

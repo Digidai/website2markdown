@@ -24,6 +24,13 @@ export interface PaywallRule {
   xForwardedFor?: boolean;
 }
 
+export interface PaywallRuleStats {
+  source: string;
+  ruleCount: number;
+  domainCount: number;
+  updatedAt: string;
+}
+
 // ─── Googlebot UA ────────────────────────────────────────────
 
 const GOOGLEBOT_UA =
@@ -31,6 +38,11 @@ const GOOGLEBOT_UA =
 
 const GOOGLE_REFERER = "https://www.google.com/";
 const FACEBOOK_REFERER = "https://www.facebook.com/";
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
 
 // ─── Paywall script domains (for Puppeteer blocking) ────────
 
@@ -61,7 +73,7 @@ export function isPaywallScript(url: string): boolean {
 
 // ─── Known paywalled sites ──────────────────────────────────
 
-const PAYWALL_RULES: PaywallRule[] = [
+const DEFAULT_PAYWALL_RULES: PaywallRule[] = [
   // US News
   {
     domains: ["nytimes.com", "newyorker.com", "washingtonpost.com", "latimes.com", "chicagotribune.com", "sfchronicle.com"],
@@ -114,12 +126,119 @@ const PAYWALL_RULES: PaywallRule[] = [
   },
 ];
 
-// Pre-compute a domain → rule lookup map for fast matching
-const domainRuleMap = new Map<string, PaywallRule>();
-for (const rule of PAYWALL_RULES) {
-  for (const domain of rule.domains) {
-    domainRuleMap.set(domain, rule);
+let activeRules: PaywallRule[] = DEFAULT_PAYWALL_RULES;
+let domainRuleMap = createDomainRuleMap(activeRules);
+let paywallRuleStats: PaywallRuleStats = {
+  source: "default",
+  ruleCount: activeRules.length,
+  domainCount: domainRuleMap.size,
+  updatedAt: new Date().toISOString(),
+};
+
+function createDomainRuleMap(rules: PaywallRule[]): Map<string, PaywallRule> {
+  const map = new Map<string, PaywallRule>();
+  for (const rule of rules) {
+    for (const rawDomain of rule.domains) {
+      const domain = rawDomain.trim().toLowerCase();
+      if (!domain) continue;
+      map.set(domain, rule);
+    }
   }
+  return map;
+}
+
+function normalizePaywallRule(rule: Partial<PaywallRule>): PaywallRule | null {
+  const domains = Array.isArray(rule.domains)
+    ? rule.domains
+      .filter((domain): domain is string => typeof domain === "string")
+      .map((domain) => domain.trim().toLowerCase())
+      .filter((domain) => domain.length > 0)
+    : [];
+  if (domains.length === 0) return null;
+
+  return {
+    domains,
+    googlebot: !!rule.googlebot,
+    referer: typeof rule.referer === "string" && rule.referer.length > 0
+      ? rule.referer
+      : undefined,
+    removeSelectors: Array.isArray(rule.removeSelectors)
+      ? rule.removeSelectors.filter((selector): selector is string => typeof selector === "string")
+      : undefined,
+    jsonLd: !!rule.jsonLd,
+    xForwardedFor: !!rule.xForwardedFor,
+  };
+}
+
+function applyRuntimeRules(rules: PaywallRule[], source: string): PaywallRuleStats {
+  if (rules.length === 0) {
+    activeRules = DEFAULT_PAYWALL_RULES;
+    domainRuleMap = createDomainRuleMap(activeRules);
+    paywallRuleStats = {
+      source: "default",
+      ruleCount: activeRules.length,
+      domainCount: domainRuleMap.size,
+      updatedAt: new Date().toISOString(),
+    };
+    return paywallRuleStats;
+  }
+
+  activeRules = rules;
+  domainRuleMap = createDomainRuleMap(activeRules);
+  paywallRuleStats = {
+    source,
+    ruleCount: activeRules.length,
+    domainCount: domainRuleMap.size,
+    updatedAt: new Date().toISOString(),
+  };
+  return paywallRuleStats;
+}
+
+/** Configure paywall rules from typed data. Falls back to defaults on empty input. */
+export function setPaywallRules(
+  rules: PaywallRule[] | null | undefined,
+  source: string = "runtime",
+): PaywallRuleStats {
+  if (!rules || rules.length === 0) {
+    return applyRuntimeRules([], "default");
+  }
+
+  const normalized = rules
+    .map((rule) => normalizePaywallRule(rule))
+    .filter((rule): rule is PaywallRule => !!rule);
+  return applyRuntimeRules(normalized, source);
+}
+
+/** Configure paywall rules from JSON string. Falls back to defaults on invalid input. */
+export function setPaywallRulesFromJson(
+  rulesJson: string | null | undefined,
+  source: string = "runtime-json",
+): PaywallRuleStats {
+  if (!rulesJson || !rulesJson.trim()) {
+    return applyRuntimeRules([], "default");
+  }
+
+  try {
+    const parsed = JSON.parse(rulesJson) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error("Paywall rules JSON must be an array.");
+    }
+    const normalized = parsed
+      .map((rule) => normalizePaywallRule(rule as Partial<PaywallRule>))
+      .filter((rule): rule is PaywallRule => !!rule);
+    return applyRuntimeRules(normalized, source);
+  } catch (error) {
+    console.warn("Invalid paywall rules JSON. Keeping existing rules.", {
+      source,
+      error: errorMessage(error),
+    });
+    return paywallRuleStats;
+  }
+}
+
+/** Get metadata for currently active paywall rules. */
+export function getPaywallRuleStats(): PaywallRuleStats {
+  return { ...paywallRuleStats };
 }
 
 // ─── Common paywall CSS selectors ───────────────────────────
@@ -423,7 +542,8 @@ export async function fetchWaybackSnapshot(
 
     const body = await htmlResp.text();
     return body.length > 1000 ? body : null;
-  } catch {
+  } catch (error) {
+    console.warn("Wayback fallback failed:", { targetUrl, error: errorMessage(error) });
     return null;
   }
 }
@@ -458,7 +578,8 @@ export async function fetchArchiveToday(
 
     const body = await resp.text();
     return body.length > 1000 ? body : null;
-  } catch {
+  } catch (error) {
+    console.warn("Archive.today fallback failed:", { targetUrl, error: errorMessage(error) });
     return null;
   }
 }

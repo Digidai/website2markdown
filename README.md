@@ -2,7 +2,7 @@
 
 A Cloudflare Worker that converts **any** web page to clean Markdown. Supports three conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), and [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages.
 
-Prepend your domain before any URL and get instant Markdown output. No API keys, no signup required.
+Prepend your domain before any URL and get instant Markdown output. No signup required, and API auth is optional/configurable.
 
 ## How It Works
 
@@ -56,6 +56,19 @@ curl https://md.genedai.me/https://example.com/page \
   -H "Accept: text/markdown"
 ```
 
+### Optional API Token Protection
+
+If `PUBLIC_API_TOKEN` is configured, API-style requests require a token:
+
+```bash
+# Header token
+curl "https://md.genedai.me/https://example.com/page?raw=true" \
+  -H "Authorization: Bearer <public-token>"
+
+# Query token (useful for /api/stream EventSource)
+curl "https://md.genedai.me/api/stream?url=https%3A%2F%2Fexample.com%2Fpage&token=<public-token>"
+```
+
 ### Output Formats
 
 ```bash
@@ -84,6 +97,8 @@ curl "https://md.genedai.me/https://example.com?selector=.article-body&raw=true"
 curl "https://md.genedai.me/https://example.com?selector=%23main-content&raw=true"
 ```
 
+> `selector` maximum length is `256` characters.
+
 ### Force Browser Rendering
 
 ```bash
@@ -109,17 +124,43 @@ curl -X POST https://md.genedai.me/api/batch \
   -d '{
     "urls": [
       "https://example.com/page1",
-      "https://example.com/page2"
+      {
+        "url": "https://example.com/page2",
+        "format": "text",
+        "selector": "article",
+        "force_browser": false,
+        "no_cache": true
+      }
     ]
   }'
 ```
+
+`urls` supports:
+- String item: `"https://example.com/a"` (defaults to markdown)
+- Object item: `{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean }`
 
 Response:
 ```json
 {
   "results": [
-    { "url": "...", "markdown": "...", "title": "...", "method": "...", "cached": false },
-    { "url": "...", "markdown": "...", "title": "...", "method": "...", "cached": true }
+    {
+      "url": "...",
+      "format": "markdown",
+      "content": "...",
+      "markdown": "...",
+      "title": "...",
+      "method": "...",
+      "cached": false,
+      "fallbacks": ["jsonld"]
+    },
+    {
+      "url": "...",
+      "format": "text",
+      "content": "...",
+      "title": "...",
+      "method": "...",
+      "cached": true
+    }
   ]
 }
 ```
@@ -173,10 +214,11 @@ print(data["title"], data["method"])
 | `/<url>?selector=.class` | GET | Extract specific CSS selector |
 | `/<url>?force_browser=true` | GET | Force browser rendering |
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
+| `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |
 | `/img/<encoded-url>` | GET | Image proxy (bypasses hotlink protection) |
 | `/r2img/<key>` | GET | Serve image from R2 storage |
-| `/api/health` | GET | Health check — `{"status":"ok","service":"<host>"}` |
+| `/api/health` | GET | Health + runtime metrics + browser queue snapshot |
 
 ## Response Headers (Raw API)
 
@@ -188,6 +230,10 @@ print(data["title"], data["method"])
 | `X-Markdown-Native` | `"true"` when native, `"false"` otherwise |
 | `X-Markdown-Method` | `"native"`, `"readability+turndown"`, or `"browser+readability+turndown"` |
 | `X-Cache-Status` | `"HIT"` or `"MISS"` |
+| `X-Markdown-Fallbacks` | Comma-separated fallback list (when used) |
+| `X-Browser-Rendered` | `"true"` when browser rendering path was used |
+| `X-Paywall-Detected` | `"true"` when paywall heuristics were triggered |
+| `Retry-After` / `X-RateLimit-*` | Present on `429` responses |
 | `Access-Control-Allow-Origin` | `*` — CORS enabled |
 
 ## Features
@@ -201,12 +247,15 @@ print(data["title"], data["method"])
 | **R2 Image Storage** | Images stored reliably, served via proxy URLs |
 | **Multiple Formats** | Markdown, HTML, text, or structured JSON output |
 | **CSS Selectors** | Target specific page elements for extraction |
-| **Batch API** | Convert up to 10 URLs in a single POST request |
+| **Batch API v2** | Convert up to 10 URLs with per-item format/selector/browser/cache options |
 | **Table Support** | Improved handling of simple and complex tables |
 | **Smart Extraction** | Readability strips nav, ads, sidebars — extracts main article content |
 | **Rendered View** | Dark-themed Markdown preview with GitHub CSS and tab switching |
 | **SSRF Protection** | Blocks private IPs, IPv6 link-local, cloud metadata endpoints |
 | **Timeout Protection** | Time-budgeted scrolling for Feishu virtual scroll documents |
+| **Built-in Rate Limiting** | Per-IP limits for conversion, stream, and batch routes |
+| **Runtime Paywall Rules** | Support dynamic paywall rule updates via env/KV JSON |
+| **Operational Health** | `/api/health` exposes runtime counters and browser queue stats |
 
 ## Tech Stack
 
@@ -278,6 +327,24 @@ This project uses **Cloudflare Git Integration** — push to `main` and Cloudfla
    ```
 3. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) > **Workers & Pages** > **Create** > **Import a Git repository**
 4. Select the GitHub repo — Cloudflare will deploy automatically on every push to `main`
+
+### Secrets / Runtime Variables
+
+```bash
+# Required for /api/batch
+wrangler secret put API_TOKEN
+
+# Optional: protect raw API and /api/stream
+wrangler secret put PUBLIC_API_TOKEN
+
+# Optional: dynamic paywall rules (JSON array)
+wrangler secret put PAYWALL_RULES_JSON
+```
+
+Optional KV-driven paywall rule source:
+
+- Set `PAYWALL_RULES_KV_KEY` (plain env var) to a KV key that stores JSON paywall rules.
+- If both `PAYWALL_RULES_JSON` and KV key are configured, KV value takes precedence.
 
 ### Browser Rendering Binding
 

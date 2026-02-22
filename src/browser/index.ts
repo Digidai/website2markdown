@@ -35,6 +35,7 @@ import { genericAdapter } from "./adapters/generic";
 import { feishuAdapter } from "./adapters/feishu";
 
 const BROWSER_QUEUE_TIMEOUT_MS = 10_000;
+const BROWSER_MAX_QUEUE_LENGTH = 50;
 const BROWSER_CLOSE_TIMEOUT_MS = 5000;
 const LOW_VALUE_RESOURCE_TYPES = new Set([
   "font",
@@ -123,6 +124,7 @@ interface QueueEntry {
 export class BrowserCapacityGate {
   private readonly maxConcurrent: number;
   private readonly queueTimeoutMs: number;
+  private readonly maxQueueLength: number;
   private readonly now: () => number;
   private active = 0;
   private readonly queue: QueueEntry[] = [];
@@ -130,6 +132,7 @@ export class BrowserCapacityGate {
   constructor(
     maxConcurrent: number,
     queueTimeoutMs: number,
+    maxQueueLength: number = BROWSER_MAX_QUEUE_LENGTH,
     now: () => number = () => Date.now(),
   ) {
     if (!Number.isFinite(maxConcurrent) || maxConcurrent < 1) {
@@ -138,8 +141,12 @@ export class BrowserCapacityGate {
     if (!Number.isFinite(queueTimeoutMs) || queueTimeoutMs < 1) {
       throw new Error("BrowserCapacityGate queueTimeoutMs must be >= 1");
     }
+    if (!Number.isFinite(maxQueueLength) || maxQueueLength < 0) {
+      throw new Error("BrowserCapacityGate maxQueueLength must be >= 0");
+    }
     this.maxConcurrent = Math.floor(maxConcurrent);
     this.queueTimeoutMs = Math.floor(queueTimeoutMs);
+    this.maxQueueLength = Math.floor(maxQueueLength);
     this.now = now;
   }
 
@@ -151,10 +158,27 @@ export class BrowserCapacityGate {
     return this.queue.length;
   }
 
+  getMaxConcurrent(): number {
+    return this.maxConcurrent;
+  }
+
+  getMaxQueueLength(): number {
+    return this.maxQueueLength;
+  }
+
+  getQueueTimeoutMs(): number {
+    return this.queueTimeoutMs;
+  }
+
   async acquire(label: string = "unknown"): Promise<PermitRelease> {
     if (this.active < this.maxConcurrent) {
       this.active++;
       return this.createRelease();
+    }
+    if (this.queue.length >= this.maxQueueLength) {
+      throw new Error(
+        `Browser rendering queue is full (limit=${this.maxConcurrent}, max_queue=${this.maxQueueLength}, queued_url=${label})`,
+      );
     }
 
     return new Promise<PermitRelease>((resolve, reject) => {
@@ -210,7 +234,24 @@ export class BrowserCapacityGate {
 const browserCapacityGate = new BrowserCapacityGate(
   BROWSER_CONCURRENCY,
   BROWSER_QUEUE_TIMEOUT_MS,
+  BROWSER_MAX_QUEUE_LENGTH,
 );
+
+export function getBrowserCapacityStats(): {
+  active: number;
+  queued: number;
+  maxConcurrent: number;
+  maxQueueLength: number;
+  queueTimeoutMs: number;
+} {
+  return {
+    active: browserCapacityGate.getActiveCount(),
+    queued: browserCapacityGate.getQueueLength(),
+    maxConcurrent: browserCapacityGate.getMaxConcurrent(),
+    maxQueueLength: browserCapacityGate.getMaxQueueLength(),
+    queueTimeoutMs: browserCapacityGate.getQueueTimeoutMs(),
+  };
+}
 
 function handleInterceptedRequest(req: any): void {
   const reqUrl = req.url();

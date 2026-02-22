@@ -2,6 +2,19 @@ import { escapeHtml } from "../security";
 
 export function landingPageHTML(host: string): string {
   const h = escapeHtml(host);
+  const schemaJson = JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: host,
+    description: "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
+    url: `https://${host}/`,
+    applicationCategory: "DeveloperApplication",
+    operatingSystem: "Any",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  })
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -330,16 +343,7 @@ export function landingPageHTML(host: string): string {
     Built on Cloudflare Workers &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Markdown for Agents</a>
   </footer>
 
-  <script type="application/ld+json">${JSON.stringify({
-    "@context": "https://schema.org",
-    "@type": "WebApplication",
-    name: host,
-    description: "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
-    url: `https://${host}/`,
-    applicationCategory: "DeveloperApplication",
-    operatingSystem: "Any",
-    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  })}</script>
+  <script type="application/ld+json">${schemaJson}</script>
   <script>
     function handleSubmit(e) {
       e.preventDefault();

@@ -3,6 +3,9 @@ export interface Env {
   CACHE_KV: KVNamespace;
   IMAGE_BUCKET: R2Bucket;
   API_TOKEN?: string;
+  PUBLIC_API_TOKEN?: string;
+  PAYWALL_RULES_JSON?: string;
+  PAYWALL_RULES_KV_KEY?: string;
   /** Bright Data proxy URL: "username:password@host:port" */
   PROXY_URL?: string;
 }
