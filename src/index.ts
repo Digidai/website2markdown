@@ -873,10 +873,15 @@ async function convertUrl(
     }
   }
 
-  // 7. Size check on final HTML
+  // 7. Strip <script> and <style> tags — they are never useful for conversion
+  //    and can account for 70-80% of page size (e.g. WeChat pages are ~4MB scripts).
   throwIfAborted(abortSignal);
+  finalHtml = finalHtml
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+
   if (new TextEncoder().encode(finalHtml).byteLength > MAX_RESPONSE_BYTES) {
-    throw new ConvertError("Content Too Large", "The rendered page exceeds the 5 MB size limit.", 413);
+    throw new ConvertError("Content Too Large", "The page content exceeds the 5 MB size limit.", 413);
   }
 
   // 8. Apply adapter post-processing before conversion
