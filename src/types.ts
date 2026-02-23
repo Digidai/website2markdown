@@ -8,6 +8,8 @@ export interface Env {
   PAYWALL_RULES_KV_KEY?: string;
   /** Bright Data proxy URL: "username:password@host:port" */
   PROXY_URL?: string;
+  /** Optional proxy pool. Accepts comma/newline separated proxy URLs. */
+  PROXY_POOL?: string;
 }
 
 export type ConvertMethod =

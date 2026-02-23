@@ -31,7 +31,13 @@ describe("worker endpoints", () => {
       status?: string;
       service?: string;
       browser?: { active?: number; queued?: number };
-      metrics?: { requestsTotal?: number };
+      metrics?: {
+        requestsTotal?: number;
+        operational?: {
+          throughput?: { requests_per_min?: number };
+          latency_ms?: { convert?: { p50?: number; p95?: number } };
+        };
+      };
       paywall?: { source?: string };
     };
 
@@ -40,6 +46,9 @@ describe("worker endpoints", () => {
     expect(payload.service).toBe("md.example.com");
     expect(payload.browser).toBeTruthy();
     expect(payload.metrics).toBeTruthy();
+    expect(payload.metrics?.operational).toBeTruthy();
+    expect(payload.metrics?.operational?.throughput?.requests_per_min).toBeDefined();
+    expect(payload.metrics?.operational?.latency_ms?.convert).toBeTruthy();
     expect(payload.paywall).toBeTruthy();
   });
 

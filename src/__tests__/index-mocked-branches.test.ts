@@ -30,7 +30,9 @@ const mocked = vi.hoisted(() => ({
   },
   proxy: {
     parseProxyUrl: vi.fn(),
+    parseProxyPool: vi.fn(),
     fetchViaProxy: vi.fn(),
+    fetchViaProxyPool: vi.fn(),
   },
 }));
 
@@ -70,7 +72,9 @@ vi.mock("../cache", () => ({
 
 vi.mock("../proxy", () => ({
   parseProxyUrl: mocked.proxy.parseProxyUrl,
+  parseProxyPool: mocked.proxy.parseProxyPool,
   fetchViaProxy: mocked.proxy.fetchViaProxy,
+  fetchViaProxyPool: mocked.proxy.fetchViaProxyPool,
 }));
 
 import worker from "../index";
@@ -119,10 +123,26 @@ beforeEach(() => {
   mocked.converter.proxyImageUrls.mockImplementation((markdown: string) => `proxied:${markdown}`);
 
   mocked.proxy.parseProxyUrl.mockReturnValue(null);
+  mocked.proxy.parseProxyPool.mockReturnValue([]);
   mocked.proxy.fetchViaProxy.mockResolvedValue({
     status: 200,
     headers: {},
     body: "<html>proxy body</html>",
+  });
+  mocked.proxy.fetchViaProxyPool.mockResolvedValue({
+    status: 200,
+    headers: {},
+    body: "<html>proxy pool body</html>",
+    proxyIndex: 0,
+    proxy: {
+      host: "proxy.example.com",
+      port: 8080,
+      username: "u",
+      password: "p",
+    },
+    variant: "desktop",
+    attempts: 1,
+    errors: [],
   });
 });
 
@@ -247,6 +267,55 @@ describe("index mocked branch coverage", () => {
     expect(res.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
     expect(payload.message).toContain("Proxy access failed");
+  });
+
+  it("uses proxy pool rotation path when PROXY_POOL is configured", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    mocked.browser.fetchWithBrowser.mockRejectedValueOnce(
+      new Error("Browser rendering failed: PROXY_RETRY:SID=pool"),
+    );
+    mocked.proxy.parseProxyPool.mockReturnValue([
+      {
+        host: "proxy-1.example.com",
+        port: 8080,
+        username: "u1",
+        password: "p1",
+      },
+      {
+        host: "proxy-2.example.com",
+        port: 8080,
+        username: "u2",
+        password: "p2",
+      },
+    ]);
+    mocked.proxy.fetchViaProxyPool.mockResolvedValueOnce({
+      status: 200,
+      headers: {},
+      body: `<html><body>${"y".repeat(1600)}</body></html>`,
+      proxyIndex: 1,
+      proxy: {
+        host: "proxy-2.example.com",
+        port: 8080,
+        username: "u2",
+        password: "p2",
+      },
+      variant: "mobile",
+      attempts: 2,
+      errors: [],
+    });
+
+    const { env } = createMockEnv({
+      PROXY_POOL: "u1:p1@proxy-1.example.com:8080,u2:p2@proxy-2.example.com:8080",
+    });
+    const req = new Request("https://md.example.com/https://example.com/proxy-pool?raw=true", {
+      headers: { Accept: "text/markdown" },
+    });
+    const res = await worker.fetch(req, env);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("proxy_pool_2_mobile");
+    expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalled();
+    expect(mocked.proxy.fetchViaProxy).not.toHaveBeenCalled();
   });
 
   it("uses paywall wayback fallback when static fetch is blocked", async () => {

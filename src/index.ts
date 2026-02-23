@@ -13,6 +13,7 @@ import {
   MAX_SELECTOR_LENGTH,
   CORS_HEADERS,
   WECHAT_UA,
+  MOBILE_UA,
   DESKTOP_UA,
   VALID_FORMATS,
   BROWSER_CONCURRENCY,
@@ -69,7 +70,12 @@ import {
   getBrowserCapacityStats,
 } from "./browser";
 import { getCached, setCache, getImage } from "./cache";
-import { parseProxyUrl, fetchViaProxy } from "./proxy";
+import {
+  parseProxyUrl,
+  parseProxyPool,
+  fetchViaProxy,
+  fetchViaProxyPool,
+} from "./proxy";
 import {
   applyPaywallHeaders,
   extractJsonLdArticle,
@@ -83,6 +89,13 @@ import {
   setPaywallRulesFromJson,
   getPaywallRuleStats,
 } from "./paywall";
+import {
+  buildOperationalMetricsSnapshot,
+  recordConversionLatency,
+  recordDeepCrawlRun,
+  recordJobCreated,
+  recordJobRun,
+} from "./observability/metrics";
 import { errorMessage } from "./utils";
 import { landingPageHTML } from "./templates/landing";
 import { renderedPageHTML } from "./templates/rendered";
@@ -133,6 +146,10 @@ interface RuntimeCounters {
   paywallDetections: number;
   paywallFallbacks: number;
   rateLimited: number;
+  jobsCreated: number;
+  jobRuns: number;
+  jobRetryAttempts: number;
+  deepCrawlRuns: number;
 }
 
 interface RateLimitDecision {
@@ -161,6 +178,10 @@ const runtimeCounters: RuntimeCounters = {
   paywallDetections: 0,
   paywallFallbacks: 0,
   rateLimited: 0,
+  jobsCreated: 0,
+  jobRuns: 0,
+  jobRetryAttempts: 0,
+  deepCrawlRuns: 0,
 };
 const localRateCounters = new Map<string, { count: number; expiresAt: number }>();
 const PAYWALL_RULES_REFRESH_MS = 60_000;
@@ -589,6 +610,23 @@ function asFetchConvertError(error: unknown): ConvertError {
   );
 }
 
+function isLikelyChallengeHtml(body: string): boolean {
+  const lower = body.toLowerCase();
+  return (
+    (lower.includes("passport.weibo") ||
+      lower.includes("qrcode_login") ||
+      lower.includes("login_type")) ||
+    (lower.includes("verify") &&
+      lower.includes("captcha") &&
+      body.length < 5000) ||
+    lower.includes("cf-browser-verification") ||
+    lower.includes("cf-challenge") ||
+    (lower.includes("just a moment") &&
+      lower.includes("cloudflare") &&
+      body.length < 10000)
+  );
+}
+
 // ─── Core conversion function ────────────────────────────────
 
 interface ConvertResult {
@@ -681,11 +719,15 @@ async function convertUrl(
       // Hybrid proxy path: browser solved JS challenge but datacenter IP
       // was blocked. Retry the fetch through ISP proxy with browser cookies.
       if (msg.startsWith("PROXY_RETRY:") || msg.includes("PROXY_RETRY:")) {
-        const proxyConfig = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
-        if (!proxyConfig) {
+        const pooledConfigs = env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
+        const fallbackProxy = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
+        if (pooledConfigs.length === 0 && fallbackProxy) {
+          pooledConfigs.push(fallbackProxy);
+        }
+        if (pooledConfigs.length === 0) {
           throw new ConvertError(
             "Fetch Failed",
-            "Site requires proxy access. Please configure PROXY_URL.",
+            "Site requires proxy access. Please configure PROXY_URL or PROXY_POOL.",
             502,
           );
         }
@@ -696,30 +738,72 @@ async function convertUrl(
         throwIfAborted(abortSignal);
         await progress("fetch", "Retrying via proxy");
         try {
-          const proxyResult = await fetchViaProxy(targetUrl, proxyConfig, {
-            "User-Agent": DESKTOP_UA,
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Accept-Encoding": "identity",
-            "Cookie": cookies,
-          }, 25_000, abortSignal);
-          if (proxyResult.status >= 200 && proxyResult.status < 400 && proxyResult.body.length > 1000) {
-            // Check if proxy returned a login/challenge page instead of real content
-            const lower = proxyResult.body.toLowerCase();
-            const isGarbage =
-              (lower.includes("passport.weibo") || lower.includes("qrcode_login") || lower.includes("login_type")) ||
-              (lower.includes("verify") && lower.includes("captcha") && proxyResult.body.length < 5000) ||
-              (lower.includes("cf-browser-verification") || lower.includes("cf-challenge")) ||
-              (lower.includes("just a moment") && lower.includes("cloudflare") && proxyResult.body.length < 10000);
-            if (isGarbage) {
-              throw new Error(`Proxy returned login/challenge page (${proxyResult.body.length} bytes)`);
-            }
+          const headerVariants = [
+            {
+              name: "desktop",
+              headers: {
+                "User-Agent": DESKTOP_UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Accept-Encoding": "identity",
+                "Cookie": cookies,
+              },
+            },
+            {
+              name: "mobile",
+              headers: {
+                "User-Agent": MOBILE_UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Accept-Encoding": "identity",
+                "Cookie": cookies,
+              },
+            },
+          ];
+
+          const usePool = !!(env.PROXY_POOL && pooledConfigs.length > 0);
+          if (usePool) {
+            const proxyResult = await fetchViaProxyPool(
+              targetUrl,
+              pooledConfigs,
+              headerVariants,
+              {
+                timeoutMs: 25_000,
+                signal: abortSignal,
+                acceptResult: (candidate) =>
+                  candidate.status >= 200 &&
+                  candidate.status < 400 &&
+                  candidate.body.length > 1000 &&
+                  !isLikelyChallengeHtml(candidate.body),
+              },
+            );
             finalHtml = proxyResult.body;
             method = "browser+readability+turndown";
             browserRendered = true;
-            fallbacks.add("proxy_retry");
+            fallbacks.add(`proxy_pool_${proxyResult.proxyIndex + 1}_${proxyResult.variant}`);
           } else {
-            throw new Error(`Proxy fetch returned ${proxyResult.status}, body ${proxyResult.body.length} bytes`);
+            const proxyResult = await fetchViaProxy(
+              targetUrl,
+              pooledConfigs[0],
+              headerVariants[0].headers,
+              25_000,
+              abortSignal,
+            );
+            if (
+              proxyResult.status >= 200 &&
+              proxyResult.status < 400 &&
+              proxyResult.body.length > 1000 &&
+              !isLikelyChallengeHtml(proxyResult.body)
+            ) {
+              finalHtml = proxyResult.body;
+              method = "browser+readability+turndown";
+              browserRendered = true;
+              fallbacks.add("proxy_retry");
+            } else {
+              throw new Error(
+                `Proxy fetch returned ${proxyResult.status}, body ${proxyResult.body.length} bytes`,
+              );
+            }
           }
         } catch (proxyError) {
           const proxyDetail = errorMessage(proxyError);
@@ -1094,6 +1178,17 @@ async function convertUrl(
   };
 }
 
+async function convertUrlWithMetrics(
+  ...args: Parameters<typeof convertUrl>
+): Promise<ConvertResult> {
+  const startedAt = Date.now();
+  try {
+    return await convertUrl(...args);
+  } finally {
+    recordConversionLatency(Math.max(0, Date.now() - startedAt));
+  }
+}
+
 // ─── SSE streaming ──────────────────────────────────────────
 
 function sseResponse(
@@ -1211,7 +1306,7 @@ function handleStream(
 
   return sseResponse(async (send, streamSignal) => {
     try {
-      const result = await convertUrl(
+      const result = await convertUrlWithMetrics(
         targetUrl, env, host, "markdown", selector, forceBrowser, noCache,
         async (step, label) => { await send("step", { id: step, label }); },
         streamSignal,
@@ -1364,14 +1459,20 @@ export default {
 
     // Health check
     if (path === "/api/health") {
+      const browserStats = getBrowserCapacityStats();
       return Response.json({
         status: "ok",
         service: host,
         uptime_seconds: Math.max(0, Math.floor((Date.now() - runtimeStartedAt) / 1000)),
         metrics: {
           ...runtimeCounters,
+          operational: buildOperationalMetricsSnapshot(
+            runtimeStartedAt,
+            runtimeCounters,
+            browserStats,
+          ),
         },
-        browser: getBrowserCapacityStats(),
+        browser: browserStats,
         paywall: getPaywallRuleStats(),
       }, { headers: CORS_HEADERS });
     }
@@ -1637,7 +1738,7 @@ export default {
       }
 
       // ── Raw / API calls → synchronous conversion ──
-      const result = await convertUrl(
+      const result = await convertUrlWithMetrics(
         targetUrl, env, host, format, selector, forceBrowser, noCache,
       );
 
@@ -2055,7 +2156,7 @@ async function handleExtract(
 
     try {
       if (!html) {
-        const converted = await convertUrl(
+        const converted = await convertUrlWithMetrics(
           sourceUrl,
           env,
           host,
@@ -2650,7 +2751,7 @@ async function executeDeepCrawl(
       throw new Error("Invalid or blocked URL.");
     }
 
-    const converted = await convertUrl(
+    const converted = await convertUrlWithMetrics(
       url,
       env,
       host,
@@ -2691,12 +2792,15 @@ async function executeDeepCrawl(
 
   const finishedAtMs = Date.now();
   const finishedAtIso = new Date(finishedAtMs).toISOString();
+  const durationMs = Math.max(0, finishedAtMs - startedAtMs);
+  incrementCounter("deepCrawlRuns");
+  recordDeepCrawlRun(durationMs);
   return {
     crawlId: payload.crawlId,
     resumed,
     startedAt: startedAtIso,
     finishedAt: finishedAtIso,
-    durationMs: Math.max(0, finishedAtMs - startedAtMs),
+    durationMs,
     results: crawlResult.results,
     stats: crawlResult.stats,
   };
@@ -3142,6 +3246,7 @@ async function handleRunJob(
   );
 
   const runnableTasks = job.tasks.filter((task) => runnableTaskIds.has(task.id));
+  const runStartedAt = Date.now();
   const results = await runTasksWithControls(
     runnableTasks.map((task) => ({
       id: task.id,
@@ -3169,7 +3274,7 @@ async function handleRunJob(
         const noCache = !!(typeof crawlInput === "object" && crawlInput?.no_cache);
 
         try {
-          const converted = await convertUrl(
+          const converted = await convertUrlWithMetrics(
             targetUrl,
             env,
             host,
@@ -3217,7 +3322,7 @@ async function handleRunJob(
 
       try {
         if (!html) {
-          const converted = await convertUrl(
+          const converted = await convertUrlWithMetrics(
             item.url || "",
             env,
             host,
@@ -3276,6 +3381,15 @@ async function handleRunJob(
     },
   );
 
+  const retriesUsedInRun = results.reduce(
+    (sum, item) => sum + Math.max(0, item.attempts - 1),
+    0,
+  );
+  const runDurationMs = Math.max(0, Date.now() - runStartedAt);
+  incrementCounter("jobRuns");
+  incrementCounter("jobRetryAttempts", retriesUsedInRun);
+  recordJobRun(runDurationMs, retriesUsedInRun, results.length);
+
   const resultById = new Map(results.map((item) => [item.id, item]));
   for (const task of job.tasks) {
     const outcome = resultById.get(task.id);
@@ -3303,6 +3417,8 @@ async function handleRunJob(
     type: job.type,
     executedTasks: results.length,
     failedTasksInRun: failedInRun,
+    retriesUsedInRun,
+    durationMs: runDurationMs,
     status: job.status,
   });
 
@@ -3311,6 +3427,8 @@ async function handleRunJob(
       ...summarizeJob(job),
       executedTasks: results.length,
       failedTasksInRun: failedInRun,
+      retriesUsedInRun,
+      durationMs: runDurationMs,
     },
     { headers: CORS_HEADERS },
   );
@@ -3433,6 +3551,8 @@ async function handleJobs(
     );
   }
 
+  incrementCounter("jobsCreated");
+  recordJobCreated(job.totalTasks);
   logMetric("jobs.created", {
     jobId: job.id,
     type: job.type,
@@ -3637,7 +3757,7 @@ async function handleBatch(
         return { url: item.url, format: item.format, error: "Invalid or blocked URL" };
       }
       try {
-        const result = await convertUrl(
+        const result = await convertUrlWithMetrics(
           item.url,
           env,
           host,
