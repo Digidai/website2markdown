@@ -276,6 +276,43 @@ describe("fetchViaProxy", () => {
     ).rejects.toThrow("Invalid chunked encoding: missing terminating trailer end");
   });
 
+  it("accepts valid chunked trailers", async () => {
+    const responseText =
+      "HTTP/1.1 200 OK\r\n" +
+      "Transfer-Encoding: chunked\r\n" +
+      "Content-Type: text/html\r\n\r\n" +
+      "5\r\nhello\r\n" +
+      "0\r\n" +
+      "X-Test: ok\r\n\r\n";
+    const mock = createSocketFromRawResponse(responseText);
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    const result = await fetchViaProxy(
+      "https://example.com/path",
+      makeProxyConfig(),
+      {},
+      1000,
+    );
+    expect(result.status).toBe(200);
+    expect(result.body).toBe("hello");
+  });
+
+  it("rejects malformed chunked trailer lines", async () => {
+    const responseText =
+      "HTTP/1.1 200 OK\r\n" +
+      "Transfer-Encoding: chunked\r\n" +
+      "Content-Type: text/html\r\n\r\n" +
+      "5\r\nhello\r\n" +
+      "0\r\n" +
+      "bad-trailer\r\n\r\n";
+    const mock = createSocketFromRawResponse(responseText);
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    await expect(
+      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+    ).rejects.toThrow("Invalid chunked encoding: malformed trailer line");
+  });
+
   it("closes socket resources on malformed proxy response", async () => {
     const malformed = new TextEncoder().encode("HTTP/1.1 200 OK\r\n");
     let sent = false;

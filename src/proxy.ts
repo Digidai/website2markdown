@@ -38,6 +38,7 @@ export interface ProxyPoolOptions {
 
 const PROXY_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 const HEADER_SEPARATOR_BYTES = new Uint8Array([13, 10, 13, 10]); // \r\n\r\n
+const CRLF_BYTES = new Uint8Array([13, 10]); // \r\n
 const HEADER_NAME_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 function assertValidProxyHeader(name: string, value: string): void {
@@ -371,7 +372,7 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
   let sawTerminator = false;
 
   while (pos < raw.length) {
-    const lineEnd = indexOfBytes(raw, new Uint8Array([13, 10]), pos); // \r\n
+    const lineEnd = indexOfBytes(raw, CRLF_BYTES, pos); // \r\n
     if (lineEnd < 0) {
       throw new Error("Invalid chunked encoding: missing chunk size line terminator");
     }
@@ -382,16 +383,23 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
     }
     const size = parseInt(sizeToken, 16);
     if (size === 0) {
-      const trailerEnd = lineEnd + 2;
-      if (
-        trailerEnd + 1 >= raw.length ||
-        raw[trailerEnd] !== 13 ||
-        raw[trailerEnd + 1] !== 10
-      ) {
-        throw new Error("Invalid chunked encoding: missing terminating trailer end");
-      }
-      if (trailerEnd + 2 !== raw.length) {
-        throw new Error("Invalid chunked encoding: unexpected bytes after terminating chunk");
+      let trailerPos = lineEnd + 2;
+      while (true) {
+        const trailerLineEnd = indexOfBytes(raw, CRLF_BYTES, trailerPos);
+        if (trailerLineEnd < 0) {
+          throw new Error("Invalid chunked encoding: missing terminating trailer end");
+        }
+        if (trailerLineEnd === trailerPos) {
+          if (trailerLineEnd + 2 !== raw.length) {
+            throw new Error("Invalid chunked encoding: unexpected bytes after terminating chunk");
+          }
+          break;
+        }
+        const trailerLine = lineDecoder.decode(raw.subarray(trailerPos, trailerLineEnd));
+        if (!trailerLine.includes(":")) {
+          throw new Error("Invalid chunked encoding: malformed trailer line");
+        }
+        trailerPos = trailerLineEnd + 2;
       }
       sawTerminator = true;
       break;
