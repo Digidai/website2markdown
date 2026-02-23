@@ -64,6 +64,25 @@ export interface JobValidationError {
 export const JOB_KV_PREFIX = "jobs:v1";
 export const JOB_IDEMPOTENCY_PREFIX = "jobs:idempotency:v1";
 export const MAX_JOB_TASKS = 100;
+const CRAWL_TASK_ALLOWED_KEYS = new Set([
+  "url",
+  "format",
+  "selector",
+  "force_browser",
+  "no_cache",
+]);
+const EXTRACT_TASK_ALLOWED_KEYS = new Set([
+  "strategy",
+  "schema",
+  "options",
+  "url",
+  "html",
+  "input",
+  "selector",
+  "force_browser",
+  "no_cache",
+  "include_markdown",
+]);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -181,6 +200,17 @@ export function validateJobCreatePayload(input: unknown): {
       };
     }
     if (type === "crawl") {
+      for (const key of Object.keys(task)) {
+        if (!CRAWL_TASK_ALLOWED_KEYS.has(key)) {
+          return {
+            error: {
+              code: "INVALID_REQUEST",
+              message: `crawl task contains unsupported field: ${key}.`,
+              details: { index: i, field: key },
+            },
+          };
+        }
+      }
       if (task.url.trim().length === 0) {
         return {
           error: {
@@ -241,6 +271,17 @@ export function validateJobCreatePayload(input: unknown): {
       }
     }
     if (type === "extract") {
+      for (const key of Object.keys(task)) {
+        if (!EXTRACT_TASK_ALLOWED_KEYS.has(key)) {
+          return {
+            error: {
+              code: "INVALID_REQUEST",
+              message: `extract task contains unsupported field: ${key}.`,
+              details: { index: i, field: key },
+            },
+          };
+        }
+      }
       if (typeof task.strategy !== "string") {
         return {
           error: {

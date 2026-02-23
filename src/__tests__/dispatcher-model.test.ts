@@ -77,6 +77,24 @@ describe("dispatcher model", () => {
     expect(parsed.payload?.tasks.length).toBe(1);
   });
 
+  it("rejects unsupported fields for extract tasks", () => {
+    const parsed = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          url: "https://example.com/article",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+          timeout_ms: 3000,
+        },
+      ],
+    });
+
+    expect(parsed.payload).toBeUndefined();
+    expect(parsed.error?.code).toBe("INVALID_REQUEST");
+    expect(parsed.error?.message).toContain("unsupported field");
+  });
+
   it("returns validation error for invalid crawl task options", () => {
     const badFormat = validateJobCreatePayload({
       type: "crawl",
@@ -105,6 +123,13 @@ describe("dispatcher model", () => {
     });
     expect(blankUrl.error?.code).toBe("INVALID_REQUEST");
     expect(blankUrl.error?.message).toContain("url must be a non-empty");
+
+    const unsupportedField = validateJobCreatePayload({
+      type: "crawl",
+      tasks: [{ url: "https://example.com/a", timeout_ms: 5000 }],
+    });
+    expect(unsupportedField.error?.code).toBe("INVALID_REQUEST");
+    expect(unsupportedField.error?.message).toContain("unsupported field");
   });
 
   it("builds a queued job record", () => {
