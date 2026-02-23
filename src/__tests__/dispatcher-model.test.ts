@@ -265,6 +265,15 @@ describe("dispatcher model", () => {
     expect(job.tasks[0].url).toBe("https://example.com");
   });
 
+  it("normalizes stored task urls by trimming whitespace", () => {
+    const parsed = validateJobCreatePayload({
+      type: "crawl",
+      tasks: ["  https://example.com/path  "],
+    });
+    const job = buildJobRecord(parsed.payload!);
+    expect(job.tasks[0].url).toBe("https://example.com/path");
+  });
+
   it("builds stable key formats", () => {
     expect(jobStorageKey("abc")).toBe("jobs:v1:abc");
     expect(jobIdempotencyKey("idem")).toBe("jobs:idempotency:v1:idem");

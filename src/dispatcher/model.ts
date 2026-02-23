@@ -104,10 +104,15 @@ function normalizeMaxRetries(maxRetries: unknown): number {
 }
 
 function normalizeTaskUrl(task: CrawlTaskInput | ExtractTaskInput): string | undefined {
-  if (typeof task === "string") return task;
+  if (typeof task === "string") {
+    const normalized = task.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
   if (!isObject(task)) return undefined;
   const maybeUrl = task.url;
-  return typeof maybeUrl === "string" ? maybeUrl : undefined;
+  if (typeof maybeUrl !== "string") return undefined;
+  const normalized = maybeUrl.trim();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 export function jobStorageKey(jobId: string): string {
