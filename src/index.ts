@@ -23,6 +23,7 @@ import {
   RATE_LIMIT_CONVERT_PER_WINDOW,
   RATE_LIMIT_STREAM_PER_WINDOW,
   RATE_LIMIT_BATCH_PER_WINDOW,
+  RATE_LIMIT_DEGRADED_FACTOR,
 } from "./config";
 import {
   isSafeUrl,
@@ -284,10 +285,26 @@ async function consumeRateLimit(
   if (!ip) return null;
 
   const nowMs = Date.now();
-  const limit = limitForRoute(route);
+  const baseLimit = limitForRoute(route);
   const localCount = consumeLocalRateCounter(route, ip, nowMs);
   const distributedCount = await consumeDistributedRateCounter(env, route, ip, nowMs);
-  const count = distributedCount ? Math.max(localCount, distributedCount) : localCount;
+  const distributedUnavailable = distributedCount === null;
+  const limit = distributedUnavailable
+    ? Math.max(1, Math.floor(baseLimit * RATE_LIMIT_DEGRADED_FACTOR))
+    : baseLimit;
+  const count = distributedUnavailable
+    ? localCount
+    : Math.max(localCount, distributedCount);
+
+  if (distributedUnavailable) {
+    logMetric("rate_limit.degraded_mode", {
+      route,
+      ip,
+      local_count: localCount,
+      limit,
+      base_limit: baseLimit,
+    });
+  }
 
   const windowMs = RATE_LIMIT_WINDOW_SECONDS * 1000;
   const retryAfterSeconds = Math.max(
@@ -1459,7 +1476,47 @@ export default {
 
     // Health check
     if (path === "/api/health") {
-      const browserStats = getBrowserCapacityStats();
+      let browserStats: {
+        active: number;
+        queued: number;
+        maxConcurrent: number;
+        maxQueueLength: number;
+        queueTimeoutMs: number;
+      } = {
+        active: 0,
+        queued: 0,
+        maxConcurrent: 0,
+        maxQueueLength: 0,
+        queueTimeoutMs: 0,
+      };
+      try {
+        browserStats = getBrowserCapacityStats();
+      } catch (error) {
+        console.error("health.browser_stats_unavailable", {
+          error: errorMessage(error),
+        });
+      }
+
+      let paywallStats: {
+        source: string;
+        ruleCount?: number;
+        domainCount?: number;
+        updatedAt?: string;
+        error?: string;
+      } = {
+        source: "unknown",
+      };
+      try {
+        paywallStats = getPaywallRuleStats();
+      } catch (error) {
+        paywallStats = {
+          source: "unavailable",
+          error: errorMessage(error),
+        };
+        console.error("health.paywall_stats_unavailable", {
+          error: errorMessage(error),
+        });
+      }
       return Response.json({
         status: "ok",
         service: host,
@@ -1473,7 +1530,7 @@ export default {
           ),
         },
         browser: browserStats,
-        paywall: getPaywallRuleStats(),
+        paywall: paywallStats,
       }, { headers: CORS_HEADERS });
     }
 
@@ -3765,6 +3822,8 @@ async function handleBatch(
           item.selector,
           item.forceBrowser,
           item.noCache,
+          undefined,
+          request.signal,
         );
         incrementCounter("conversionsTotal");
         if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");
