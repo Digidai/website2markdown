@@ -2617,6 +2617,30 @@ function parseStringList(value: unknown, field: string, maxItems: number): strin
   return output;
 }
 
+function normalizeDomainList(values: string[], field: string): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const item of values) {
+    let hostname = "";
+    try {
+      const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(item)
+        ? item
+        : `https://${item}`;
+      hostname = new URL(withScheme).hostname.trim().toLowerCase().replace(/\.+$/, "");
+    } catch {
+      throw new DeepCrawlRequestError(`${field} contains invalid domain: ${item}`);
+    }
+    if (!hostname || hostname.includes(" ")) {
+      throw new DeepCrawlRequestError(`${field} contains invalid domain: ${item}`);
+    }
+    if (!seen.has(hostname)) {
+      seen.add(hostname);
+      normalized.push(hostname);
+    }
+  }
+  return normalized;
+}
+
 function normalizeDeepCrawlPayload(input: unknown): DeepCrawlNormalizedPayload {
   if (!input || typeof input !== "object") {
     throw new DeepCrawlRequestError("Request body must be a JSON object.");
@@ -2670,16 +2694,16 @@ function normalizeDeepCrawlPayload(input: unknown): DeepCrawlNormalizedPayload {
     "filters.url_patterns",
     MAX_DEEPCRAWL_LIST_ITEMS,
   );
-  const allowDomains = parseStringList(
+  const allowDomains = normalizeDomainList(parseStringList(
     filters.allow_domains,
     "filters.allow_domains",
     MAX_DEEPCRAWL_LIST_ITEMS,
-  );
-  const blockDomains = parseStringList(
+  ), "filters.allow_domains");
+  const blockDomains = normalizeDomainList(parseStringList(
     filters.block_domains,
     "filters.block_domains",
     MAX_DEEPCRAWL_LIST_ITEMS,
-  );
+  ), "filters.block_domains");
   const contentTypes = parseStringList(
     filters.content_types,
     "filters.content_types",

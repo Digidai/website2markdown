@@ -273,4 +273,22 @@ describe("POST /api/deepcrawl", () => {
     expect(payload.message).toContain("checkpoint.crawl_id");
     expect(payload.message).toContain("unsupported characters");
   });
+
+  it("returns 400 for invalid allow_domains entries", async () => {
+    const { env } = setupInMemoryKv();
+    const req = deepcrawlRequest({
+      seed,
+      filters: {
+        allow_domains: ["bad domain value"],
+      },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("filters.allow_domains");
+    expect(payload.message).toContain("invalid domain");
+  });
 });
