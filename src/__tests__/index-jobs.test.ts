@@ -176,6 +176,22 @@ describe("POST /api/jobs", () => {
     expect(payload.message).toContain("unsupported characters");
   });
 
+  it("rejects empty Idempotency-Key values", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = jobsRequest(
+      { type: "crawl", tasks: ["https://example.com"] },
+      "token",
+      { "Idempotency-Key": "   " },
+    );
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("cannot be empty");
+  });
+
   it("runs queued crawl tasks via /api/jobs/:id/run", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("# job run success", {

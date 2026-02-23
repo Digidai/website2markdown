@@ -3752,6 +3752,15 @@ async function handleJobs(
   }
 
   const idempotencyHeader = request.headers.get("Idempotency-Key");
+  if (idempotencyHeader !== null && !idempotencyHeader.trim()) {
+    return Response.json(
+      {
+        error: "Invalid request",
+        message: "Idempotency-Key cannot be empty.",
+      },
+      { status: 400, headers: CORS_HEADERS },
+    );
+  }
   const idempotencyKey = idempotencyHeader?.trim() || undefined;
   if (idempotencyKey) {
     if (idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
