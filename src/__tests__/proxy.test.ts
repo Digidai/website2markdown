@@ -85,6 +85,11 @@ describe("parseProxyUrl", () => {
     expect(parseProxyUrl("alice:secret@proxy.example.com:not-a-port")).toBeNull();
   });
 
+  it("rejects empty proxy credentials", () => {
+    expect(parseProxyUrl(":secret@proxy.example.com:8080")).toBeNull();
+    expect(parseProxyUrl("alice:@proxy.example.com:8080")).toBeNull();
+  });
+
   it("parses bracketed IPv6 proxy hosts", () => {
     const parsed = parseProxyUrl("alice:secret@[2001:db8::1]:8080");
     expect(parsed).toEqual({
