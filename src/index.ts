@@ -119,6 +119,7 @@ const MAX_EXTRACT_BATCH_ITEMS = 10;
 const MAX_DEEPCRAWL_DEPTH = 6;
 const MAX_DEEPCRAWL_PAGES = 200;
 const MAX_DEEPCRAWL_LIST_ITEMS = 100;
+const MAX_DEEPCRAWL_LIST_ITEM_LENGTH = 512;
 const MAX_DEEPCRAWL_KEYWORDS = 32;
 const DEEPCRAWL_DEFAULT_CHECKPOINT_EVERY = 5;
 const DEEPCRAWL_DEFAULT_CHECKPOINT_TTL_SECONDS = 86_400 * 7;
@@ -2488,12 +2489,25 @@ function parseStringList(value: unknown, field: string, maxItems: number): strin
   if (value.length > maxItems) {
     throw new DeepCrawlRequestError(`${field} supports at most ${maxItems} items.`);
   }
-  const output = value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (output.length !== value.length) {
-    throw new DeepCrawlRequestError(`${field} must only contain strings.`);
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i];
+    if (typeof item !== "string") {
+      throw new DeepCrawlRequestError(`${field} must only contain strings.`);
+    }
+    const normalized = item.trim();
+    if (!normalized) {
+      throw new DeepCrawlRequestError(`${field} must only contain non-empty strings.`);
+    }
+    if (normalized.length > MAX_DEEPCRAWL_LIST_ITEM_LENGTH) {
+      throw new DeepCrawlRequestError(
+        `${field} items must be at most ${MAX_DEEPCRAWL_LIST_ITEM_LENGTH} characters.`,
+      );
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
   }
   return output;
 }

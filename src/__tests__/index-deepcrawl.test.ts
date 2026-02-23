@@ -237,4 +237,22 @@ describe("POST /api/deepcrawl", () => {
     expect(payload.error).toBe("Invalid request");
     expect(payload.message).toContain("max_depth must be an integer");
   });
+
+  it("returns 400 for oversized filter list entries", async () => {
+    const { env } = setupInMemoryKv();
+    const req = deepcrawlRequest({
+      seed,
+      filters: {
+        allow_domains: [`${"a".repeat(513)}.example.com`],
+      },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("allow_domains");
+    expect(payload.message).toContain("at most 512 characters");
+  });
 });
