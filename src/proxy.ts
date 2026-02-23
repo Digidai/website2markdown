@@ -51,6 +51,13 @@ function assertValidProxyHeader(name: string, value: string): void {
   }
 }
 
+function isLatin1(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    if (value.charCodeAt(i) > 0xff) return false;
+  }
+  return true;
+}
+
 async function readWithTimeout<T>(
   task: Promise<T>,
   timeoutMs: number,
@@ -99,6 +106,7 @@ export function parseProxyUrl(raw: string): ProxyConfig | null {
     const password = auth.slice(colonIdx + 1);
     if (!username || !password) return null;
     if (/\s/.test(username) || /\s/.test(password)) return null;
+    if (!isLatin1(username) || !isLatin1(password)) return null;
     let host = "";
     let portStr = "";
     if (hostPort.startsWith("[")) {

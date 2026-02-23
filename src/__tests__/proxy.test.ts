@@ -98,6 +98,11 @@ describe("parseProxyUrl", () => {
     expect(parseProxyUrl("alice:secret@proxy .example.com:8080")).toBeNull();
   });
 
+  it("rejects non-Latin1 proxy credentials", () => {
+    expect(parseProxyUrl("用户:secret@proxy.example.com:8080")).toBeNull();
+    expect(parseProxyUrl("alice:密码@proxy.example.com:8080")).toBeNull();
+  });
+
   it("parses bracketed IPv6 proxy hosts", () => {
     const parsed = parseProxyUrl("alice:secret@[2001:db8::1]:8080");
     expect(parsed).toEqual({
