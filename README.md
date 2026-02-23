@@ -503,6 +503,16 @@ npm install
 npm run dev           # Local dev at http://localhost:8787
 npm test              # Run unit tests
 npm run test:watch    # Watch mode
+npm run smoke:api     # API smoke checks (requires BASE_URL + API_TOKEN env vars)
+```
+
+Smoke example:
+
+```bash
+BASE_URL="https://md.genedai.me" \
+API_TOKEN="<api-token>" \
+TARGET_URL="https://example.com" \
+npm run smoke:api
 ```
 
 ## License
