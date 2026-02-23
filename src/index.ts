@@ -70,6 +70,11 @@ import {
   getAdapter,
   getBrowserCapacityStats,
 } from "./browser";
+import {
+  consumeProxyRetryCookies,
+  extractLegacyProxyRetryCookies,
+  extractProxyRetryToken,
+} from "./browser/proxy-retry";
 import { getCached, setCache, getImage } from "./cache";
 import {
   parseProxyUrl,
@@ -732,10 +737,12 @@ async function convertUrl(
     } catch (error) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
       const msg = error instanceof Error ? error.message : "";
+      const retryToken = extractProxyRetryToken(msg);
+      const legacyCookies = extractLegacyProxyRetryCookies(msg);
 
       // Hybrid proxy path: browser solved JS challenge but datacenter IP
       // was blocked. Retry the fetch through ISP proxy with browser cookies.
-      if (msg.startsWith("PROXY_RETRY:") || msg.includes("PROXY_RETRY:")) {
+      if (retryToken || legacyCookies) {
         const pooledConfigs = env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
         const fallbackProxy = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
         if (pooledConfigs.length === 0 && fallbackProxy) {
@@ -748,9 +755,16 @@ async function convertUrl(
             502,
           );
         }
-        // Extract cookies from the error message
-        const cookieStart = msg.indexOf("PROXY_RETRY:") + "PROXY_RETRY:".length;
-        const cookies = msg.slice(cookieStart).replace(/^(Browser rendering failed: )+/, "");
+        const cookies = retryToken
+          ? consumeProxyRetryCookies(retryToken)
+          : legacyCookies;
+        if (!cookies) {
+          throw new ConvertError(
+            "Fetch Failed",
+            "Proxy retry cookies are unavailable. Please retry the request.",
+            502,
+          );
+        }
 
         throwIfAborted(abortSignal);
         await progress("fetch", "Retrying via proxy");

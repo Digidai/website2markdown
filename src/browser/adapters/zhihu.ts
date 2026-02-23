@@ -1,5 +1,6 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { applyStealthAndDesktop } from "../stealth";
+import { createProxyRetrySignal } from "../proxy-retry";
 
 /** Max time to wait for ZSE challenge to complete (ms). */
 const ZHIHU_CHALLENGE_TIMEOUT = 15_000;
@@ -38,10 +39,10 @@ export const zhihuAdapter: SiteAdapter = {
         try { cookies = await page.cookies(); } catch {}
 
         if (cookies.length > 0) {
-          const cookieStr = cookies
-            .map((c: { name: string; value: string }) => `${c.name}=${c.value}`)
-            .join("; ");
-          throw new Error(`PROXY_RETRY:${cookieStr}`);
+          const retrySignal = createProxyRetrySignal(cookies);
+          if (retrySignal) {
+            throw new Error(retrySignal);
+          }
         }
 
         throw new Error(

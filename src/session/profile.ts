@@ -264,17 +264,15 @@ export async function applySessionProfileToPage(
   }
 
   if (hasLocalStorage && typeof page.evaluateOnNewDocument === "function") {
-    const serialized = JSON.stringify(profile.localStorage);
-    await page.evaluateOnNewDocument(`
-      (() => {
-        try {
-          const data = ${serialized};
-          for (const key of Object.keys(data)) {
-            window.localStorage.setItem(key, String(data[key]));
-          }
-        } catch {}
-      })();
-    `);
+    await page.evaluateOnNewDocument((data: Record<string, string>) => {
+      try {
+        const targetStorage = (globalThis as { localStorage?: Storage }).localStorage;
+        if (!targetStorage) return;
+        for (const key of Object.keys(data)) {
+          targetStorage.setItem(key, String(data[key]));
+        }
+      } catch {}
+    }, profile.localStorage);
   }
 
   return true;

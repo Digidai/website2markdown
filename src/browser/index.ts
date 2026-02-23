@@ -26,6 +26,7 @@ import {
   markSessionProfileFailure,
   saveSessionProfileSnapshot,
 } from "../session/profile";
+import { redactLegacyProxyRetryMessage } from "./proxy-retry";
 
 // Adapter registry for non-Feishu sites
 import { wechatAdapter } from "./adapters/wechat";
@@ -846,7 +847,7 @@ async function fetchWithBrowserFeishu(
     await persistSessionProfileAfterRender(env, page, url, html, profileApplied);
     return html;
   } catch (error) {
-    throw new Error(`Browser rendering failed: ${errorMessage(error)}`);
+    throw new Error(`Browser rendering failed: ${redactLegacyProxyRetryMessage(errorMessage(error))}`);
   } finally {
     await closeBrowserSafely(browser);
   }

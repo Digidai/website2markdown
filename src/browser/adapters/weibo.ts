@@ -1,5 +1,6 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { applyStealthAndDesktop } from "../stealth";
+import { createProxyRetrySignal } from "../proxy-retry";
 
 const CONTENT_SELECTOR = '.Feed_body, [class*="wbpro-feed"], [class*="detail_wbtext"], .card-feed';
 
@@ -34,10 +35,10 @@ export const weiboAdapter: SiteAdapter = {
       try { cookies = await page.cookies(); } catch {}
 
       if (cookies.length > 0) {
-        const cookieStr = cookies
-          .map((c: { name: string; value: string }) => `${c.name}=${c.value}`)
-          .join("; ");
-        throw new Error(`PROXY_RETRY:${cookieStr}`);
+        const retrySignal = createProxyRetrySignal(cookies);
+        if (retrySignal) {
+          throw new Error(retrySignal);
+        }
       }
       throw new Error("Weibo redirected to login page.");
     }
@@ -61,10 +62,10 @@ export const weiboAdapter: SiteAdapter = {
       try { cookies = await page.cookies(); } catch {}
 
       if (cookies.length > 0) {
-        const cookieStr = cookies
-          .map((c: { name: string; value: string }) => `${c.name}=${c.value}`)
-          .join("; ");
-        throw new Error(`PROXY_RETRY:${cookieStr}`);
+        const retrySignal = createProxyRetrySignal(cookies);
+        if (retrySignal) {
+          throw new Error(retrySignal);
+        }
       }
       throw new Error("Weibo requires login verification.");
     }
@@ -78,10 +79,10 @@ export const weiboAdapter: SiteAdapter = {
       try { cookies = await page.cookies(); } catch {}
 
       if (cookies.length > 0) {
-        const cookieStr = cookies
-          .map((c: { name: string; value: string }) => `${c.name}=${c.value}`)
-          .join("; ");
-        throw new Error(`PROXY_RETRY:${cookieStr}`);
+        const retrySignal = createProxyRetrySignal(cookies);
+        if (retrySignal) {
+          throw new Error(retrySignal);
+        }
       }
       throw new Error("Weibo page did not load content within timeout.");
     }

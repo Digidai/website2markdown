@@ -1,5 +1,6 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { applyStealthAndDesktop } from "../stealth";
+import { createProxyRetrySignal } from "../proxy-retry";
 
 const CONTENT_SELECTOR = ".article_content, #article_content, .blog-content-box, #content_views";
 
@@ -36,10 +37,10 @@ export const csdnAdapter: SiteAdapter = {
       try { cookies = await page.cookies(); } catch {}
 
       if (cookies.length > 0) {
-        const cookieStr = cookies
-          .map((c: { name: string; value: string }) => `${c.name}=${c.value}`)
-          .join("; ");
-        throw new Error(`PROXY_RETRY:${cookieStr}`);
+        const retrySignal = createProxyRetrySignal(cookies);
+        if (retrySignal) {
+          throw new Error(retrySignal);
+        }
       }
       throw new Error("CSDN page did not load article content within timeout.");
     }

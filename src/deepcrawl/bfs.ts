@@ -208,6 +208,48 @@ function buildSnapshot(
   };
 }
 
+const BFS_QUEUE_COMPACT_MIN_HEAD = 1024;
+
+function maybeCompactBfsQueue(
+  queue: DeepCrawlQueueItem[],
+  head: number,
+): { queue: DeepCrawlQueueItem[]; head: number } {
+  if (head < BFS_QUEUE_COMPACT_MIN_HEAD || head * 2 <= queue.length) {
+    return { queue, head };
+  }
+  return {
+    queue: queue.slice(head),
+    head: 0,
+  };
+}
+
+function compareBestFirstPriorityLowToHigh(
+  a: DeepCrawlQueueItem,
+  b: DeepCrawlQueueItem,
+): number {
+  return a.score - b.score ||
+    b.depth - a.depth ||
+    b.url.localeCompare(a.url);
+}
+
+function insertBestFirstFrontier(
+  frontier: DeepCrawlQueueItem[],
+  item: DeepCrawlQueueItem,
+): void {
+  let low = 0;
+  let high = frontier.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    const cmp = compareBestFirstPriorityLowToHigh(item, frontier[mid]);
+    if (cmp > 0) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  frontier.splice(low, 0, item);
+}
+
 function normalizeInitialQueue(
   frontier: DeepCrawlQueueItem[] | undefined,
   maxDepth: number,
@@ -328,6 +370,17 @@ async function maybeEmitCheckpoint(
   );
 }
 
+function bfsFrontierForCheckpoint(
+  options: DeepCrawlOptions,
+  queue: DeepCrawlQueueItem[],
+  queueHead: number,
+): DeepCrawlQueueItem[] {
+  if (!options.onCheckpoint || queueHead === 0) {
+    return queue;
+  }
+  return queue.slice(queueHead);
+}
+
 export async function runBfsDeepCrawl(
   seedUrl: string,
   fetchPage: DeepCrawlPageFetcher,
@@ -350,15 +403,17 @@ export async function runBfsDeepCrawl(
     maxPages,
     options.initialState,
   );
-  const queue: DeepCrawlQueueItem[] = initialized.frontier;
+  let queue: DeepCrawlQueueItem[] = initialized.frontier;
+  let queueHead = 0;
   const visited = initialized.visited;
   const results: DeepCrawlNode[] = initialized.results;
   let enqueued = initialized.enqueuedPages;
   let processedSinceStart = 0;
 
-  while (queue.length > 0 && results.length < maxPages) {
+  while (queueHead < queue.length && results.length < maxPages) {
     throwIfAborted(options.signal);
-    const current = queue.shift()!;
+    const current = queue[queueHead]!;
+    queueHead += 1;
 
     let node: DeepCrawlNode;
     try {
@@ -395,7 +450,7 @@ export async function runBfsDeepCrawl(
         }
         await maybeEmitCheckpoint(
           options,
-          queue,
+          bfsFrontierForCheckpoint(options, queue, queueHead),
           visited,
           results,
           enqueued,
@@ -474,18 +529,22 @@ export async function runBfsDeepCrawl(
     }
     await maybeEmitCheckpoint(
       options,
-      queue,
+      bfsFrontierForCheckpoint(options, queue, queueHead),
       visited,
       results,
       enqueued,
       false,
       processedSinceStart,
     );
+
+    const compacted = maybeCompactBfsQueue(queue, queueHead);
+    queue = compacted.queue;
+    queueHead = compacted.head;
   }
 
   await maybeEmitCheckpoint(
     options,
-    queue,
+    bfsFrontierForCheckpoint(options, queue, queueHead),
     visited,
     results,
     enqueued,
@@ -525,6 +584,7 @@ export async function runBestFirstDeepCrawl(
   if (!options.initialState || options.initialState.results.length === 0) {
     frontier[0].score = Number.POSITIVE_INFINITY;
   }
+  frontier.sort(compareBestFirstPriorityLowToHigh);
   const visited = initialized.visited;
   const results: DeepCrawlNode[] = initialized.results;
   let enqueued = initialized.enqueuedPages;
@@ -532,11 +592,7 @@ export async function runBestFirstDeepCrawl(
 
   while (frontier.length > 0 && results.length < maxPages) {
     throwIfAborted(options.signal);
-    frontier.sort((a, b) =>
-      b.score - a.score ||
-      a.depth - b.depth ||
-      a.url.localeCompare(b.url));
-    const current = frontier.shift()!;
+    const current = frontier.pop()!;
 
     let node: DeepCrawlNode;
     try {
@@ -612,7 +668,7 @@ export async function runBestFirstDeepCrawl(
           if (score < scoreThreshold) continue;
           visited.add(link.url);
           discoveredInPage.add(link.url);
-          frontier.push({
+          insertBestFirstFrontier(frontier, {
             url: link.url,
             parentUrl: current.url,
             depth: current.depth + 1,
