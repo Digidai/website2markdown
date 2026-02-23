@@ -8,6 +8,7 @@ import {
   loadSessionProfile,
   markSessionProfileFailure,
   saveSessionProfileSnapshot,
+  sessionProfileKey,
 } from "../session/profile";
 import { createMockEnv } from "./test-helpers";
 
@@ -112,5 +113,55 @@ describe("session profile", () => {
   it("detects likely session-expired html", () => {
     expect(isLikelySessionExpiredHtml("Please login to continue. Session expired.")).toBe(true);
     expect(isLikelySessionExpiredHtml("<html><body><article>normal content</article></body></html>")).toBe(false);
+  });
+
+  it("normalizes session key host and rejects unsupported URL schemes", () => {
+    expect(sessionProfileKey("https://WWW.Example.com/path")).toBe("session:profile:v1:www.example.com");
+    expect(sessionProfileKey("ftp://example.com/file")).toBeNull();
+    expect(sessionProfileKey("not-a-url")).toBeNull();
+  });
+
+  it("truncates oversized localStorage values when saving profile snapshots", async () => {
+    const { env } = createKvBackedEnv();
+    const profile = await saveSessionProfileSnapshot(env, "https://crawl.example.com/x", {
+      cookies: [],
+      localStorage: {
+        token: "a".repeat(5000),
+      },
+    });
+
+    expect(profile).toBeTruthy();
+    expect(profile?.localStorage.token.length).toBeLessThanOrEqual(4096);
+  });
+
+  it("returns null for disabled profiles until disabled window expires", async () => {
+    const { env, store } = createKvBackedEnv();
+    const key = "session:profile:v1:crawl.example.com";
+    store.set(key, JSON.stringify({
+      version: 1,
+      host: "crawl.example.com",
+      cookies: [{ name: "sid", value: "x" }],
+      localStorage: {},
+      failureCount: 3,
+      disabledUntil: new Date(Date.now() + 60_000).toISOString(),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }));
+
+    const blocked = await loadSessionProfile(env, "https://crawl.example.com/article");
+    expect(blocked).toBeNull();
+
+    store.set(key, JSON.stringify({
+      version: 1,
+      host: "crawl.example.com",
+      cookies: [{ name: "sid", value: "x" }],
+      localStorage: {},
+      failureCount: 0,
+      disabledUntil: new Date(Date.now() - 60_000).toISOString(),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }));
+    const restored = await loadSessionProfile(env, "https://crawl.example.com/article");
+    expect(restored).toBeTruthy();
   });
 });

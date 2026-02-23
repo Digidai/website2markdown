@@ -140,4 +140,32 @@ describe("deepcrawl core", () => {
     expect(urls).toHaveLength(5);
     expect(new Set(urls).size).toBe(5);
   });
+
+  it("filters non-http links, blocks external URLs, and deduplicates discovered links", async () => {
+    const seed = "https://crawl.example.com/root";
+    const fetcher = createGraphFetcher({
+      "https://crawl.example.com/root": `
+        <a href="/same">Same-1</a>
+        <a href="/same#anchor">Same-2</a>
+        <a href="https://external.example.com/out">External</a>
+        <a href="mailto:test@example.com">Mail</a>
+        <a href="javascript:void(0)">JS</a>
+      `,
+      "https://crawl.example.com/same": "<p>leaf</p>",
+    });
+
+    const result = await runBfsDeepCrawl(seed, fetcher, {
+      maxDepth: 2,
+      maxPages: 10,
+      includeExternal: false,
+    });
+
+    expect(result.results.map((item) => item.url)).toEqual([
+      "https://crawl.example.com/root",
+      "https://crawl.example.com/same",
+    ]);
+    expect(result.results[0].linksDiscovered).toBe(1);
+    expect(result.stats.enqueuedPages).toBe(2);
+    expect(result.stats.failedPages).toBe(0);
+  });
 });

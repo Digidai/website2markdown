@@ -14,6 +14,30 @@ afterEach(() => {
 });
 
 describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
+  it("returns 503 for status endpoint when API_TOKEN is missing", async () => {
+    const req = new Request("https://md.example.com/api/jobs/job-1", {
+      headers: { Authorization: "Bearer token" },
+    });
+
+    const res = await worker.fetch(req, createMockEnv().env);
+    const payload = await res.json() as { error?: string };
+
+    expect(res.status).toBe(503);
+    expect(payload.error).toBe("Service misconfigured");
+  });
+
+  it("returns 503 for stream endpoint when API_TOKEN is missing", async () => {
+    const req = new Request("https://md.example.com/api/jobs/job-1/stream", {
+      headers: { Authorization: "Bearer token" },
+    });
+
+    const res = await worker.fetch(req, createMockEnv().env);
+    const payload = await res.json() as { error?: string };
+
+    expect(res.status).toBe(503);
+    expect(payload.error).toBe("Service misconfigured");
+  });
+
   it("returns 401 without valid bearer token", async () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = new Request("https://md.example.com/api/jobs/job-1");
@@ -105,4 +129,3 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
     expect(body).toContain("\"jobId\":\"job-done\"");
   });
 });
-

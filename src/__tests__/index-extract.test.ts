@@ -144,4 +144,115 @@ describe("POST /api/extract", () => {
     expect(payload.code).toBe("UNSUPPORTED_STRATEGY");
     expect(payload.message).toContain("strategy");
   });
+
+  it("returns indexed validation errors for invalid batch items", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = extractRequest({
+      items: [
+        {
+          strategy: "css",
+          html: "<h1>ok</h1>",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+        },
+        {
+          strategy: "regex",
+          html: "",
+          schema: { patterns: { email: ".+" } },
+        },
+      ],
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as {
+      code?: string;
+      details?: { index?: number };
+    };
+
+    expect(res.status).toBe(400);
+    expect(payload.code).toBe("INVALID_REQUEST");
+    expect(payload.details?.index).toBe(1);
+  });
+
+  it("accepts nested input.url format for single extraction", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body><h1>Nested Input</h1></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    ));
+
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = extractRequest({
+      strategy: "css",
+      input: { url: "https://example.com/nested" },
+      schema: { fields: [{ name: "title", selector: "h1", type: "text" }] },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as {
+      success?: boolean;
+      data?: { title?: string };
+      source?: { url?: string };
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.success).toBe(true);
+    expect(payload.data).toBeTruthy();
+    expect(payload.source?.url).toBe("https://example.com/nested");
+  });
+
+  it("rejects empty items array and oversized items batch", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+
+    const emptyReq = extractRequest({ items: [] }, "token");
+    const emptyRes = await worker.fetch(emptyReq, env);
+    const emptyPayload = await emptyRes.json() as { message?: string };
+    expect(emptyRes.status).toBe(400);
+    expect(emptyPayload.message).toContain("cannot be empty");
+
+    const tooManyReq = extractRequest({
+      items: Array.from({ length: 11 }, () => ({
+        strategy: "css",
+        html: "<h1>x</h1>",
+        schema: { fields: [{ name: "title", selector: "h1" }] },
+      })),
+    }, "token");
+    const tooManyRes = await worker.fetch(tooManyReq, env);
+    const tooManyPayload = await tooManyRes.json() as { message?: string };
+    expect(tooManyRes.status).toBe(400);
+    expect(tooManyPayload.message).toContain("Maximum 10 items");
+  });
+
+  it("rejects selector longer than max length", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = extractRequest({
+      strategy: "css",
+      html: "<h1>Hello</h1>",
+      selector: "a".repeat(257),
+      schema: { fields: [{ name: "title", selector: "h1" }] },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { code?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.code).toBe("INVALID_REQUEST");
+    expect(payload.message).toContain("selector is too long");
+  });
+
+  it("rejects oversized extract request body before parsing payload", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = extractRequest({
+      strategy: "css",
+      html: "x".repeat(5 * 1024 * 1024 + 1),
+      schema: { fields: [{ name: "title", selector: "h1" }] },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { code?: string; message?: string };
+
+    expect(res.status).toBe(413);
+    expect(payload.code).toBe("INVALID_REQUEST");
+    expect(payload.message).toContain("Maximum body size");
+  });
 });

@@ -119,6 +119,30 @@ describe("worker endpoints", () => {
     expect(last!.headers.get("Retry-After")).toBeTruthy();
   });
 
+  it("uses stricter degraded limits when distributed KV counter fails", async () => {
+    const { env, mocks } = createMockEnv();
+    mocks.kvGet.mockRejectedValue(new Error("kv unavailable"));
+    mocks.kvPut.mockRejectedValue(new Error("kv unavailable"));
+
+    const ip = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
+    let last: Response | null = null;
+    for (let i = 0; i < 6; i++) {
+      const req = new Request("https://md.example.com/api/batch", {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": ip,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ urls: ["https://example.com/a"] }),
+      });
+      last = await worker.fetch(req, env);
+    }
+
+    expect(last).not.toBeNull();
+    expect(last!.status).toBe(429);
+    expect(last!.headers.get("X-RateLimit-Limit")).toBe("5");
+  });
+
   it("returns 400 for malformed encoded /img URLs", async () => {
     const req = new Request("https://md.example.com/img/%E0%A4%A");
     const res = await worker.fetch(req, createMockEnv().env);

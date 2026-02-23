@@ -207,4 +207,56 @@ describe("POST /api/batch", () => {
     expect(payload.results?.[0].cached).toBe(false);
     expect(payload.results?.[0].error).toBeUndefined();
   });
+
+  it("stops in-flight batch conversion promptly after request abort", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchMock = vi.fn((_url: unknown, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) {
+          reject(new DOMException("Aborted", "AbortError"));
+          return;
+        }
+        signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        }, { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const controller = new AbortController();
+    const req = new Request("https://md.example.com/api/batch", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token",
+      },
+      body: JSON.stringify({
+        urls: [{ url: "https://example.com/abort-case", no_cache: true }],
+      }),
+      signal: controller.signal,
+    });
+
+    const responsePromise = worker.fetch(req, env);
+    setTimeout(() => controller.abort(), 20);
+
+    const race = await Promise.race([
+      responsePromise.then(async (response) => ({
+        settled: true as const,
+        response,
+        payload: await response.json() as {
+          results?: Array<{ error?: string }>;
+        },
+      })),
+      new Promise<{ settled: false }>((resolve) => setTimeout(() => resolve({ settled: false }), 300)),
+    ]);
+
+    expect(race.settled).toBe(true);
+    if (race.settled) {
+      expect(race.response.status).toBe(200);
+      expect(race.payload.results?.[0].error).toBeTruthy();
+      expect(fetchMock).toHaveBeenCalled();
+    }
+  });
 });

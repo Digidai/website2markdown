@@ -191,6 +191,30 @@ describe("fetchViaProxy", () => {
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
 
+  it("enforces 8MB max response size and still closes socket resources", async () => {
+    const body = "x".repeat(8 * 1024 * 1024 + 1);
+    const responseText =
+      "HTTP/1.1 200 OK\r\n" +
+      "Content-Type: text/html\r\n\r\n" +
+      body;
+    const encoded = new TextEncoder().encode(responseText);
+    let sent = false;
+    const mock = createMockSocket(async () => {
+      if (sent) return { done: true };
+      sent = true;
+      return { done: false, value: encoded };
+    });
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    await expect(
+      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1_000),
+    ).rejects.toThrow("Proxy response exceeded 8 MB limit");
+
+    expect(mock.reader.cancel).toHaveBeenCalledTimes(1);
+    expect(mock.writer.close).toHaveBeenCalledTimes(1);
+    expect(mock.socket.close).toHaveBeenCalledTimes(1);
+  });
+
   it("times out stalled reads and still closes socket resources", async () => {
     const mock = createMockSocket(
       async () => await new Promise<ProxyReadResult>(() => {}),
