@@ -227,4 +227,38 @@ describe("deepcrawl core", () => {
     expect(result.results).toHaveLength(1);
     expect(result.results[0].url).toBe(seed);
   });
+
+  it("normalizes parentUrl and anchorText values from checkpoint frontier", async () => {
+    const seed = "https://crawl.example.com/start";
+    const target = "https://crawl.example.com/a";
+    const result = await runBfsDeepCrawl(
+      seed,
+      createGraphFetcher({
+        [target]: "<html><body>a</body></html>",
+      }),
+      {
+        maxDepth: 1,
+        maxPages: 1,
+        initialState: {
+          frontier: [
+            {
+              url: target,
+              parentUrl: "not-a-url",
+              depth: 1,
+              score: 0,
+              anchorText: { bad: true } as unknown as string,
+            },
+          ],
+          visited: [target],
+          results: [],
+          enqueuedPages: 1,
+          completed: false,
+        },
+      },
+    );
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].url).toBe(target);
+    expect(result.results[0].parentUrl).toBeUndefined();
+  });
 });

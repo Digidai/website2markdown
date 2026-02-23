@@ -260,6 +260,12 @@ function normalizeInitialQueue(
   for (const item of frontier) {
     const normalizedUrl = normalizeUrl(item.url);
     if (!normalizedUrl) continue;
+    const parentUrl = typeof item.parentUrl === "string"
+      ? normalizeUrl(item.parentUrl) || undefined
+      : undefined;
+    const anchorText = typeof item.anchorText === "string" && item.anchorText.trim()
+      ? item.anchorText.trim()
+      : undefined;
     const rawDepth = typeof item.depth === "number" && Number.isFinite(item.depth)
       ? item.depth
       : 0;
@@ -267,10 +273,10 @@ function normalizeInitialQueue(
     const score = Number.isFinite(item.score) ? item.score : 0;
     normalized.push({
       url: normalizedUrl,
-      parentUrl: item.parentUrl,
+      ...(parentUrl ? { parentUrl } : {}),
       depth,
       score,
-      ...(item.anchorText ? { anchorText: item.anchorText } : {}),
+      ...(anchorText ? { anchorText } : {}),
     });
   }
   return normalized;
