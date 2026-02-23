@@ -3956,7 +3956,10 @@ function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
   if (item.selector !== undefined && typeof item.selector !== "string") {
     return null;
   }
-  if (item.selector && item.selector.length > MAX_SELECTOR_LENGTH) {
+  const normalizedSelector = typeof item.selector === "string"
+    ? item.selector.trim()
+    : undefined;
+  if (normalizedSelector && normalizedSelector.length > MAX_SELECTOR_LENGTH) {
     return null;
   }
   if (item.force_browser !== undefined && typeof item.force_browser !== "boolean") {
@@ -3968,7 +3971,7 @@ function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
   return {
     url: normalizedUrl,
     format: format as OutputFormat,
-    selector: item.selector,
+    selector: normalizedSelector || undefined,
     forceBrowser: item.force_browser === true,
     noCache: item.no_cache === true,
   };

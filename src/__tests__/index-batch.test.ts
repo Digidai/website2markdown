@@ -197,6 +197,34 @@ describe("POST /api/batch", () => {
     expect(payload.results?.[0].markdown).toBeUndefined();
   });
 
+  it("treats whitespace-only selectors as unset in object batch items", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body><article><h1>Hello</h1></article></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    ));
+
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = batchRequest({
+      urls: [
+        {
+          url: "https://example.com/a",
+          format: "text",
+          selector: "   ",
+        },
+      ],
+    }, "token");
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as {
+      results?: Array<{ error?: string; content?: string }>;
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.results?.[0].error).toBeUndefined();
+    expect(payload.results?.[0].content).toContain("Hello");
+  });
+
   it("returns per-item errors for invalid or blocked URLs", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
