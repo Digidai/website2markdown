@@ -144,6 +144,36 @@ describe("POST /api/jobs", () => {
     expect(payload.idempotent).toBe(true);
   });
 
+  it("falls back to creating a new job when idempotent record is malformed", async () => {
+    const { env, mocks } = createMockEnv({ API_TOKEN: "token" });
+    const idempotency = "idem-malformed";
+    const existingJobId = "job-bad";
+
+    mocks.kvGet.mockImplementation(async (key: string) => {
+      if (key === jobIdempotencyKey(idempotency)) return existingJobId;
+      if (key === jobStorageKey(existingJobId)) return JSON.stringify({ bad: true });
+      return null;
+    });
+
+    const req = jobsRequest(
+      { type: "crawl", tasks: ["https://example.com"] },
+      "token",
+      { "Idempotency-Key": idempotency },
+    );
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as {
+      jobId?: string;
+      idempotent?: boolean;
+      status?: string;
+    };
+
+    expect(res.status).toBe(202);
+    expect(payload.idempotent).toBe(false);
+    expect(payload.status).toBe("queued");
+    expect(payload.jobId).toBeTruthy();
+    expect(payload.jobId).not.toBe(existingJobId);
+  });
+
   it("rejects overly long Idempotency-Key values", async () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = jobsRequest(

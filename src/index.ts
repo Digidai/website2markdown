@@ -3802,26 +3802,30 @@ async function handleJobs(
       if (existingJobId) {
         const existingRaw = await env.CACHE_KV.get(jobStorageKey(existingJobId), "text");
         if (existingRaw) {
-          const existing = JSON.parse(existingRaw) as {
-            id: string;
-            type: string;
-            status: string;
-            totalTasks: number;
-            createdAt: string;
-            updatedAt: string;
-          };
-          return Response.json(
-            {
-              jobId: existing.id,
-              type: existing.type,
-              status: existing.status,
-              totalTasks: existing.totalTasks,
-              createdAt: existing.createdAt,
-              updatedAt: existing.updatedAt,
-              idempotent: true,
-            },
-            { status: 200, headers: CORS_HEADERS },
-          );
+          const parsed = JSON.parse(existingRaw) as Record<string, unknown>;
+          const hasShape =
+            parsed &&
+            typeof parsed.id === "string" &&
+            typeof parsed.type === "string" &&
+            typeof parsed.status === "string" &&
+            typeof parsed.totalTasks === "number" &&
+            Number.isFinite(parsed.totalTasks) &&
+            typeof parsed.createdAt === "string" &&
+            typeof parsed.updatedAt === "string";
+          if (hasShape) {
+            return Response.json(
+              {
+                jobId: parsed.id,
+                type: parsed.type,
+                status: parsed.status,
+                totalTasks: parsed.totalTasks,
+                createdAt: parsed.createdAt,
+                updatedAt: parsed.updatedAt,
+                idempotent: true,
+              },
+              { status: 200, headers: CORS_HEADERS },
+            );
+          }
         }
       }
     } catch {
