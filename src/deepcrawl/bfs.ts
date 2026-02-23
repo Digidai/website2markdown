@@ -125,7 +125,7 @@ function extractLinksFromHtml(html: string, baseUrl: string): ExtractedLink[] {
   } catch {
     return [];
   }
-  const anchors = Array.from(document.querySelectorAll?.("a[href]") || []);
+  const anchors: any[] = Array.from(document.querySelectorAll?.("a[href]") || []);
   const links: ExtractedLink[] = [];
   for (const anchor of anchors) {
     const href = anchor?.getAttribute?.("href");

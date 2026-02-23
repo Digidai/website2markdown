@@ -219,7 +219,7 @@ function countMatches(value: unknown): number {
   if (Array.isArray(value)) return value.reduce((acc, v) => acc + countMatches(v), 0);
   if (typeof value === "object") {
     return Object.values(value as Record<string, unknown>)
-      .reduce((acc, v) => acc + countMatches(v), 0);
+      .reduce<number>((acc, v) => acc + countMatches(v), 0);
   }
   return 1;
 }
