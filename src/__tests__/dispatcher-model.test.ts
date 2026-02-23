@@ -24,6 +24,17 @@ describe("dispatcher model", () => {
     expect(parsed.payload?.tasks.length).toBe(2);
   });
 
+  it("rejects blank crawl string task entries", () => {
+    const parsed = validateJobCreatePayload({
+      type: "crawl",
+      tasks: ["   "],
+    });
+
+    expect(parsed.payload).toBeUndefined();
+    expect(parsed.error?.code).toBe("INVALID_REQUEST");
+    expect(parsed.error?.message).toContain("string entries must be non-empty");
+  });
+
   it("returns validation error for invalid extract payload", () => {
     const parsed = validateJobCreatePayload({
       type: "extract",

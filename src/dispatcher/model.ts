@@ -180,6 +180,15 @@ export function validateJobCreatePayload(input: unknown): {
           },
         };
       }
+      if (task.trim().length === 0) {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "crawl task string entries must be non-empty URLs.",
+            details: { index: i },
+          },
+        };
+      }
       continue;
     }
     if (!isObject(task)) {
