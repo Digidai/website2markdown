@@ -121,6 +121,7 @@ const MAX_DEEPCRAWL_PAGES = 200;
 const MAX_DEEPCRAWL_LIST_ITEMS = 100;
 const MAX_DEEPCRAWL_LIST_ITEM_LENGTH = 512;
 const MAX_DEEPCRAWL_KEYWORDS = 32;
+const CRAWL_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const DEEPCRAWL_DEFAULT_CHECKPOINT_EVERY = 5;
 const DEEPCRAWL_DEFAULT_CHECKPOINT_TTL_SECONDS = 86_400 * 7;
 const DEEPCRAWL_CHECKPOINT_KEY_PREFIX = "deepcrawl:v1:";
@@ -2749,6 +2750,11 @@ function normalizeDeepCrawlPayload(input: unknown): DeepCrawlNormalizedPayload {
     : "";
   if (providedCrawlId && providedCrawlId.length > 128) {
     throw new DeepCrawlRequestError("checkpoint.crawl_id is too long (max 128 characters).");
+  }
+  if (providedCrawlId && !CRAWL_ID_PATTERN.test(providedCrawlId)) {
+    throw new DeepCrawlRequestError(
+      "checkpoint.crawl_id contains unsupported characters.",
+    );
   }
   if (resume && !providedCrawlId) {
     throw new DeepCrawlRequestError(
