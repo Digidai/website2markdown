@@ -190,7 +190,9 @@ const runtimeCounters: RuntimeCounters = {
   deepCrawlRuns: 0,
 };
 const localRateCounters = new Map<string, { count: number; expiresAt: number }>();
+const degradedRateLimitLogs = new Map<string, number>();
 const PAYWALL_RULES_REFRESH_MS = 60_000;
+const RATE_LIMIT_DEGRADED_LOG_THROTTLE_MS = 60_000;
 let lastPaywallRulesSyncAt = 0;
 let lastPaywallRulesSource = "default";
 let lastPaywallRulesRaw = "";
@@ -259,6 +261,25 @@ function consumeLocalRateCounter(
   return nextCount;
 }
 
+function shouldLogRateLimitDegraded(route: RateLimitRoute, ip: string, nowMs: number): boolean {
+  const key = `${route}:${ip}`;
+  const lastLoggedAt = degradedRateLimitLogs.get(key);
+  if (lastLoggedAt !== undefined && nowMs - lastLoggedAt < RATE_LIMIT_DEGRADED_LOG_THROTTLE_MS) {
+    return false;
+  }
+
+  degradedRateLimitLogs.set(key, nowMs);
+  if (degradedRateLimitLogs.size > 2000) {
+    const staleBefore = nowMs - RATE_LIMIT_DEGRADED_LOG_THROTTLE_MS;
+    for (const [entryKey, loggedAt] of degradedRateLimitLogs) {
+      if (loggedAt < staleBefore) {
+        degradedRateLimitLogs.delete(entryKey);
+      }
+    }
+  }
+  return true;
+}
+
 async function consumeDistributedRateCounter(
   env: Env,
   route: RateLimitRoute,
@@ -301,7 +322,7 @@ async function consumeRateLimit(
     ? localCount
     : Math.max(localCount, distributedCount);
 
-  if (distributedUnavailable) {
+  if (distributedUnavailable && shouldLogRateLimitDegraded(route, ip, nowMs)) {
     logMetric("rate_limit.degraded_mode", {
       route,
       ip,
@@ -3897,10 +3918,17 @@ async function handleBatch(
     });
     return Response.json({ results: output }, { headers: CORS_HEADERS });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      console.error("Batch request parse failed:", error);
+      return Response.json(
+        { error: "Invalid request body", message: "Body must be valid JSON and include a 'urls' array." },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
     console.error("Batch request processing failed:", error);
     return Response.json(
-      { error: "Invalid request body", message: "Body must be valid JSON and include a 'urls' array." },
-      { status: 400, headers: CORS_HEADERS },
+      { error: "Internal Error", message: "Failed to process batch request." },
+      { status: 500, headers: CORS_HEADERS },
     );
   }
 }

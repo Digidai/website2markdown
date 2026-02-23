@@ -143,6 +143,37 @@ describe("worker endpoints", () => {
     expect(last!.headers.get("X-RateLimit-Limit")).toBe("5");
   });
 
+  it("throttles degraded rate-limit logs per route and IP", async () => {
+    const { env, mocks } = createMockEnv();
+    mocks.kvGet.mockRejectedValue(new Error("kv unavailable"));
+    mocks.kvPut.mockRejectedValue(new Error("kv unavailable"));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const ip = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
+    for (let i = 0; i < 4; i++) {
+      const req = new Request("https://md.example.com/api/batch", {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": ip,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ urls: ["https://example.com/a"] }),
+      });
+      await worker.fetch(req, env);
+    }
+
+    const degradedLogs = logSpy.mock.calls
+      .map(([entry]) => (typeof entry === "string" ? entry : String(entry)))
+      .filter((entry) => {
+        try {
+          return (JSON.parse(entry) as { event?: string }).event === "rate_limit.degraded_mode";
+        } catch {
+          return false;
+        }
+      });
+    expect(degradedLogs).toHaveLength(1);
+  });
+
   it("returns 400 for malformed encoded /img URLs", async () => {
     const req = new Request("https://md.example.com/img/%E0%A4%A");
     const res = await worker.fetch(req, createMockEnv().env);

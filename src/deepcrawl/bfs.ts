@@ -461,10 +461,11 @@ export async function runBfsDeepCrawl(
       }
 
       const discoveredLinks: string[] = [];
+      const discoveredInPage = new Set<string>();
       if (current.depth < maxDepth && results.length < maxPages) {
         const rawLinks = extractLinksFromHtml(page.html || "", current.url);
         for (const link of rawLinks) {
-          if (visited.has(link.url) || discoveredLinks.includes(link.url)) continue;
+          if (visited.has(link.url) || discoveredInPage.has(link.url)) continue;
           const keep = await shouldKeepCandidate(
             link.url,
             normalizedSeed,
@@ -486,6 +487,7 @@ export async function runBfsDeepCrawl(
             options.urlScorer,
           );
           if (score < scoreThreshold) continue;
+          discoveredInPage.add(link.url);
           discoveredLinks.push(link.url);
           visited.add(link.url);
           queue.push({

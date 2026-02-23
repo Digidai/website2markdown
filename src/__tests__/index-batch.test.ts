@@ -85,6 +85,28 @@ describe("POST /api/batch", () => {
     expect(consoleSpy).toHaveBeenCalled();
   });
 
+  it("returns 500 when an internal error occurs after request parsing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("# hello from source", {
+        status: 200,
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+      }),
+    ));
+    vi.spyOn(console, "log").mockImplementation(() => {
+      throw new Error("log sink unavailable");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = batchRequest({ urls: ["https://example.com/internal-error-case"] }, "token");
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(500);
+    expect(payload.error).toBe("Internal Error");
+    expect(payload.message).toContain("Failed to process batch");
+  });
+
   it("returns 400 when urls is missing", async () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = batchRequest({ foo: "bar" }, "token");
