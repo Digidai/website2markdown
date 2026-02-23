@@ -200,6 +200,7 @@ export function validateJobCreatePayload(input: unknown): {
       };
     }
     if (type === "crawl") {
+      const taskUrl = task.url as string;
       for (const key of Object.keys(task)) {
         if (!CRAWL_TASK_ALLOWED_KEYS.has(key)) {
           return {
@@ -211,7 +212,7 @@ export function validateJobCreatePayload(input: unknown): {
           };
         }
       }
-      if (task.url.trim().length === 0) {
+      if (taskUrl.trim().length === 0) {
         return {
           error: {
             code: "INVALID_REQUEST",
