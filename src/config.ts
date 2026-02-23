@@ -55,6 +55,6 @@ export const DESKTOP_UA =
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Accept, Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Accept, Content-Type, Authorization, Idempotency-Key",
   "Access-Control-Max-Age": "86400",
 };

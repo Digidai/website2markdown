@@ -22,6 +22,7 @@ describe("worker endpoints", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.headers.get("Access-Control-Allow-Methods")).toContain("GET");
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain("Idempotency-Key");
   });
 
   it("serves health endpoint for GET", async () => {
