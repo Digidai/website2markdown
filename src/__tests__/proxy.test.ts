@@ -85,6 +85,16 @@ describe("parseProxyUrl", () => {
     expect(parseProxyUrl("alice:secret@proxy.example.com:not-a-port")).toBeNull();
   });
 
+  it("parses bracketed IPv6 proxy hosts", () => {
+    const parsed = parseProxyUrl("alice:secret@[2001:db8::1]:8080");
+    expect(parsed).toEqual({
+      host: "2001:db8::1",
+      port: 8080,
+      username: "alice",
+      password: "secret",
+    });
+  });
+
   it("parses proxy pools and deduplicates entries", () => {
     const parsed = parseProxyPool(`
       alice:secret@proxy-1.example.com:8080,

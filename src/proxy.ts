@@ -76,13 +76,27 @@ async function readWithTimeout<T>(
 /** Parse "username:password@host:port" into ProxyConfig. */
 export function parseProxyUrl(raw: string): ProxyConfig | null {
   try {
-    const atIdx = raw.lastIndexOf("@");
+    const trimmed = raw.trim();
+    const atIdx = trimmed.lastIndexOf("@");
     if (atIdx < 0) return null;
-    const auth = raw.slice(0, atIdx);
-    const hostPort = raw.slice(atIdx + 1);
+    const auth = trimmed.slice(0, atIdx);
+    const hostPort = trimmed.slice(atIdx + 1);
     const colonIdx = auth.indexOf(":");
     if (colonIdx < 0) return null;
-    const [host, portStr] = hostPort.split(":");
+    let host = "";
+    let portStr = "";
+    if (hostPort.startsWith("[")) {
+      const bracketEnd = hostPort.indexOf("]");
+      if (bracketEnd < 1) return null;
+      host = hostPort.slice(1, bracketEnd);
+      if (hostPort[bracketEnd + 1] !== ":") return null;
+      portStr = hostPort.slice(bracketEnd + 2);
+    } else {
+      const hostColonIdx = hostPort.lastIndexOf(":");
+      if (hostColonIdx <= 0) return null;
+      host = hostPort.slice(0, hostColonIdx);
+      portStr = hostPort.slice(hostColonIdx + 1);
+    }
     if (!host || !portStr) return null;
     const port = parseInt(portStr, 10);
     if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
