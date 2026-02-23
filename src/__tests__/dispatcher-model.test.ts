@@ -34,6 +34,29 @@ describe("dispatcher model", () => {
     expect(parsed.error?.code).toBe("INVALID_REQUEST");
   });
 
+  it("returns validation error for invalid crawl task options", () => {
+    const badFormat = validateJobCreatePayload({
+      type: "crawl",
+      tasks: [{ url: "https://example.com/a", format: "xml" }],
+    });
+    expect(badFormat.error?.code).toBe("INVALID_REQUEST");
+    expect(badFormat.error?.message).toContain("format");
+
+    const badSelector = validateJobCreatePayload({
+      type: "crawl",
+      tasks: [{ url: "https://example.com/a", selector: 123 }],
+    });
+    expect(badSelector.error?.code).toBe("INVALID_REQUEST");
+    expect(badSelector.error?.message).toContain("selector");
+
+    const badForceBrowser = validateJobCreatePayload({
+      type: "crawl",
+      tasks: [{ url: "https://example.com/a", force_browser: "yes" }],
+    });
+    expect(badForceBrowser.error?.code).toBe("INVALID_REQUEST");
+    expect(badForceBrowser.error?.message).toContain("force_browser");
+  });
+
   it("builds a queued job record", () => {
     const parsed = validateJobCreatePayload({
       type: "crawl",
@@ -58,4 +81,3 @@ describe("dispatcher model", () => {
     expect(isValidStatusTransition("succeeded", "running")).toBe(false);
   });
 });
-

@@ -1,4 +1,5 @@
 import type { ExtractionRequestItem, OutputFormat } from "../types";
+import { MAX_SELECTOR_LENGTH, VALID_FORMATS } from "../config";
 
 export type JobType = "crawl" | "extract";
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled";
@@ -169,6 +170,57 @@ export function validateJobCreatePayload(input: unknown): {
           details: { index: i },
         },
       };
+    }
+    if (type === "crawl") {
+      if (task.format !== undefined) {
+        if (typeof task.format !== "string" || !VALID_FORMATS.has(task.format as OutputFormat)) {
+          return {
+            error: {
+              code: "INVALID_REQUEST",
+              message: "crawl task format must be one of: markdown, html, text, json.",
+              details: { index: i },
+            },
+          };
+        }
+      }
+      if (task.selector !== undefined) {
+        if (typeof task.selector !== "string") {
+          return {
+            error: {
+              code: "INVALID_REQUEST",
+              message: "crawl task selector must be a string.",
+              details: { index: i },
+            },
+          };
+        }
+        if (task.selector.length > MAX_SELECTOR_LENGTH) {
+          return {
+            error: {
+              code: "INVALID_REQUEST",
+              message: `crawl task selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
+              details: { index: i },
+            },
+          };
+        }
+      }
+      if (task.force_browser !== undefined && typeof task.force_browser !== "boolean") {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "crawl task force_browser must be a boolean.",
+            details: { index: i },
+          },
+        };
+      }
+      if (task.no_cache !== undefined && typeof task.no_cache !== "boolean") {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "crawl task no_cache must be a boolean.",
+            details: { index: i },
+          },
+        };
+      }
     }
     if (type === "extract") {
       if (typeof task.strategy !== "string") {
