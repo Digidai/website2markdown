@@ -86,6 +86,7 @@ export function parseProxyUrl(raw: string): ProxyConfig | null {
     const username = auth.slice(0, colonIdx);
     const password = auth.slice(colonIdx + 1);
     if (!username || !password) return null;
+    if (/\s/.test(username) || /\s/.test(password)) return null;
     let host = "";
     let portStr = "";
     if (hostPort.startsWith("[")) {
@@ -101,6 +102,7 @@ export function parseProxyUrl(raw: string): ProxyConfig | null {
       portStr = hostPort.slice(hostColonIdx + 1);
     }
     if (!host || !portStr) return null;
+    if (/\s/.test(host)) return null;
     if (!/^\d+$/.test(portStr)) return null;
     const port = parseInt(portStr, 10);
     if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
