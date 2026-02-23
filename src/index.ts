@@ -3670,6 +3670,8 @@ async function handleRunJob(
     task.error = outcome.success ? undefined : outcome.error || "Task failed";
     if (outcome.success) {
       task.result = normalizeTaskResultForStorage(outcome.result);
+    } else {
+      task.result = undefined;
     }
     task.updatedAt = new Date().toISOString();
   }

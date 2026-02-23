@@ -423,4 +423,59 @@ describe("POST /api/jobs", () => {
     expect(payload.succeededTasks).toBe(1);
     expect(payload.status).toBe("failed");
   });
+
+  it("clears stale task result when a rerun still fails", async () => {
+    const { env, mocks } = createMockEnv({ API_TOKEN: "token" });
+    const now = "2026-01-01T00:00:00.000Z";
+    const failedJob = {
+      id: "job-rerun-fail",
+      type: "crawl",
+      status: "failed",
+      priority: 10,
+      maxRetries: 0,
+      retryCount: 0,
+      totalTasks: 1,
+      succeededTasks: 0,
+      failedTasks: 1,
+      queuedTasks: 0,
+      runningTasks: 0,
+      canceledTasks: 0,
+      tasks: [
+        {
+          id: "task-1",
+          status: "failed",
+          retryCount: 0,
+          input: "not-a-url",
+          url: "not-a-url",
+          result: { fromPreviousRun: true },
+          error: "old error",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    mocks.kvGet.mockImplementation(async (key: string) => {
+      if (key === jobStorageKey("job-rerun-fail")) return JSON.stringify(failedJob);
+      return null;
+    });
+
+    const req = new Request("https://md.example.com/api/jobs/job-rerun-fail/run", {
+      method: "POST",
+      headers: { Authorization: "Bearer token" },
+    });
+    const res = await worker.fetch(req, env);
+    expect(res.status).toBe(200);
+
+    const finalPersistCall = mocks.kvPut.mock.calls[mocks.kvPut.mock.calls.length - 1];
+    const persisted = JSON.parse(finalPersistCall[1] as string) as {
+      tasks: Array<{ status: string; result?: unknown; error?: string }>;
+    };
+
+    expect(persisted.tasks[0].status).toBe("failed");
+    expect(persisted.tasks[0].result).toBeUndefined();
+    expect(typeof persisted.tasks[0].error).toBe("string");
+  });
 });
