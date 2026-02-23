@@ -112,6 +112,36 @@ describe("dispatcher model", () => {
     expect(parsed.error?.message).toContain("strategy must be one of");
   });
 
+  it("validates extract task selector type and length", () => {
+    const badType = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          url: "https://example.com/article",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+          selector: 123,
+        },
+      ],
+    });
+    expect(badType.error?.code).toBe("INVALID_REQUEST");
+    expect(badType.error?.message).toContain("selector must be a string");
+
+    const tooLong = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          url: "https://example.com/article",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+          selector: "x".repeat(257),
+        },
+      ],
+    });
+    expect(tooLong.error?.code).toBe("INVALID_REQUEST");
+    expect(tooLong.error?.message).toContain("selector is too long");
+  });
+
   it("returns validation error for invalid crawl task options", () => {
     const badFormat = validateJobCreatePayload({
       type: "crawl",

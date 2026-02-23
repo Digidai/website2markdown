@@ -311,6 +311,26 @@ export function validateJobCreatePayload(input: unknown): {
           },
         };
       }
+      if (task.selector !== undefined) {
+        if (typeof task.selector !== "string") {
+          return {
+            error: {
+              code: "INVALID_REQUEST",
+              message: "extract task selector must be a string.",
+              details: { index: i },
+            },
+          };
+        }
+        if (task.selector.length > MAX_SELECTOR_LENGTH) {
+          return {
+            error: {
+              code: "INVALID_REQUEST",
+              message: `extract task selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
+              details: { index: i },
+            },
+          };
+        }
+      }
 
       const inputSource = isObject(task.input) ? task.input : {};
       const hasUrl =
