@@ -128,4 +128,32 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
     expect(body).toContain("event: done");
     expect(body).toContain("\"jobId\":\"job-done\"");
   });
+
+  it("returns 400 for invalid job id characters in path", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = new Request("https://md.example.com/api/jobs/job%0A1", {
+      headers: { Authorization: "Bearer token" },
+    });
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("Invalid job path");
+  });
+
+  it("returns 400 for malformed /api/jobs/:id action path", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = new Request("https://md.example.com/api/jobs/job-1/unknown", {
+      headers: { Authorization: "Bearer token" },
+    });
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("Invalid job path");
+  });
 });

@@ -1463,6 +1463,15 @@ export default {
     }
 
     const jobPath = parseJobPath(path);
+    if (path.startsWith("/api/jobs/") && !jobPath) {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: "Invalid job path or job id.",
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
     if (jobPath) {
       const expectsGet = jobPath.action === "status" || jobPath.action === "stream";
       const expectsPost = jobPath.action === "run";
@@ -3299,6 +3308,8 @@ function summarizeJob(job: StoredJobRecord): Record<string, unknown> {
 }
 
 type JobPathAction = "status" | "stream" | "run";
+const MAX_JOB_ID_LENGTH = 128;
+const JOB_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
 
 function parseJobPath(path: string): { id: string; action: JobPathAction } | null {
   const parts = path.split("/").filter(Boolean);
@@ -3307,6 +3318,7 @@ function parseJobPath(path: string): { id: string; action: JobPathAction } | nul
   if (parts[0] !== "api" || parts[1] !== "jobs") return null;
   const id = parts[2];
   if (!id) return null;
+  if (id.length > MAX_JOB_ID_LENGTH || !JOB_ID_PATTERN.test(id)) return null;
   if (parts.length === 3) return { id, action: "status" };
   if (parts[3] === "stream") return { id, action: "stream" };
   if (parts[3] === "run") return { id, action: "run" };
