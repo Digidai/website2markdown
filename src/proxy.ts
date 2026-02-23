@@ -123,7 +123,7 @@ export function parseProxyPool(raw: string): ProxyConfig[] {
   for (const part of parts) {
     const parsed = parseProxyUrl(part);
     if (!parsed) continue;
-    const dedupeKey = `${parsed.username}:${parsed.password}@${parsed.host}:${parsed.port}`;
+    const dedupeKey = `${parsed.username}:${parsed.password}@${parsed.host.toLowerCase()}:${parsed.port}`;
     if (unique.has(dedupeKey)) continue;
     unique.add(dedupeKey);
     configs.push(parsed);

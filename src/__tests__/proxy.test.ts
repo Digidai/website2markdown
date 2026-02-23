@@ -117,6 +117,21 @@ describe("parseProxyUrl", () => {
       },
     ]);
   });
+
+  it("deduplicates proxy pools case-insensitively by host", () => {
+    const parsed = parseProxyPool(`
+      alice:secret@PROXY-1.example.com:8080
+      alice:secret@proxy-1.EXAMPLE.com:8080
+    `);
+    expect(parsed).toEqual([
+      {
+        host: "PROXY-1.example.com",
+        port: 8080,
+        username: "alice",
+        password: "secret",
+      },
+    ]);
+  });
 });
 
 describe("fetchViaProxy", () => {
