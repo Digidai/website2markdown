@@ -98,6 +98,13 @@ describe("dispatcher model", () => {
     });
     expect(badForceBrowser.error?.code).toBe("INVALID_REQUEST");
     expect(badForceBrowser.error?.message).toContain("force_browser");
+
+    const blankUrl = validateJobCreatePayload({
+      type: "crawl",
+      tasks: [{ url: "   " }],
+    });
+    expect(blankUrl.error?.code).toBe("INVALID_REQUEST");
+    expect(blankUrl.error?.message).toContain("url must be a non-empty");
   });
 
   it("builds a queued job record", () => {
