@@ -1982,6 +1982,9 @@ interface ExtractResultError {
   details?: Record<string, unknown>;
 }
 
+const MAX_REGEX_FLAGS_LENGTH = 8;
+const VALID_REGEX_FLAGS = new Set(["d", "g", "i", "m", "s", "u", "y"]);
+
 function extractErrorResponse(
   error: ExtractResultError,
   status: number = 400,
@@ -2088,9 +2091,11 @@ function normalizeExtractItem(input: unknown): { item?: ExtractNormalizedItem; e
   const forceBrowser = raw.force_browser === true;
   const noCache = raw.no_cache === true;
   const includeMarkdown = raw.include_markdown === true;
-  const options = raw.options && typeof raw.options === "object"
-    ? raw.options as ExtractionOptions
-    : undefined;
+  const normalizedOptions = normalizeExtractionOptions(raw.options);
+  if (normalizedOptions.error) {
+    return { error: normalizedOptions.error };
+  }
+  const options = normalizedOptions.options;
 
   return {
     item: {
@@ -2105,6 +2110,105 @@ function normalizeExtractItem(input: unknown): { item?: ExtractNormalizedItem; e
       includeMarkdown,
     },
   };
+}
+
+function normalizeExtractionOptions(
+  value: unknown,
+): { options?: ExtractionOptions; error?: ExtractResultError } {
+  if (value === undefined) return {};
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      error: {
+        code: "INVALID_REQUEST",
+        message: "options must be an object when provided.",
+      },
+    };
+  }
+  const raw = value as Record<string, unknown>;
+  const allowedKeys = new Set(["dedupe", "includeEmpty", "regexFlags"]);
+  for (const key of Object.keys(raw)) {
+    if (!allowedKeys.has(key)) {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: `options.${key} is not supported.`,
+        },
+      };
+    }
+  }
+
+  const normalized: ExtractionOptions = {};
+  if (raw.dedupe !== undefined) {
+    if (typeof raw.dedupe !== "boolean") {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: "options.dedupe must be a boolean.",
+        },
+      };
+    }
+    normalized.dedupe = raw.dedupe;
+  }
+  if (raw.includeEmpty !== undefined) {
+    if (typeof raw.includeEmpty !== "boolean") {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: "options.includeEmpty must be a boolean.",
+        },
+      };
+    }
+    normalized.includeEmpty = raw.includeEmpty;
+  }
+  if (raw.regexFlags !== undefined) {
+    if (typeof raw.regexFlags !== "string") {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: "options.regexFlags must be a string.",
+        },
+      };
+    }
+    const flags = raw.regexFlags.trim();
+    if (!flags) {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: "options.regexFlags cannot be empty when provided.",
+        },
+      };
+    }
+    if (flags.length > MAX_REGEX_FLAGS_LENGTH) {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: `options.regexFlags is too long (max ${MAX_REGEX_FLAGS_LENGTH} characters).`,
+        },
+      };
+    }
+    const seen = new Set<string>();
+    for (const flag of flags) {
+      if (!VALID_REGEX_FLAGS.has(flag)) {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: `options.regexFlags contains unsupported flag "${flag}".`,
+          },
+        };
+      }
+      if (seen.has(flag)) {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: `options.regexFlags contains duplicate flag "${flag}".`,
+          },
+        };
+      }
+      seen.add(flag);
+    }
+    normalized.regexFlags = flags;
+  }
+  return Object.keys(normalized).length > 0 ? { options: normalized } : {};
 }
 
 function normalizeExtractPayload(input: unknown): { payload?: NormalizedExtractPayload; error?: ExtractResultError } {

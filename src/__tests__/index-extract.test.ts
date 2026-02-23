@@ -267,6 +267,34 @@ describe("POST /api/extract", () => {
     expect(payload.message).toContain("selector is too long");
   });
 
+  it("rejects invalid extraction options payload", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+
+    const reqNonObject = extractRequest({
+      strategy: "regex",
+      html: "x",
+      schema: { patterns: { hit: "x" } },
+      options: [],
+    }, "token");
+    const resNonObject = await worker.fetch(reqNonObject, env);
+    const payloadNonObject = await resNonObject.json() as { code?: string; message?: string };
+    expect(resNonObject.status).toBe(400);
+    expect(payloadNonObject.code).toBe("INVALID_REQUEST");
+    expect(payloadNonObject.message).toContain("options must be an object");
+
+    const reqBadFlags = extractRequest({
+      strategy: "regex",
+      html: "x",
+      schema: { patterns: { hit: "x" } },
+      options: { regexFlags: "gg" },
+    }, "token");
+    const resBadFlags = await worker.fetch(reqBadFlags, env);
+    const payloadBadFlags = await resBadFlags.json() as { code?: string; message?: string };
+    expect(resBadFlags.status).toBe(400);
+    expect(payloadBadFlags.code).toBe("INVALID_REQUEST");
+    expect(payloadBadFlags.message).toContain("duplicate flag");
+  });
+
   it("rejects oversized extract request body before parsing payload", async () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = extractRequest({
