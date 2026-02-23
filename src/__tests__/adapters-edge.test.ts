@@ -62,7 +62,7 @@ describe("adapter edge behavior", () => {
     page.evaluate.mockResolvedValueOnce(30);
     page.cookies.mockResolvedValueOnce([{ name: "sid", value: "abc" }]);
 
-    await expect(kr36Adapter.extract!(page as any, new Map())).rejects.toThrow("PROXY_RETRY:sid=abc");
+    await expect(kr36Adapter.extract!(page as any, new Map())).rejects.toThrow(/PROXY_RETRY_TOKEN:/);
   });
 
   it("throws 36kr timeout when selector missing and cookies are unavailable", async () => {
@@ -106,7 +106,7 @@ describe("adapter edge behavior", () => {
     page.evaluate.mockResolvedValueOnce(100);
     page.cookies.mockResolvedValueOnce([{ name: "c_user", value: "v" }]);
 
-    await expect(csdnAdapter.extract!(page as any, new Map())).rejects.toThrow("PROXY_RETRY:c_user=v");
+    await expect(csdnAdapter.extract!(page as any, new Map())).rejects.toThrow(/PROXY_RETRY_TOKEN:/);
   });
 
   it("throws Juejin timeout when selector missing and no cookies are available", async () => {
@@ -124,9 +124,7 @@ describe("adapter edge behavior", () => {
     page.waitForSelector.mockRejectedValueOnce(new Error("timeout"));
     page.cookies.mockResolvedValueOnce([{ name: "sessionid", value: "j1" }]);
 
-    await expect(juejinAdapter.extract!(page as any, new Map())).rejects.toThrow(
-      "PROXY_RETRY:sessionid=j1",
-    );
+    await expect(juejinAdapter.extract!(page as any, new Map())).rejects.toThrow(/PROXY_RETRY_TOKEN:/);
   });
 
   it("extracts Juejin content on selector success", async () => {
@@ -152,9 +150,7 @@ describe("adapter edge behavior", () => {
       { name: "sessionid", value: "v2" },
     ]);
 
-    await expect(toutiaoAdapter.extract!(page as any, new Map())).rejects.toThrow(
-      "PROXY_RETRY:ttwid=v1; sessionid=v2",
-    );
+    await expect(toutiaoAdapter.extract!(page as any, new Map())).rejects.toThrow(/PROXY_RETRY_TOKEN:/);
   });
 
   it("throws Toutiao timeout when selector missing and no cookies are available", async () => {
@@ -228,7 +224,7 @@ describe("adapter edge behavior", () => {
     page.evaluate.mockResolvedValueOnce("https://www.zhihu.com/signin");
     page.cookies.mockResolvedValueOnce([{ name: "z_c0", value: "cookie" }]);
 
-    await expect(zhihuAdapter.extract!(page as any, new Map())).rejects.toThrow("PROXY_RETRY:z_c0=cookie");
+    await expect(zhihuAdapter.extract!(page as any, new Map())).rejects.toThrow(/PROXY_RETRY_TOKEN:/);
   });
 
   it("throws Zhihu anti-bot error when blocked marker is detected", async () => {
@@ -264,7 +260,7 @@ describe("adapter edge behavior", () => {
 
     vi.useFakeTimers();
     const promise = weiboAdapter.extract!(page as any, new Map());
-    const assertion = expect(promise).rejects.toThrow("PROXY_RETRY:SUB=token");
+    const assertion = expect(promise).rejects.toThrow(/PROXY_RETRY_TOKEN:/);
     await vi.advanceTimersByTimeAsync(3100);
     await assertion;
   });
@@ -292,7 +288,7 @@ describe("adapter edge behavior", () => {
 
     vi.useFakeTimers();
     const promise = weiboAdapter.extract!(page as any, new Map());
-    const assertion = expect(promise).rejects.toThrow("PROXY_RETRY:SUBP=token2");
+    const assertion = expect(promise).rejects.toThrow(/PROXY_RETRY_TOKEN:/);
     await vi.advanceTimersByTimeAsync(3100);
     await assertion;
   });

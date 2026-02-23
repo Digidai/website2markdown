@@ -198,4 +198,43 @@ describe("POST /api/deepcrawl", () => {
     expect(payload.error).toBe("Invalid request");
     expect(payload.message).toContain("checkpoint.crawl_id is required");
   });
+
+  it("returns 400 for out-of-range max_depth and max_pages", async () => {
+    const { env } = setupInMemoryKv();
+
+    const badDepthReq = deepcrawlRequest({
+      seed,
+      max_depth: 7,
+    }, "token");
+    const badDepthRes = await worker.fetch(badDepthReq, env);
+    const badDepthPayload = await badDepthRes.json() as { error?: string; message?: string };
+    expect(badDepthRes.status).toBe(400);
+    expect(badDepthPayload.error).toBe("Invalid request");
+    expect(badDepthPayload.message).toContain("max_depth must be between 0 and 6");
+
+    const badPagesReq = deepcrawlRequest({
+      seed,
+      max_pages: 0,
+    }, "token");
+    const badPagesRes = await worker.fetch(badPagesReq, env);
+    const badPagesPayload = await badPagesRes.json() as { error?: string; message?: string };
+    expect(badPagesRes.status).toBe(400);
+    expect(badPagesPayload.error).toBe("Invalid request");
+    expect(badPagesPayload.message).toContain("max_pages must be between 1 and 200");
+  });
+
+  it("returns 400 for non-integer deepcrawl numeric fields", async () => {
+    const { env } = setupInMemoryKv();
+    const req = deepcrawlRequest({
+      seed,
+      max_depth: 1.5,
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("max_depth must be an integer");
+  });
 });

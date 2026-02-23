@@ -57,6 +57,9 @@ describe("session profile", () => {
     expect(applied).toBe(true);
     expect(page.setCookie).toHaveBeenCalledTimes(1);
     expect(page.evaluateOnNewDocument).toHaveBeenCalledTimes(1);
+    const localStorageCall = (page.evaluateOnNewDocument.mock.calls as unknown[][])[0];
+    expect(typeof localStorageCall?.[0]).toBe("function");
+    expect(localStorageCall?.[1]).toEqual({ token: "ls-token" });
   });
 
   it("captures session snapshot from page cookies/localStorage", async () => {

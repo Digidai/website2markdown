@@ -78,6 +78,7 @@ vi.mock("../proxy", () => ({
 }));
 
 import worker from "../index";
+import { createProxyRetrySignal } from "../browser/proxy-retry";
 
 function makeAdapter(overrides?: Record<string, unknown>): any {
   return {
@@ -237,6 +238,41 @@ describe("index mocked branch coverage", () => {
     expect(mocked.proxy.fetchViaProxy).toHaveBeenCalled();
     const headersArg = mocked.proxy.fetchViaProxy.mock.calls[0]?.[2] as Record<string, string>;
     expect(headersArg.Cookie).toBe("SID=abc");
+  });
+
+  it("retries through proxy when browser returns PROXY_RETRY_TOKEN signal", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    const retrySignal = createProxyRetrySignal([{ name: "SID", value: "token-cookie" }]);
+    if (!retrySignal) {
+      throw new Error("retry signal was not generated");
+    }
+    mocked.browser.fetchWithBrowser.mockRejectedValueOnce(
+      new Error(`Browser rendering failed: ${retrySignal}`),
+    );
+    mocked.proxy.parseProxyUrl.mockReturnValue({
+      host: "proxy.example.com",
+      port: 8080,
+      username: "u",
+      password: "p",
+    });
+    mocked.proxy.fetchViaProxy.mockResolvedValueOnce({
+      status: 200,
+      headers: {},
+      body: `<html><body>${"x".repeat(1500)}</body></html>`,
+    });
+
+    const { env } = createMockEnv({
+      PROXY_URL: "u:p@proxy.example.com:8080",
+    });
+    const req = new Request("https://md.example.com/https://example.com/proxy-token?raw=true", {
+      headers: { Accept: "text/markdown" },
+    });
+    const res = await worker.fetch(req, env);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Markdown-Method")).toBe("browser+readability+turndown");
+    const headersArg = mocked.proxy.fetchViaProxy.mock.calls[0]?.[2] as Record<string, string>;
+    expect(headersArg.Cookie).toBe("SID=token-cookie");
   });
 
   it("returns proxy access failure when proxy returns login/challenge html", async () => {

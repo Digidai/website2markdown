@@ -129,6 +129,33 @@ describe("POST /api/extract", () => {
     expect(payload.results?.[1].strategy).toBe("css");
   });
 
+  it("extracts using xpath strategy", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = extractRequest({
+      strategy: "xpath",
+      html: "<article><h1>XPath Title</h1><p>Body</p></article>",
+      schema: {
+        fields: [
+          { name: "title", xpath: "//article/h1", type: "text" },
+          { name: "body", xpath: "//article/p", type: "text" },
+        ],
+      },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as {
+      success?: boolean;
+      strategy?: string;
+      data?: { title?: string; body?: string };
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.success).toBe(true);
+    expect(payload.strategy).toBe("xpath");
+    expect(payload.data?.title).toBe("XPath Title");
+    expect(payload.data?.body).toBe("Body");
+  });
+
   it("returns 400 for invalid strategy", async () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = extractRequest({
