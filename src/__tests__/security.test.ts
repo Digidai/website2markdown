@@ -100,6 +100,9 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl("http://myservice.local")).toBe(false);
     expect(isSafeUrl("http://api.internal")).toBe(false);
     expect(isSafeUrl("http://test.localhost")).toBe(false);
+    expect(isSafeUrl("http://router.home.arpa")).toBe(false);
+    expect(isSafeUrl("http://home.arpa")).toBe(false);
+    expect(isSafeUrl("http://svc.localdomain")).toBe(false);
   });
 
   it("allows valid public URLs", () => {

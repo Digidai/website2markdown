@@ -149,9 +149,13 @@ function isSafeUrlForParsed(protocol: string, hostname: string): boolean {
 
   // Internal / local TLDs
   if (
+    hostname === "home.arpa" ||
+    hostname === "localdomain" ||
     hostname.endsWith(".local") ||
     hostname.endsWith(".internal") ||
     hostname.endsWith(".localhost") ||
+    hostname.endsWith(".home.arpa") ||
+    hostname.endsWith(".localdomain") ||
     hostname.endsWith(".test") ||
     hostname.endsWith(".invalid")
   )
