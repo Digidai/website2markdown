@@ -358,10 +358,10 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
     }
     const sizeLine = lineDecoder.decode(raw.subarray(pos, lineEnd)).trim();
     const sizeToken = sizeLine.split(";", 1)[0];
-    const size = parseInt(sizeToken, 16);
-    if (isNaN(size)) {
+    if (!/^[0-9a-f]+$/i.test(sizeToken)) {
       throw new Error("Invalid chunked encoding: non-hex chunk size");
     }
+    const size = parseInt(sizeToken, 16);
     if (size === 0) {
       sawTerminator = true;
       break;
