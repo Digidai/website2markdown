@@ -20,7 +20,22 @@ function wildcardToRegex(pattern: string): RegExp {
 }
 
 function normalizeHost(host: string): string {
-  return host.trim().toLowerCase();
+  return host.trim().toLowerCase().replace(/\.+$/, "");
+}
+
+function normalizeConfiguredDomain(domain: string): string {
+  const trimmed = domain.trim();
+  if (!trimmed) return "";
+  try {
+    const needsScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    return normalizeHost(new URL(needsScheme).hostname);
+  } catch {
+    return normalizeHost(trimmed.replace(/^[^/]*:\/\//i, "").split("/")[0].split(":")[0]);
+  }
+}
+
+function matchesDomain(hostname: string, configuredDomain: string): boolean {
+  return hostname === configuredDomain || hostname.endsWith(`.${configuredDomain}`);
 }
 
 export class FilterChain {
@@ -60,20 +75,20 @@ export function createDomainFilter(
   allowDomains: string[] = [],
   blockDomains: string[] = [],
 ): UrlFilter {
-  const allow = new Set(allowDomains.map(normalizeHost).filter(Boolean));
-  const block = new Set(blockDomains.map(normalizeHost).filter(Boolean));
+  const allow = allowDomains.map(normalizeConfiguredDomain).filter(Boolean);
+  const block = blockDomains.map(normalizeConfiguredDomain).filter(Boolean);
 
   return async (url) => {
     let host = "";
     try {
-      host = normalizeHost(new URL(url).host);
+      host = normalizeHost(new URL(url).hostname);
     } catch {
       return false;
     }
 
-    if (block.has(host)) return false;
-    if (allow.size === 0) return true;
-    return allow.has(host);
+    if (block.some((domain) => matchesDomain(host, domain))) return false;
+    if (allow.length === 0) return true;
+    return allow.some((domain) => matchesDomain(host, domain));
   };
 }
 
@@ -90,4 +105,3 @@ export function createContentTypeFilter(allowedTypes: string[]): UrlFilter {
     return normalized.some((allowed) => lower.includes(allowed));
   };
 }
-

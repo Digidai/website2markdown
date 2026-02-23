@@ -52,14 +52,26 @@ describe("deepcrawl filters", () => {
 
   it("applies allow/block domain rules with block precedence", async () => {
     const filter = createDomainFilter(
-      ["allowed.example.com", "blocked.example.com"],
+      ["example.com"],
       ["blocked.example.com"],
     );
 
     expect(await filter("https://allowed.example.com/a", createContext("https://allowed.example.com/a"))).toBe(true);
     expect(await filter("https://blocked.example.com/a", createContext("https://blocked.example.com/a"))).toBe(false);
-    expect(await filter("https://other.example.com/a", createContext("https://other.example.com/a"))).toBe(false);
+    expect(await filter("https://other.example.com/a", createContext("https://other.example.com/a"))).toBe(true);
     expect(await filter("not-a-url", createContext("not-a-url"))).toBe(false);
+  });
+
+  it("normalizes configured domains and ignores target URL ports", async () => {
+    const filter = createDomainFilter(
+      ["https://allowed.example.com:8443"],
+      [],
+    );
+
+    expect(await filter("https://allowed.example.com/a", createContext("https://allowed.example.com/a"))).toBe(true);
+    expect(await filter("https://allowed.example.com:9443/a", createContext("https://allowed.example.com:9443/a"))).toBe(true);
+    expect(await filter("https://sub.allowed.example.com/a", createContext("https://sub.allowed.example.com/a"))).toBe(true);
+    expect(await filter("https://denied.example.com/a", createContext("https://denied.example.com/a"))).toBe(false);
   });
 
   it("filters by content-type with case-insensitive matching", async () => {
