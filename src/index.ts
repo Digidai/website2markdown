@@ -1,4 +1,13 @@
-import type { Env, OutputFormat, ConvertMethod } from "./types";
+import type {
+  ConvertMethod,
+  Env,
+  ExtractionErrorCode,
+  ExtractionOptions,
+  ExtractionRequestItem,
+  ExtractionSchema,
+  ExtractionStrategyType,
+  OutputFormat,
+} from "./types";
 import {
   MAX_RESPONSE_BYTES,
   MAX_SELECTOR_LENGTH,
@@ -24,6 +33,35 @@ import {
   fetchWithSafeRedirects,
 } from "./security";
 import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
+import {
+  extractWithStrategy,
+  ExtractionStrategyError,
+} from "./extraction/strategies";
+import {
+  runBfsDeepCrawl,
+  runBestFirstDeepCrawl,
+  type DeepCrawlNode,
+  type DeepCrawlOptions,
+  type DeepCrawlStateSnapshot,
+} from "./deepcrawl/bfs";
+import {
+  FilterChain,
+  createContentTypeFilter,
+  createDomainFilter,
+  createUrlPatternFilter,
+} from "./deepcrawl/filters";
+import {
+  CompositeUrlScorer,
+  KeywordUrlScorer,
+} from "./deepcrawl/scorers";
+import {
+  buildJobRecord,
+  jobIdempotencyKey,
+  jobStorageKey,
+  validateJobCreatePayload,
+} from "./dispatcher/model";
+import { runTasksWithControls } from "./dispatcher/runner";
+import type { JobRecord, JobTaskRecord } from "./dispatcher/model";
 import {
   fetchWithBrowser,
   alwaysNeedsBrowser,
@@ -52,6 +90,23 @@ import { loadingPageHTML } from "./templates/loading";
 import { errorPageHTML } from "./templates/error";
 
 const BATCH_BODY_MAX_BYTES = 100_000;
+const EXTRACT_BODY_MAX_BYTES = 1_000_000;
+const JOBS_BODY_MAX_BYTES = 200_000;
+const DEEPCRAWL_BODY_MAX_BYTES = 200_000;
+const IDEMPOTENCY_TTL_SECONDS = 86_400;
+const MAX_EXTRACT_BATCH_ITEMS = 10;
+const MAX_DEEPCRAWL_DEPTH = 6;
+const MAX_DEEPCRAWL_PAGES = 200;
+const MAX_DEEPCRAWL_LIST_ITEMS = 100;
+const MAX_DEEPCRAWL_KEYWORDS = 32;
+const DEEPCRAWL_DEFAULT_CHECKPOINT_EVERY = 5;
+const DEEPCRAWL_DEFAULT_CHECKPOINT_TTL_SECONDS = 86_400 * 7;
+const DEEPCRAWL_CHECKPOINT_KEY_PREFIX = "deepcrawl:v1:";
+const VALID_EXTRACTION_STRATEGIES = new Set<ExtractionStrategyType>([
+  "css",
+  "xpath",
+  "regex",
+]);
 const LANDING_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
   "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://fonts.googleapis.com https://fonts.gstatic.com; " +
@@ -1229,6 +1284,57 @@ export default {
       return handleBatch(request, env, host);
     }
 
+    // POST /api/extract
+    if (request.method === "POST" && path === "/api/extract") {
+      const decision = await consumeRateLimit(request, env, "convert");
+      if (decision?.exceeded) {
+        return rateLimitedResponse("convert", decision, true);
+      }
+      return handleExtract(request, env, host);
+    }
+
+    // POST /api/deepcrawl
+    if (request.method === "POST" && path === "/api/deepcrawl") {
+      const decision = await consumeRateLimit(request, env, "batch");
+      if (decision?.exceeded) {
+        return rateLimitedResponse("batch", decision, true);
+      }
+      return handleDeepCrawl(request, env, host);
+    }
+
+    // POST /api/jobs
+    if (request.method === "POST" && path === "/api/jobs") {
+      const decision = await consumeRateLimit(request, env, "batch");
+      if (decision?.exceeded) {
+        return rateLimitedResponse("batch", decision, true);
+      }
+      return handleJobs(request, env);
+    }
+
+    const jobPath = parseJobPath(path);
+    if (jobPath) {
+      const expectsGet = jobPath.action === "status" || jobPath.action === "stream";
+      const expectsPost = jobPath.action === "run";
+      if ((expectsGet && request.method !== "GET") || (expectsPost && request.method !== "POST")) {
+        return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
+      }
+      const decision = await consumeRateLimit(
+        request,
+        env,
+        jobPath.action === "stream" ? "stream" : "batch",
+      );
+      if (decision?.exceeded) {
+        return rateLimitedResponse(jobPath.action === "stream" ? "stream" : "batch", decision, true);
+      }
+      if (jobPath.action === "stream") {
+        return handleGetJobStream(request, env, jobPath.id);
+      }
+      if (jobPath.action === "run") {
+        return handleRunJob(request, env, host, jobPath.id);
+      }
+      return handleGetJob(request, env, jobPath.id);
+    }
+
     // Only allow GET and HEAD for other routes
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
@@ -1652,6 +1758,1702 @@ function buildResponse(
         ...CORS_HEADERS,
       },
     },
+  );
+}
+
+// ─── Extract handler ─────────────────────────────────────────
+
+interface ExtractNormalizedItem {
+  strategy: ExtractionStrategyType;
+  schema: ExtractionSchema;
+  options?: ExtractionOptions;
+  url?: string;
+  html?: string;
+  selector?: string;
+  forceBrowser: boolean;
+  noCache: boolean;
+  includeMarkdown: boolean;
+}
+
+interface NormalizedExtractPayload {
+  isBatch: boolean;
+  items: ExtractNormalizedItem[];
+}
+
+interface ExtractResultError {
+  code: ExtractionErrorCode;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+function extractErrorResponse(
+  error: ExtractResultError,
+  status: number = 400,
+): Response {
+  return Response.json(
+    {
+      error: "Invalid request",
+      code: error.code,
+      message: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    },
+    { status, headers: CORS_HEADERS },
+  );
+}
+
+function normalizeExtractItem(input: unknown): { item?: ExtractNormalizedItem; error?: ExtractResultError } {
+  if (!input || typeof input !== "object") {
+    return {
+      error: {
+        code: "INVALID_REQUEST",
+        message: "Extraction item must be an object.",
+      },
+    };
+  }
+
+  const raw = input as Partial<ExtractionRequestItem> & { [key: string]: unknown };
+  const sourceInput = (raw.input && typeof raw.input === "object")
+    ? raw.input as { url?: unknown; html?: unknown }
+    : undefined;
+
+  const strategy = raw.strategy;
+  if (!strategy || typeof strategy !== "string" || !VALID_EXTRACTION_STRATEGIES.has(strategy as ExtractionStrategyType)) {
+    return {
+      error: {
+        code: "UNSUPPORTED_STRATEGY",
+        message: "strategy must be one of: css, xpath, regex.",
+      },
+    };
+  }
+
+  const schema = raw.schema;
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return {
+      error: {
+        code: "INVALID_SCHEMA",
+        message: "schema must be an object.",
+      },
+    };
+  }
+
+  const url = typeof raw.url === "string"
+    ? raw.url
+    : typeof sourceInput?.url === "string"
+      ? sourceInput.url
+      : undefined;
+  const html = typeof raw.html === "string"
+    ? raw.html
+    : typeof sourceInput?.html === "string"
+      ? sourceInput.html
+      : undefined;
+
+  if (!url && !html) {
+    return {
+      error: {
+        code: "INVALID_REQUEST",
+        message: "Either url or html input is required.",
+      },
+    };
+  }
+
+  if (url && (!isValidUrl(url) || !isSafeUrl(url))) {
+    return {
+      error: {
+        code: "INVALID_URL",
+        message: "url is invalid or blocked by SSRF rules.",
+        details: { url },
+      },
+    };
+  }
+
+  if (html) {
+    const bytes = new TextEncoder().encode(html).byteLength;
+    if (bytes > MAX_RESPONSE_BYTES) {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: `html input exceeds max size (${MAX_RESPONSE_BYTES} bytes).`,
+          details: { bytes, max: MAX_RESPONSE_BYTES },
+        },
+      };
+    }
+  }
+
+  const selector = typeof raw.selector === "string" ? raw.selector : undefined;
+  if (selector && selector.length > MAX_SELECTOR_LENGTH) {
+    return {
+      error: {
+        code: "INVALID_REQUEST",
+        message: `selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
+      },
+    };
+  }
+
+  const forceBrowser = raw.force_browser === true;
+  const noCache = raw.no_cache === true;
+  const includeMarkdown = raw.include_markdown === true;
+  const options = raw.options && typeof raw.options === "object"
+    ? raw.options as ExtractionOptions
+    : undefined;
+
+  return {
+    item: {
+      strategy: strategy as ExtractionStrategyType,
+      schema: schema as ExtractionSchema,
+      options,
+      url,
+      html,
+      selector,
+      forceBrowser,
+      noCache,
+      includeMarkdown,
+    },
+  };
+}
+
+function normalizeExtractPayload(input: unknown): { payload?: NormalizedExtractPayload; error?: ExtractResultError } {
+  if (!input || typeof input !== "object") {
+    return {
+      error: {
+        code: "INVALID_REQUEST",
+        message: "Request body must be a JSON object.",
+      },
+    };
+  }
+
+  const body = input as { items?: unknown[] };
+  if (Array.isArray(body.items)) {
+    if (body.items.length === 0) {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: "items cannot be empty.",
+        },
+      };
+    }
+    if (body.items.length > MAX_EXTRACT_BATCH_ITEMS) {
+      return {
+        error: {
+          code: "INVALID_REQUEST",
+          message: `Maximum ${MAX_EXTRACT_BATCH_ITEMS} items per extraction batch.`,
+        },
+      };
+    }
+    const items: ExtractNormalizedItem[] = [];
+    for (let i = 0; i < body.items.length; i++) {
+      const normalized = normalizeExtractItem(body.items[i]);
+      if (normalized.error) {
+        return {
+          error: {
+            ...normalized.error,
+            details: {
+              ...(normalized.error.details || {}),
+              index: i,
+            },
+          },
+        };
+      }
+      items.push(normalized.item!);
+    }
+    return {
+      payload: {
+        isBatch: true,
+        items,
+      },
+    };
+  }
+
+  const single = normalizeExtractItem(body);
+  if (single.error) return { error: single.error };
+  return {
+    payload: {
+      isBatch: false,
+      items: [single.item!],
+    },
+  };
+}
+
+async function handleExtract(
+  request: Request,
+  env: Env,
+  host: string,
+): Promise<Response> {
+  // Require API_TOKEN for extraction API.
+  if (!env.API_TOKEN) {
+    return Response.json(
+      {
+        error: "Service misconfigured",
+        code: "INVALID_REQUEST",
+        message: "API_TOKEN not set",
+      },
+      { status: 503, headers: CORS_HEADERS },
+    );
+  }
+
+  const auth = request.headers.get("Authorization") || "";
+  if (!auth.startsWith("Bearer ") || !(await timingSafeEqual(auth.slice(7), env.API_TOKEN))) {
+    return Response.json(
+      {
+        error: "Unauthorized",
+        code: "INVALID_REQUEST",
+        message: "Valid Bearer token required",
+      },
+      { status: 401, headers: CORS_HEADERS },
+    );
+  }
+
+  const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
+  if (contentLength > EXTRACT_BODY_MAX_BYTES) {
+    return Response.json(
+      {
+        error: "Request too large",
+        code: "INVALID_REQUEST",
+        message: `Maximum body size is ${EXTRACT_BODY_MAX_BYTES} bytes`,
+      },
+      { status: 413, headers: CORS_HEADERS },
+    );
+  }
+
+  let body: unknown;
+  try {
+    const bodyBytes = await readBodyWithLimit(
+      request.body,
+      EXTRACT_BODY_MAX_BYTES,
+      `Maximum body size is ${EXTRACT_BODY_MAX_BYTES} bytes`,
+      request.signal,
+    );
+    body = JSON.parse(new TextDecoder().decode(bodyBytes));
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return Response.json(
+        {
+          error: "Request too large",
+          code: "INVALID_REQUEST",
+          message: `Maximum body size is ${EXTRACT_BODY_MAX_BYTES} bytes`,
+        },
+        { status: 413, headers: CORS_HEADERS },
+      );
+    }
+    return extractErrorResponse({
+      code: "INVALID_REQUEST",
+      message: "Body must be valid JSON.",
+      details: { error: errorMessage(error) },
+    });
+  }
+
+  const normalized = normalizeExtractPayload(body);
+  if (normalized.error) {
+    return extractErrorResponse(normalized.error, 400);
+  }
+  const { payload } = normalized;
+
+  const tasks = payload!.items.map((item) => async () => {
+    const sourceUrl = item.url || "";
+    let html = item.html || "";
+    let markdown = "";
+    let title = "";
+
+    try {
+      if (!html) {
+        const converted = await convertUrl(
+          sourceUrl,
+          env,
+          host,
+          "html",
+          item.selector,
+          item.forceBrowser,
+          item.noCache,
+          undefined,
+          request.signal,
+        );
+        html = converted.content;
+        title = converted.title;
+      }
+
+      const extraction = extractWithStrategy(
+        item.strategy,
+        html,
+        item.schema,
+        item.options,
+        item.selector,
+      );
+
+      if (item.includeMarkdown) {
+        const markdownResult = htmlToMarkdown(
+          html,
+          sourceUrl || "https://example.invalid/",
+          item.selector,
+        );
+        markdown = markdownResult.markdown;
+        if (!title) title = markdownResult.title;
+      }
+
+      return {
+        success: true,
+        strategy: item.strategy,
+        source: {
+          ...(sourceUrl ? { url: sourceUrl } : {}),
+          html_bytes: new TextEncoder().encode(html).byteLength,
+        },
+        data: extraction.data,
+        meta: extraction.meta,
+        ...(item.includeMarkdown ? { markdown } : {}),
+        ...(title ? { title } : {}),
+      };
+    } catch (error) {
+      if (error instanceof ExtractionStrategyError) {
+        return {
+          success: false,
+          strategy: item.strategy,
+          source: sourceUrl ? { url: sourceUrl } : undefined,
+          error: {
+            code: error.code,
+            message: error.message,
+            ...(error.details ? { details: error.details } : {}),
+          },
+        };
+      }
+      if (error instanceof ConvertError) {
+        return {
+          success: false,
+          strategy: item.strategy,
+          source: sourceUrl ? { url: sourceUrl } : undefined,
+          error: {
+            code: "UPSTREAM_FETCH_FAILED",
+            message: error.message,
+          },
+        };
+      }
+      return {
+        success: false,
+        strategy: item.strategy,
+        source: sourceUrl ? { url: sourceUrl } : undefined,
+        error: {
+          code: "EXTRACTION_FAILED",
+          message: "Failed to extract content from input.",
+          details: {
+            error: errorMessage(error),
+          },
+        },
+      };
+    }
+  });
+
+  const settled = await pLimit(tasks, BROWSER_CONCURRENCY);
+  const results = settled.map((entry) =>
+    entry.status === "fulfilled"
+      ? entry.value
+      : {
+          success: false,
+          error: {
+            code: "EXTRACTION_FAILED",
+            message: "Extraction task execution failed.",
+          },
+        });
+
+  logMetric("extract.completed", {
+    items: payload!.items.length,
+    failures: results.filter((item: any) => !item.success).length,
+  });
+
+  if (payload!.isBatch) {
+    return Response.json({ results }, { headers: CORS_HEADERS });
+  }
+  return Response.json(results[0], { headers: CORS_HEADERS });
+}
+
+// ─── Deep crawl handler ──────────────────────────────────────
+
+type DeepCrawlStrategy = "bfs" | "best_first";
+
+interface DeepCrawlCheckpointInput {
+  crawl_id?: string;
+  resume?: boolean;
+  snapshot_interval?: number;
+  ttl_seconds?: number;
+}
+
+interface DeepCrawlFiltersInput {
+  url_patterns?: string[];
+  allow_domains?: string[];
+  block_domains?: string[];
+  content_types?: string[];
+}
+
+interface DeepCrawlScorerInput {
+  keywords?: string[];
+  weight?: number;
+  score_threshold?: number;
+}
+
+interface DeepCrawlOutputInput {
+  include_markdown?: boolean;
+}
+
+interface DeepCrawlFetchInput {
+  selector?: string;
+  force_browser?: boolean;
+  no_cache?: boolean;
+}
+
+interface DeepCrawlRequestInput {
+  seed?: string;
+  max_depth?: number;
+  max_pages?: number;
+  strategy?: DeepCrawlStrategy;
+  include_external?: boolean;
+  stream?: boolean;
+  filters?: DeepCrawlFiltersInput;
+  scorer?: DeepCrawlScorerInput;
+  output?: DeepCrawlOutputInput;
+  fetch?: DeepCrawlFetchInput;
+  checkpoint?: DeepCrawlCheckpointInput;
+}
+
+interface DeepCrawlNormalizedPayload {
+  seed: string;
+  maxDepth: number;
+  maxPages: number;
+  strategy: DeepCrawlStrategy;
+  includeExternal: boolean;
+  stream: boolean;
+  urlPatterns: string[];
+  allowDomains: string[];
+  blockDomains: string[];
+  contentTypes: string[];
+  keywords: string[];
+  keywordWeight: number;
+  scoreThreshold: number;
+  includeMarkdown: boolean;
+  selector?: string;
+  forceBrowser: boolean;
+  noCache: boolean;
+  crawlId: string;
+  resume: boolean;
+  snapshotInterval: number;
+  checkpointTtlSeconds: number;
+}
+
+interface DeepCrawlCheckpointRecord {
+  version: number;
+  crawlId: string;
+  seed: string;
+  strategy: DeepCrawlStrategy;
+  maxDepth: number;
+  maxPages: number;
+  includeExternal: boolean;
+  state: DeepCrawlStateSnapshot;
+  updatedAt: string;
+}
+
+class DeepCrawlRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number = 400,
+    public readonly details?: Record<string, unknown>,
+  ) {
+    super(message);
+  }
+}
+
+function deepCrawlCheckpointKey(crawlId: string): string {
+  return `${DEEPCRAWL_CHECKPOINT_KEY_PREFIX}${crawlId}`;
+}
+
+function parseBoundedInteger(
+  value: unknown,
+  field: string,
+  defaultValue: number,
+  min: number,
+  max: number,
+): number {
+  if (value === undefined) return defaultValue;
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new DeepCrawlRequestError(`${field} must be an integer.`);
+  }
+  if (value < min || value > max) {
+    throw new DeepCrawlRequestError(`${field} must be between ${min} and ${max}.`);
+  }
+  return value;
+}
+
+function parseOptionalBoolean(value: unknown, field: string, defaultValue: boolean): boolean {
+  if (value === undefined) return defaultValue;
+  if (typeof value !== "boolean") {
+    throw new DeepCrawlRequestError(`${field} must be a boolean.`);
+  }
+  return value;
+}
+
+function parseStringList(value: unknown, field: string, maxItems: number): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new DeepCrawlRequestError(`${field} must be an array of strings.`);
+  }
+  if (value.length > maxItems) {
+    throw new DeepCrawlRequestError(`${field} supports at most ${maxItems} items.`);
+  }
+  const output = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (output.length !== value.length) {
+    throw new DeepCrawlRequestError(`${field} must only contain strings.`);
+  }
+  return output;
+}
+
+function normalizeDeepCrawlPayload(input: unknown): DeepCrawlNormalizedPayload {
+  if (!input || typeof input !== "object") {
+    throw new DeepCrawlRequestError("Request body must be a JSON object.");
+  }
+
+  const body = input as DeepCrawlRequestInput;
+  const seed = typeof body.seed === "string" ? body.seed.trim() : "";
+  if (!seed) {
+    throw new DeepCrawlRequestError("seed is required.");
+  }
+  if (!isValidUrl(seed) || !isSafeUrl(seed)) {
+    throw new DeepCrawlRequestError(
+      "seed must be a valid and safe HTTP(S) URL.",
+      400,
+      { seed },
+    );
+  }
+
+  const maxDepth = parseBoundedInteger(
+    body.max_depth,
+    "max_depth",
+    2,
+    0,
+    MAX_DEEPCRAWL_DEPTH,
+  );
+  const maxPages = parseBoundedInteger(
+    body.max_pages,
+    "max_pages",
+    20,
+    1,
+    MAX_DEEPCRAWL_PAGES,
+  );
+
+  const strategy = body.strategy || "bfs";
+  if (strategy !== "bfs" && strategy !== "best_first") {
+    throw new DeepCrawlRequestError("strategy must be one of: bfs, best_first.");
+  }
+
+  const includeExternal = parseOptionalBoolean(
+    body.include_external,
+    "include_external",
+    false,
+  );
+  const stream = parseOptionalBoolean(body.stream, "stream", false);
+
+  const filters = body.filters && typeof body.filters === "object"
+    ? body.filters
+    : {};
+  const urlPatterns = parseStringList(
+    filters.url_patterns,
+    "filters.url_patterns",
+    MAX_DEEPCRAWL_LIST_ITEMS,
+  );
+  const allowDomains = parseStringList(
+    filters.allow_domains,
+    "filters.allow_domains",
+    MAX_DEEPCRAWL_LIST_ITEMS,
+  );
+  const blockDomains = parseStringList(
+    filters.block_domains,
+    "filters.block_domains",
+    MAX_DEEPCRAWL_LIST_ITEMS,
+  );
+  const contentTypes = parseStringList(
+    filters.content_types,
+    "filters.content_types",
+    MAX_DEEPCRAWL_LIST_ITEMS,
+  );
+
+  const scorer = body.scorer && typeof body.scorer === "object"
+    ? body.scorer
+    : {};
+  const keywords = parseStringList(
+    scorer.keywords,
+    "scorer.keywords",
+    MAX_DEEPCRAWL_KEYWORDS,
+  );
+  const keywordWeight = scorer.weight === undefined
+    ? 1
+    : (() => {
+      if (typeof scorer.weight !== "number" || !Number.isFinite(scorer.weight)) {
+        throw new DeepCrawlRequestError("scorer.weight must be a finite number.");
+      }
+      return scorer.weight;
+    })();
+  const scoreThreshold = scorer.score_threshold === undefined
+    ? Number.NEGATIVE_INFINITY
+    : (() => {
+      if (
+        typeof scorer.score_threshold !== "number" ||
+        !Number.isFinite(scorer.score_threshold)
+      ) {
+        throw new DeepCrawlRequestError("scorer.score_threshold must be a finite number.");
+      }
+      return scorer.score_threshold;
+    })();
+
+  const output = body.output && typeof body.output === "object"
+    ? body.output
+    : {};
+  const includeMarkdown = parseOptionalBoolean(
+    output.include_markdown,
+    "output.include_markdown",
+    false,
+  );
+
+  const fetchOptions = body.fetch && typeof body.fetch === "object"
+    ? body.fetch
+    : {};
+  const selector = typeof fetchOptions.selector === "string"
+    ? fetchOptions.selector
+    : undefined;
+  if (selector && selector.length > MAX_SELECTOR_LENGTH) {
+    throw new DeepCrawlRequestError(
+      `fetch.selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
+    );
+  }
+  const forceBrowser = parseOptionalBoolean(
+    fetchOptions.force_browser,
+    "fetch.force_browser",
+    false,
+  );
+  const noCache = parseOptionalBoolean(fetchOptions.no_cache, "fetch.no_cache", false);
+
+  const checkpoint = body.checkpoint && typeof body.checkpoint === "object"
+    ? body.checkpoint
+    : {};
+  const resume = parseOptionalBoolean(checkpoint.resume, "checkpoint.resume", false);
+  const providedCrawlId = typeof checkpoint.crawl_id === "string"
+    ? checkpoint.crawl_id.trim()
+    : "";
+  if (providedCrawlId && providedCrawlId.length > 128) {
+    throw new DeepCrawlRequestError("checkpoint.crawl_id is too long (max 128 characters).");
+  }
+  if (resume && !providedCrawlId) {
+    throw new DeepCrawlRequestError(
+      "checkpoint.crawl_id is required when checkpoint.resume is true.",
+    );
+  }
+
+  const snapshotInterval = parseBoundedInteger(
+    checkpoint.snapshot_interval,
+    "checkpoint.snapshot_interval",
+    DEEPCRAWL_DEFAULT_CHECKPOINT_EVERY,
+    1,
+    100,
+  );
+  const checkpointTtlSeconds = parseBoundedInteger(
+    checkpoint.ttl_seconds,
+    "checkpoint.ttl_seconds",
+    DEEPCRAWL_DEFAULT_CHECKPOINT_TTL_SECONDS,
+    60,
+    86_400 * 30,
+  );
+  const crawlId = providedCrawlId || crypto.randomUUID();
+
+  return {
+    seed,
+    maxDepth,
+    maxPages,
+    strategy,
+    includeExternal,
+    stream,
+    urlPatterns,
+    allowDomains,
+    blockDomains,
+    contentTypes,
+    keywords,
+    keywordWeight,
+    scoreThreshold,
+    includeMarkdown,
+    selector,
+    forceBrowser,
+    noCache,
+    crawlId,
+    resume,
+    snapshotInterval,
+    checkpointTtlSeconds,
+  };
+}
+
+function buildDeepCrawlFilterChain(payload: DeepCrawlNormalizedPayload): FilterChain {
+  let chain = new FilterChain();
+
+  // Enforce base URL safety for discovered links.
+  chain = chain.add(async (url) => isValidUrl(url) && isSafeUrl(url));
+
+  if (payload.urlPatterns.length > 0) {
+    chain = chain.add(createUrlPatternFilter(payload.urlPatterns));
+  }
+  if (payload.allowDomains.length > 0 || payload.blockDomains.length > 0) {
+    chain = chain.add(createDomainFilter(payload.allowDomains, payload.blockDomains));
+  }
+  if (payload.contentTypes.length > 0) {
+    chain = chain.add(createContentTypeFilter(payload.contentTypes));
+  }
+  return chain;
+}
+
+function buildDeepCrawlScorer(payload: DeepCrawlNormalizedPayload): CompositeUrlScorer | undefined {
+  if (payload.keywords.length === 0) return undefined;
+  return new CompositeUrlScorer([
+    new KeywordUrlScorer(payload.keywords, payload.keywordWeight),
+  ]);
+}
+
+async function loadDeepCrawlCheckpoint(
+  env: Env,
+  crawlId: string,
+): Promise<DeepCrawlCheckpointRecord | null> {
+  const raw = await env.CACHE_KV.get(deepCrawlCheckpointKey(crawlId), "text");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<DeepCrawlCheckpointRecord>;
+    if (!parsed || typeof parsed !== "object" || !parsed.state) return null;
+    const state = parsed.state as DeepCrawlStateSnapshot;
+    if (
+      !Array.isArray(state.frontier) ||
+      !Array.isArray(state.visited) ||
+      !Array.isArray(state.results)
+    ) {
+      return null;
+    }
+    return {
+      version: Number(parsed.version) || 1,
+      crawlId: typeof parsed.crawlId === "string" ? parsed.crawlId : crawlId,
+      seed: typeof parsed.seed === "string" ? parsed.seed : "",
+      strategy: parsed.strategy === "best_first" ? "best_first" : "bfs",
+      maxDepth: Number(parsed.maxDepth) || 0,
+      maxPages: Number(parsed.maxPages) || 0,
+      includeExternal: !!parsed.includeExternal,
+      state,
+      updatedAt: typeof parsed.updatedAt === "string"
+        ? parsed.updatedAt
+        : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function persistDeepCrawlCheckpoint(
+  env: Env,
+  payload: DeepCrawlNormalizedPayload,
+  state: DeepCrawlStateSnapshot,
+): Promise<void> {
+  const record: DeepCrawlCheckpointRecord = {
+    version: 1,
+    crawlId: payload.crawlId,
+    seed: payload.seed,
+    strategy: payload.strategy,
+    maxDepth: payload.maxDepth,
+    maxPages: payload.maxPages,
+    includeExternal: payload.includeExternal,
+    state,
+    updatedAt: new Date().toISOString(),
+  };
+  await env.CACHE_KV.put(
+    deepCrawlCheckpointKey(payload.crawlId),
+    JSON.stringify(record),
+    { expirationTtl: payload.checkpointTtlSeconds },
+  );
+}
+
+interface DeepCrawlExecutionResult {
+  crawlId: string;
+  resumed: boolean;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  results: DeepCrawlNode[];
+  stats: {
+    crawledPages: number;
+    succeededPages: number;
+    failedPages: number;
+    enqueuedPages: number;
+    visitedPages: number;
+  };
+}
+
+async function executeDeepCrawl(
+  env: Env,
+  host: string,
+  payload: DeepCrawlNormalizedPayload,
+  signal: AbortSignal | undefined,
+  onNode?: (node: DeepCrawlNode) => Promise<void>,
+): Promise<DeepCrawlExecutionResult> {
+  let initialState: DeepCrawlStateSnapshot | undefined;
+  let resumed = false;
+
+  if (payload.resume) {
+    const checkpoint = await loadDeepCrawlCheckpoint(env, payload.crawlId);
+    if (!checkpoint) {
+      throw new DeepCrawlRequestError("checkpoint.crawl_id not found.", 404);
+    }
+    if (checkpoint.seed && checkpoint.seed !== payload.seed) {
+      throw new DeepCrawlRequestError(
+        "checkpoint seed does not match current request seed.",
+        409,
+      );
+    }
+    if (checkpoint.strategy !== payload.strategy) {
+      throw new DeepCrawlRequestError(
+        "checkpoint strategy does not match current request strategy.",
+        409,
+      );
+    }
+    initialState = checkpoint.state;
+    resumed = true;
+  }
+
+  const startedAtMs = Date.now();
+  const startedAtIso = new Date(startedAtMs).toISOString();
+
+  const options: DeepCrawlOptions = {
+    maxDepth: payload.maxDepth,
+    maxPages: payload.maxPages,
+    includeExternal: payload.includeExternal,
+    filterChain: buildDeepCrawlFilterChain(payload),
+    urlScorer: buildDeepCrawlScorer(payload),
+    scoreThreshold: payload.scoreThreshold,
+    signal,
+    ...(initialState ? { initialState } : {}),
+    checkpointEvery: payload.snapshotInterval,
+    onCheckpoint: async (state) => {
+      try {
+        await persistDeepCrawlCheckpoint(env, payload, state);
+      } catch (error) {
+        console.warn("deepcrawl.checkpoint_failed", {
+          crawlId: payload.crawlId,
+          error: errorMessage(error),
+        });
+      }
+    },
+    onResult: async (node) => {
+      if (onNode) await onNode(node);
+    },
+  };
+
+  const fetchPage = async (
+    url: string,
+    context: { depth: number; parentUrl?: string; signal?: AbortSignal },
+  ) => {
+    if (!isValidUrl(url) || !isSafeUrl(url)) {
+      throw new Error("Invalid or blocked URL.");
+    }
+
+    const converted = await convertUrl(
+      url,
+      env,
+      host,
+      "html",
+      payload.selector,
+      payload.forceBrowser,
+      payload.noCache,
+      undefined,
+      context.signal,
+    );
+
+    let markdown: string | undefined;
+    if (payload.includeMarkdown) {
+      const md = htmlToMarkdown(
+        converted.content,
+        url,
+        payload.selector,
+      );
+      markdown = md.markdown;
+    }
+
+    return {
+      url,
+      html: converted.content,
+      markdown,
+      title: converted.title,
+      method: converted.method,
+      contentType: "text/html",
+    };
+  };
+
+  const crawlResult = payload.strategy === "best_first"
+    ? await runBestFirstDeepCrawl(payload.seed, fetchPage, options)
+    : await runBfsDeepCrawl(payload.seed, fetchPage, options);
+
+  incrementCounter("conversionsTotal", crawlResult.stats.succeededPages);
+  incrementCounter("conversionFailures", crawlResult.stats.failedPages);
+
+  const finishedAtMs = Date.now();
+  const finishedAtIso = new Date(finishedAtMs).toISOString();
+  return {
+    crawlId: payload.crawlId,
+    resumed,
+    startedAt: startedAtIso,
+    finishedAt: finishedAtIso,
+    durationMs: Math.max(0, finishedAtMs - startedAtMs),
+    results: crawlResult.results,
+    stats: crawlResult.stats,
+  };
+}
+
+async function handleDeepCrawl(
+  request: Request,
+  env: Env,
+  host: string,
+): Promise<Response> {
+  const authError = await authorizeApiTokenRequest(request, env);
+  if (authError) return authError;
+
+  const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
+  if (contentLength > DEEPCRAWL_BODY_MAX_BYTES) {
+    return Response.json(
+      {
+        error: "Request too large",
+        message: `Maximum body size is ${DEEPCRAWL_BODY_MAX_BYTES} bytes`,
+      },
+      { status: 413, headers: CORS_HEADERS },
+    );
+  }
+
+  let body: unknown;
+  try {
+    const bodyBytes = await readBodyWithLimit(
+      request.body,
+      DEEPCRAWL_BODY_MAX_BYTES,
+      `Maximum body size is ${DEEPCRAWL_BODY_MAX_BYTES} bytes`,
+      request.signal,
+    );
+    body = JSON.parse(new TextDecoder().decode(bodyBytes));
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return Response.json(
+        {
+          error: "Request too large",
+          message: `Maximum body size is ${DEEPCRAWL_BODY_MAX_BYTES} bytes`,
+        },
+        { status: 413, headers: CORS_HEADERS },
+      );
+    }
+    return Response.json(
+      {
+        error: "Invalid request body",
+        message: "Body must be valid JSON.",
+      },
+      { status: 400, headers: CORS_HEADERS },
+    );
+  }
+
+  let payload: DeepCrawlNormalizedPayload;
+  try {
+    payload = normalizeDeepCrawlPayload(body);
+  } catch (error) {
+    if (error instanceof DeepCrawlRequestError) {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: error.message,
+          ...(error.details ? { details: error.details } : {}),
+        },
+        { status: error.statusCode, headers: CORS_HEADERS },
+      );
+    }
+    return Response.json(
+      {
+        error: "Invalid request",
+        message: "Request payload validation failed.",
+      },
+      { status: 400, headers: CORS_HEADERS },
+    );
+  }
+
+  if (payload.stream) {
+    return sseResponse(async (send, streamSignal) => {
+      try {
+        await send("start", {
+          crawlId: payload.crawlId,
+          seed: payload.seed,
+          strategy: payload.strategy,
+          maxDepth: payload.maxDepth,
+          maxPages: payload.maxPages,
+          resumed: payload.resume,
+        });
+
+        const result = await executeDeepCrawl(
+          env,
+          host,
+          payload,
+          streamSignal,
+          async (node) => {
+            await send("node", node);
+          },
+        );
+
+        await send("done", {
+          crawlId: result.crawlId,
+          resumed: result.resumed,
+          startedAt: result.startedAt,
+          finishedAt: result.finishedAt,
+          durationMs: result.durationMs,
+          stats: result.stats,
+          resultCount: result.results.length,
+        });
+        logMetric("deepcrawl.completed", {
+          crawlId: result.crawlId,
+          strategy: payload.strategy,
+          stream: true,
+          resumed: result.resumed,
+          crawled: result.stats.crawledPages,
+          failed: result.stats.failedPages,
+          durationMs: result.durationMs,
+        });
+      } catch (error) {
+        if (streamSignal.aborted || error instanceof RequestAbortedError) return;
+        if (error instanceof DeepCrawlRequestError) {
+          await send("fail", {
+            title: "Invalid request",
+            message: error.message,
+            status: error.statusCode,
+          });
+          return;
+        }
+        console.error("deepcrawl.stream_failed", {
+          crawlId: payload.crawlId,
+          error: errorMessage(error),
+        });
+        await send("fail", {
+          title: "Deep crawl failed",
+          message: "Failed to execute deep crawl.",
+          status: 500,
+        });
+      }
+    }, request.signal);
+  }
+
+  try {
+    const result = await executeDeepCrawl(
+      env,
+      host,
+      payload,
+      request.signal,
+    );
+    logMetric("deepcrawl.completed", {
+      crawlId: result.crawlId,
+      strategy: payload.strategy,
+      stream: false,
+      resumed: result.resumed,
+      crawled: result.stats.crawledPages,
+      failed: result.stats.failedPages,
+      durationMs: result.durationMs,
+    });
+    return Response.json(
+      {
+        crawlId: result.crawlId,
+        seed: payload.seed,
+        strategy: payload.strategy,
+        resumed: result.resumed,
+        startedAt: result.startedAt,
+        finishedAt: result.finishedAt,
+        durationMs: result.durationMs,
+        stats: result.stats,
+        results: result.results,
+      },
+      { headers: CORS_HEADERS },
+    );
+  } catch (error) {
+    if (error instanceof DeepCrawlRequestError) {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: error.message,
+          ...(error.details ? { details: error.details } : {}),
+        },
+        { status: error.statusCode, headers: CORS_HEADERS },
+      );
+    }
+    console.error("deepcrawl.failed", {
+      crawlId: payload.crawlId,
+      error: errorMessage(error),
+    });
+    return Response.json(
+      {
+        error: "Deep crawl failed",
+        message: "Failed to execute deep crawl.",
+      },
+      { status: 500, headers: CORS_HEADERS },
+    );
+  }
+}
+
+// ─── Jobs handler ────────────────────────────────────────────
+
+type StoredJobRecord = JobRecord;
+
+const TERMINAL_JOB_STATUSES = new Set(["succeeded", "failed", "canceled"]);
+
+async function authorizeApiTokenRequest(
+  request: Request,
+  env: Env,
+): Promise<Response | null> {
+  if (!env.API_TOKEN) {
+    return Response.json(
+      {
+        error: "Service misconfigured",
+        message: "API_TOKEN not set",
+      },
+      { status: 503, headers: CORS_HEADERS },
+    );
+  }
+
+  const auth = request.headers.get("Authorization") || "";
+  if (!auth.startsWith("Bearer ") || !(await timingSafeEqual(auth.slice(7), env.API_TOKEN))) {
+    return Response.json(
+      {
+        error: "Unauthorized",
+        message: "Valid Bearer token required",
+      },
+      { status: 401, headers: CORS_HEADERS },
+    );
+  }
+  return null;
+}
+
+async function loadStoredJobRecord(env: Env, jobId: string): Promise<StoredJobRecord | null> {
+  const raw = await env.CACHE_KV.get(jobStorageKey(jobId), "text");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as StoredJobRecord;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeJob(job: StoredJobRecord): Record<string, unknown> {
+  return {
+    jobId: job.id,
+    type: job.type,
+    status: job.status,
+    totalTasks: job.totalTasks,
+    succeededTasks: job.succeededTasks ?? 0,
+    failedTasks: job.failedTasks ?? 0,
+    queuedTasks: job.queuedTasks ?? 0,
+    runningTasks: job.runningTasks ?? 0,
+    canceledTasks: job.canceledTasks ?? 0,
+    priority: job.priority ?? 10,
+    maxRetries: job.maxRetries ?? 2,
+    retryCount: job.retryCount ?? 0,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+type JobPathAction = "status" | "stream" | "run";
+
+function parseJobPath(path: string): { id: string; action: JobPathAction } | null {
+  const parts = path.split("/").filter(Boolean);
+  // /api/jobs/:id or /api/jobs/:id/stream or /api/jobs/:id/run
+  if (parts.length !== 3 && parts.length !== 4) return null;
+  if (parts[0] !== "api" || parts[1] !== "jobs") return null;
+  const id = parts[2];
+  if (!id) return null;
+  if (parts.length === 3) return { id, action: "status" };
+  if (parts[3] === "stream") return { id, action: "stream" };
+  if (parts[3] === "run") return { id, action: "run" };
+  return null;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    if (signal.aborted) {
+      clearTimeout(timer);
+      reject(new RequestAbortedError());
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new RequestAbortedError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function handleGetJob(
+  request: Request,
+  env: Env,
+  jobId: string,
+): Promise<Response> {
+  const authError = await authorizeApiTokenRequest(request, env);
+  if (authError) return authError;
+
+  const job = await loadStoredJobRecord(env, jobId);
+  if (!job) {
+    return Response.json(
+      { error: "Not Found", message: "Job not found." },
+      { status: 404, headers: CORS_HEADERS },
+    );
+  }
+  return Response.json(summarizeJob(job), { headers: CORS_HEADERS });
+}
+
+async function handleGetJobStream(
+  request: Request,
+  env: Env,
+  jobId: string,
+): Promise<Response> {
+  const authError = await authorizeApiTokenRequest(request, env);
+  if (authError) return authError;
+
+  return sseResponse(async (send, signal) => {
+    const startedAt = Date.now();
+    let lastSent = "";
+
+    while (!signal.aborted) {
+      const job = await loadStoredJobRecord(env, jobId);
+      if (!job) {
+        await send("fail", { title: "Not Found", message: "Job not found.", status: 404 });
+        return;
+      }
+      const summary = summarizeJob(job);
+      const serialized = JSON.stringify(summary);
+      if (serialized !== lastSent) {
+        await send("status", summary);
+        lastSent = serialized;
+      }
+
+      if (TERMINAL_JOB_STATUSES.has(job.status)) {
+        await send("done", summary);
+        return;
+      }
+
+      if (Date.now() - startedAt > 60_000) {
+        await send("timeout", {
+          message: "Stream timeout reached. Reconnect to continue monitoring.",
+        });
+        return;
+      }
+
+      await sleep(1000, signal);
+    }
+  }, request.signal);
+}
+
+function recalculateJobCounters(job: JobRecord): void {
+  let succeeded = 0;
+  let failed = 0;
+  let queued = 0;
+  let running = 0;
+  let canceled = 0;
+
+  for (const task of job.tasks) {
+    if (task.status === "succeeded") succeeded += 1;
+    else if (task.status === "failed") failed += 1;
+    else if (task.status === "queued") queued += 1;
+    else if (task.status === "running") running += 1;
+    else if (task.status === "canceled") canceled += 1;
+  }
+
+  job.succeededTasks = succeeded;
+  job.failedTasks = failed;
+  job.queuedTasks = queued;
+  job.runningTasks = running;
+  job.canceledTasks = canceled;
+
+  if (running > 0) {
+    job.status = "running";
+  } else if (succeeded === job.totalTasks) {
+    job.status = "succeeded";
+  } else if (failed > 0 && queued === 0) {
+    job.status = "failed";
+  } else if (canceled === job.totalTasks) {
+    job.status = "canceled";
+  } else {
+    job.status = "queued";
+  }
+}
+
+function normalizeTaskResultForStorage(result: unknown): unknown {
+  const raw = JSON.stringify(result ?? null);
+  const bytes = new TextEncoder().encode(raw).byteLength;
+  if (bytes <= 16_000) return result;
+  return {
+    truncated: true,
+    bytes,
+  };
+}
+
+async function handleRunJob(
+  request: Request,
+  env: Env,
+  host: string,
+  jobId: string,
+): Promise<Response> {
+  const authError = await authorizeApiTokenRequest(request, env);
+  if (authError) return authError;
+
+  const job = await loadStoredJobRecord(env, jobId);
+  if (!job) {
+    return Response.json(
+      { error: "Not Found", message: "Job not found." },
+      { status: 404, headers: CORS_HEADERS },
+    );
+  }
+
+  if (job.status === "running") {
+    return Response.json(
+      { error: "Conflict", message: "Job is already running." },
+      { status: 409, headers: CORS_HEADERS },
+    );
+  }
+
+  const runnableTaskIds = new Set(
+    job.tasks
+      .filter((task) => task.status === "queued" || task.status === "failed")
+      .map((task) => task.id),
+  );
+  if (runnableTaskIds.size === 0) {
+    return Response.json(
+      {
+        ...summarizeJob(job),
+        executedTasks: 0,
+      },
+      { headers: CORS_HEADERS },
+    );
+  }
+
+  for (const task of job.tasks) {
+    if (runnableTaskIds.has(task.id)) {
+      task.status = "running";
+      task.updatedAt = new Date().toISOString();
+    }
+  }
+  recalculateJobCounters(job);
+  job.updatedAt = new Date().toISOString();
+  await env.CACHE_KV.put(
+    jobStorageKey(job.id),
+    JSON.stringify(job),
+    { expirationTtl: IDEMPOTENCY_TTL_SECONDS * 30 },
+  );
+
+  const runnableTasks = job.tasks.filter((task) => runnableTaskIds.has(task.id));
+  const results = await runTasksWithControls(
+    runnableTasks.map((task) => ({
+      id: task.id,
+      input: task,
+      url: task.url,
+      retryCount: task.retryCount,
+    })),
+    async (runnerTask) => {
+      const task = runnerTask.input as JobTaskRecord;
+
+      if (job.type === "crawl") {
+        const crawlInput = task.input as any;
+        const targetUrl = typeof crawlInput === "string" ? crawlInput : crawlInput?.url;
+        if (typeof targetUrl !== "string" || !isValidUrl(targetUrl) || !isSafeUrl(targetUrl)) {
+          return {
+            success: false,
+            statusCode: 400,
+            error: "Invalid or blocked URL",
+          };
+        }
+
+        const format = (typeof crawlInput === "object" && crawlInput?.format) || "markdown";
+        const selector = typeof crawlInput === "object" ? crawlInput?.selector : undefined;
+        const forceBrowser = !!(typeof crawlInput === "object" && crawlInput?.force_browser);
+        const noCache = !!(typeof crawlInput === "object" && crawlInput?.no_cache);
+
+        try {
+          const converted = await convertUrl(
+            targetUrl,
+            env,
+            host,
+            VALID_FORMATS.has(format) ? format : "markdown",
+            typeof selector === "string" ? selector : undefined,
+            forceBrowser,
+            noCache,
+            undefined,
+            request.signal,
+          );
+          return {
+            success: true,
+            result: {
+              method: converted.method,
+              cached: converted.cached,
+              title: converted.title,
+              fallbacks: converted.diagnostics.fallbacks,
+            },
+          };
+        } catch (error) {
+          if (error instanceof ConvertError) {
+            return {
+              success: false,
+              statusCode: error.statusCode,
+              error: error.message,
+            };
+          }
+          return {
+            success: false,
+            error: errorMessage(error),
+          };
+        }
+      }
+
+      const normalized = normalizeExtractItem(task.input);
+      if (normalized.error) {
+        return {
+          success: false,
+          statusCode: 400,
+          error: normalized.error.message,
+        };
+      }
+      const item = normalized.item!;
+      let html = item.html || "";
+
+      try {
+        if (!html) {
+          const converted = await convertUrl(
+            item.url || "",
+            env,
+            host,
+            "html",
+            item.selector,
+            item.forceBrowser,
+            item.noCache,
+            undefined,
+            request.signal,
+          );
+          html = converted.content;
+        }
+        const extracted = extractWithStrategy(
+          item.strategy,
+          html,
+          item.schema,
+          item.options,
+          item.selector,
+        );
+        return {
+          success: true,
+          result: {
+            strategy: extracted.strategy,
+            meta: extracted.meta,
+            data: extracted.data,
+          },
+        };
+      } catch (error) {
+        if (error instanceof ExtractionStrategyError) {
+          return {
+            success: false,
+            statusCode: 400,
+            error: error.message,
+          };
+        }
+        if (error instanceof ConvertError) {
+          return {
+            success: false,
+            statusCode: error.statusCode,
+            error: error.message,
+          };
+        }
+        return {
+          success: false,
+          error: errorMessage(error),
+        };
+      }
+    },
+    {
+      concurrency: BROWSER_CONCURRENCY,
+      maxRetries: job.maxRetries,
+      baseDelayMs: 500,
+      maxDelayMs: 30_000,
+      rateLimitStatusCodes: [429, 503],
+      signal: request.signal,
+    },
+  );
+
+  const resultById = new Map(results.map((item) => [item.id, item]));
+  for (const task of job.tasks) {
+    const outcome = resultById.get(task.id);
+    if (!outcome) continue;
+    task.retryCount = Math.max(task.retryCount, Math.max(0, outcome.attempts - 1));
+    task.status = outcome.success ? "succeeded" : "failed";
+    task.error = outcome.success ? undefined : outcome.error || "Task failed";
+    if (outcome.success) {
+      task.result = normalizeTaskResultForStorage(outcome.result);
+    }
+    task.updatedAt = new Date().toISOString();
+  }
+
+  recalculateJobCounters(job);
+  job.updatedAt = new Date().toISOString();
+  await env.CACHE_KV.put(
+    jobStorageKey(job.id),
+    JSON.stringify(job),
+    { expirationTtl: IDEMPOTENCY_TTL_SECONDS * 30 },
+  );
+
+  const failedInRun = results.filter((item) => !item.success).length;
+  logMetric("jobs.run_completed", {
+    jobId: job.id,
+    type: job.type,
+    executedTasks: results.length,
+    failedTasksInRun: failedInRun,
+    status: job.status,
+  });
+
+  return Response.json(
+    {
+      ...summarizeJob(job),
+      executedTasks: results.length,
+      failedTasksInRun: failedInRun,
+    },
+    { headers: CORS_HEADERS },
+  );
+}
+
+async function handleJobs(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const authError = await authorizeApiTokenRequest(request, env);
+  if (authError) return authError;
+
+  const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
+  if (contentLength > JOBS_BODY_MAX_BYTES) {
+    return Response.json(
+      {
+        error: "Request too large",
+        message: `Maximum body size is ${JOBS_BODY_MAX_BYTES} bytes`,
+      },
+      { status: 413, headers: CORS_HEADERS },
+    );
+  }
+
+  let body: unknown;
+  try {
+    const bodyBytes = await readBodyWithLimit(
+      request.body,
+      JOBS_BODY_MAX_BYTES,
+      `Maximum body size is ${JOBS_BODY_MAX_BYTES} bytes`,
+      request.signal,
+    );
+    body = JSON.parse(new TextDecoder().decode(bodyBytes));
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return Response.json(
+        {
+          error: "Request too large",
+          message: `Maximum body size is ${JOBS_BODY_MAX_BYTES} bytes`,
+        },
+        { status: 413, headers: CORS_HEADERS },
+      );
+    }
+    return Response.json(
+      {
+        error: "Invalid request body",
+        message: "Body must be valid JSON.",
+      },
+      { status: 400, headers: CORS_HEADERS },
+    );
+  }
+
+  const validated = validateJobCreatePayload(body);
+  if (validated.error) {
+    return Response.json(
+      {
+        error: validated.error.code,
+        message: validated.error.message,
+        ...(validated.error.details ? { details: validated.error.details } : {}),
+      },
+      { status: 400, headers: CORS_HEADERS },
+    );
+  }
+
+  const idempotencyKey = request.headers.get("Idempotency-Key")?.trim();
+  if (idempotencyKey) {
+    try {
+      const existingJobId = await env.CACHE_KV.get(jobIdempotencyKey(idempotencyKey), "text");
+      if (existingJobId) {
+        const existingRaw = await env.CACHE_KV.get(jobStorageKey(existingJobId), "text");
+        if (existingRaw) {
+          const existing = JSON.parse(existingRaw) as {
+            id: string;
+            type: string;
+            status: string;
+            totalTasks: number;
+            createdAt: string;
+            updatedAt: string;
+          };
+          return Response.json(
+            {
+              jobId: existing.id,
+              type: existing.type,
+              status: existing.status,
+              totalTasks: existing.totalTasks,
+              createdAt: existing.createdAt,
+              updatedAt: existing.updatedAt,
+              idempotent: true,
+            },
+            { status: 200, headers: CORS_HEADERS },
+          );
+        }
+      }
+    } catch {
+      // Fall through and create a new job if idempotency lookup fails.
+    }
+  }
+
+  const job = buildJobRecord(validated.payload!);
+  try {
+    await env.CACHE_KV.put(
+      jobStorageKey(job.id),
+      JSON.stringify(job),
+      { expirationTtl: IDEMPOTENCY_TTL_SECONDS * 30 },
+    );
+    if (idempotencyKey) {
+      await env.CACHE_KV.put(
+        jobIdempotencyKey(idempotencyKey),
+        job.id,
+        { expirationTtl: IDEMPOTENCY_TTL_SECONDS },
+      );
+    }
+  } catch (error) {
+    console.error("Failed to persist job:", errorMessage(error));
+    return Response.json(
+      {
+        error: "Storage error",
+        message: "Failed to persist job.",
+      },
+      { status: 500, headers: CORS_HEADERS },
+    );
+  }
+
+  logMetric("jobs.created", {
+    jobId: job.id,
+    type: job.type,
+    totalTasks: job.totalTasks,
+    priority: job.priority,
+    idempotency: !!idempotencyKey,
+  });
+
+  return Response.json(
+    {
+      jobId: job.id,
+      type: job.type,
+      status: job.status,
+      totalTasks: job.totalTasks,
+      priority: job.priority,
+      maxRetries: job.maxRetries,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      idempotent: false,
+    },
+    { status: 202, headers: CORS_HEADERS },
   );
 }
 

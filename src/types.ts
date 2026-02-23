@@ -22,6 +22,94 @@ export interface ExtractResult {
   images?: string[];
 }
 
+export type ExtractionStrategyType = "css" | "xpath" | "regex";
+export type ExtractionFieldType = "text" | "html" | "attribute";
+
+export type ExtractionErrorCode =
+  | "INVALID_REQUEST"
+  | "INVALID_SCHEMA"
+  | "INVALID_URL"
+  | "UNSUPPORTED_STRATEGY"
+  | "UNSUPPORTED_XPATH"
+  | "EXTRACTION_TIMEOUT"
+  | "EXTRACTION_FAILED"
+  | "UPSTREAM_FETCH_FAILED";
+
+export interface ExtractionError {
+  code: ExtractionErrorCode;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ExtractionFieldSchema {
+  name: string;
+  selector?: string;
+  xpath?: string;
+  type?: ExtractionFieldType;
+  attribute?: string;
+  multiple?: boolean;
+  required?: boolean;
+}
+
+export interface StructuredExtractionSchema {
+  name?: string;
+  baseSelector?: string;
+  baseXPath?: string;
+  fields: ExtractionFieldSchema[];
+}
+
+export interface RegexExtractionSchema {
+  patterns: Record<string, string>;
+  flags?: string;
+}
+
+export type ExtractionSchema =
+  | StructuredExtractionSchema
+  | RegexExtractionSchema
+  | Record<string, string>;
+
+export interface ExtractionOptions {
+  dedupe?: boolean;
+  includeEmpty?: boolean;
+  regexFlags?: string;
+}
+
+export interface ExtractionRequestInput {
+  url?: string;
+  html?: string;
+}
+
+export interface ExtractionRequestItem {
+  strategy: ExtractionStrategyType;
+  input?: ExtractionRequestInput;
+  url?: string;
+  html?: string;
+  schema: ExtractionSchema;
+  selector?: string;
+  force_browser?: boolean;
+  no_cache?: boolean;
+  include_markdown?: boolean;
+  options?: ExtractionOptions;
+}
+
+export interface ExtractionBatchRequest {
+  items: ExtractionRequestItem[];
+}
+
+export interface ExtractionResultMeta {
+  itemCount: number;
+  matches: number;
+  durationMs: number;
+}
+
+export interface ExtractionResult {
+  success: boolean;
+  strategy: ExtractionStrategyType;
+  data: unknown;
+  meta: ExtractionResultMeta;
+  error?: ExtractionError;
+}
+
 export interface SiteAdapter {
   /** Return true if this adapter handles the given URL. */
   match(url: string): boolean;
