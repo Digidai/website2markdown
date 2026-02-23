@@ -83,6 +83,7 @@ const EXTRACT_TASK_ALLOWED_KEYS = new Set([
   "no_cache",
   "include_markdown",
 ]);
+const EXTRACT_TASK_STRATEGIES = new Set(["css", "xpath", "regex"]);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -288,6 +289,15 @@ export function validateJobCreatePayload(input: unknown): {
           error: {
             code: "INVALID_REQUEST",
             message: "extract task must include strategy.",
+            details: { index: i },
+          },
+        };
+      }
+      if (!EXTRACT_TASK_STRATEGIES.has(task.strategy)) {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "extract task strategy must be one of: css, xpath, regex.",
             details: { index: i },
           },
         };

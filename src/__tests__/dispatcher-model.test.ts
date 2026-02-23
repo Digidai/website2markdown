@@ -95,6 +95,23 @@ describe("dispatcher model", () => {
     expect(parsed.error?.message).toContain("unsupported field");
   });
 
+  it("rejects unsupported extract strategies", () => {
+    const parsed = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "llm",
+          url: "https://example.com/article",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+        },
+      ],
+    });
+
+    expect(parsed.payload).toBeUndefined();
+    expect(parsed.error?.code).toBe("INVALID_REQUEST");
+    expect(parsed.error?.message).toContain("strategy must be one of");
+  });
+
   it("returns validation error for invalid crawl task options", () => {
     const badFormat = validateJobCreatePayload({
       type: "crawl",
