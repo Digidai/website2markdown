@@ -46,5 +46,38 @@ describe("dispatcher runner", () => {
     expect(results[0].attempts).toBe(1);
     expect(spy).toHaveBeenCalledTimes(1);
   });
-});
 
+  it("returns canceled result when aborted during domain backoff wait", async () => {
+    const controller = new AbortController();
+    const spy = vi.fn(async (task: { id: string }) => {
+      if (task.id === "t1") {
+        return { success: false, statusCode: 429, error: "rate limited" };
+      }
+      return { success: true, result: { ok: true } };
+    });
+
+    const run = runTasksWithControls(
+      [
+        { id: "t1", input: {}, url: "https://example.com/a" },
+        { id: "t2", input: {}, url: "https://example.com/b" },
+      ],
+      spy,
+      {
+        concurrency: 1,
+        maxRetries: 0,
+        baseDelayMs: 100,
+        maxDelayMs: 100,
+        signal: controller.signal,
+      },
+    );
+
+    setTimeout(() => controller.abort(), 10);
+    const results = await run;
+
+    expect(results).toHaveLength(2);
+    expect(results[0].success).toBe(false);
+    expect(results[1].success).toBe(false);
+    expect(results[1].error).toContain("abort");
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+});

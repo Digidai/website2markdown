@@ -144,7 +144,22 @@ export async function runTasksWithControls<TInput>(
       }
 
       attempts += 1;
-      await waitForDomain(domain);
+      try {
+        await waitForDomain(domain);
+      } catch (error) {
+        return {
+          id: task.id,
+          success: false,
+          attempts,
+          statusCode: lastStatusCode,
+          error:
+            signal?.aborted
+              ? "Task canceled by abort signal."
+              : error instanceof Error
+                ? error.message
+                : String(error),
+        };
+      }
 
       let outcome: TaskExecutionOutcome;
       try {
