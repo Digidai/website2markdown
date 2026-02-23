@@ -168,4 +168,26 @@ describe("deepcrawl core", () => {
     expect(result.stats.enqueuedPages).toBe(2);
     expect(result.stats.failedPages).toBe(0);
   });
+
+  it("normalizes invalid frontier depth values from checkpoint state", async () => {
+    const seed = "https://crawl.example.com/start";
+    const fetcher = createGraphFetcher({
+      [seed]: "<html><body>ok</body></html>",
+    });
+
+    const result = await runBfsDeepCrawl(seed, fetcher, {
+      maxDepth: 2,
+      maxPages: 1,
+      initialState: {
+        frontier: [{ url: seed, depth: Number.NaN as unknown as number, score: 0 }],
+        visited: [seed],
+        results: [],
+        enqueuedPages: 1,
+        completed: false,
+      },
+    });
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].depth).toBe(0);
+  });
 });

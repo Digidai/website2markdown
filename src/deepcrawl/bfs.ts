@@ -260,7 +260,10 @@ function normalizeInitialQueue(
   for (const item of frontier) {
     const normalizedUrl = normalizeUrl(item.url);
     if (!normalizedUrl) continue;
-    const depth = Math.max(0, Math.min(maxDepth, Math.floor(item.depth)));
+    const rawDepth = typeof item.depth === "number" && Number.isFinite(item.depth)
+      ? item.depth
+      : 0;
+    const depth = Math.max(0, Math.min(maxDepth, Math.floor(rawDepth)));
     const score = Number.isFinite(item.score) ? item.score : 0;
     normalized.push({
       url: normalizedUrl,
