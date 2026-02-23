@@ -506,15 +506,19 @@ export async function fetchWaybackSnapshot(
   try {
     const apiUrl = `https://archive.org/wayback/available?url=${encodeURIComponent(targetUrl)}`;
     const controller = new AbortController();
+    const onOuterAbort = () => controller.abort();
     const timeout = setTimeout(() => controller.abort(), 5_000);
     if (signal) {
-      signal.addEventListener("abort", () => controller.abort(), { once: true });
+      signal.addEventListener("abort", onOuterAbort, { once: true });
     }
     let apiResp: Response;
     try {
       apiResp = await fetch(apiUrl, { signal: controller.signal });
     } finally {
       clearTimeout(timeout);
+      if (signal) {
+        signal.removeEventListener("abort", onOuterAbort);
+      }
     }
     if (!apiResp.ok) return null;
 
@@ -525,15 +529,19 @@ export async function fetchWaybackSnapshot(
     // Fetch raw content (add id_ suffix to get original HTML)
     const rawUrl = snapshot.url.replace(/\/web\/(\d+)\//, "/web/$1id_/");
     const fetchController = new AbortController();
+    const onOuterAbortFetch = () => fetchController.abort();
     const fetchTimeout = setTimeout(() => fetchController.abort(), 10_000);
     if (signal) {
-      signal.addEventListener("abort", () => fetchController.abort(), { once: true });
+      signal.addEventListener("abort", onOuterAbortFetch, { once: true });
     }
     let htmlResp: Response;
     try {
       htmlResp = await fetch(rawUrl, { signal: fetchController.signal });
     } finally {
       clearTimeout(fetchTimeout);
+      if (signal) {
+        signal.removeEventListener("abort", onOuterAbortFetch);
+      }
     }
     if (!htmlResp.ok) return null;
 
@@ -558,9 +566,10 @@ export async function fetchArchiveToday(
   try {
     const archiveUrl = `https://archive.today/newest/${encodeURIComponent(targetUrl)}`;
     const controller = new AbortController();
+    const onOuterAbort = () => controller.abort();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     if (signal) {
-      signal.addEventListener("abort", () => controller.abort(), { once: true });
+      signal.addEventListener("abort", onOuterAbort, { once: true });
     }
     let resp: Response;
     try {
@@ -570,6 +579,9 @@ export async function fetchArchiveToday(
       });
     } finally {
       clearTimeout(timeout);
+      if (signal) {
+        signal.removeEventListener("abort", onOuterAbort);
+      }
     }
     if (!resp.ok) return null;
 

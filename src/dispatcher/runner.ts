@@ -46,15 +46,32 @@ function parseDomain(url?: string): string {
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
+    let settled = false;
+    let onAbort: (() => void) | undefined;
+    const cleanup = () => {
+      if (signal && onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    }, ms);
     if (!signal) return;
     if (signal.aborted) {
       clearTimeout(timer);
+      settled = true;
+      cleanup();
       reject(new Error("aborted"));
       return;
     }
-    const onAbort = () => {
+    onAbort = () => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
+      cleanup();
       reject(new Error("aborted"));
     };
     signal.addEventListener("abort", onAbort, { once: true });
