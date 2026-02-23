@@ -303,7 +303,8 @@ function initializeState(
   }
 
   const frontier = normalizeInitialQueue(initialState.frontier, maxDepth);
-  const results = cloneResults(initialState.results || []).slice(0, maxPages);
+  const restoredResults = cloneResults(initialState.results || []).slice(0, maxPages);
+  const results: DeepCrawlNode[] = [];
   const visited = new Set<string>();
 
   for (const item of initialState.visited || []) {
@@ -313,10 +314,13 @@ function initializeState(
   for (const item of frontier) {
     visited.add(item.url);
   }
-  for (const item of results) {
+  for (const item of restoredResults) {
     const normalized = normalizeUrl(item.url);
     if (normalized) {
-      item.url = normalized;
+      results.push({
+        ...item,
+        url: normalized,
+      });
       visited.add(normalized);
     }
   }

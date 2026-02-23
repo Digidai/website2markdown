@@ -190,4 +190,41 @@ describe("deepcrawl core", () => {
     expect(result.results).toHaveLength(1);
     expect(result.results[0].depth).toBe(0);
   });
+
+  it("drops invalid URLs from checkpoint result snapshots", async () => {
+    const seed = "https://crawl.example.com/start";
+    const result = await runBfsDeepCrawl(
+      seed,
+      createGraphFetcher({ [seed]: "<html><body>seed</body></html>" }),
+      {
+        maxDepth: 1,
+        maxPages: 5,
+        initialState: {
+          frontier: [],
+          visited: [],
+          results: [
+            {
+              url: "not-a-url",
+              depth: 0,
+              score: 0,
+              success: true,
+              linksDiscovered: 0,
+            },
+            {
+              url: seed,
+              depth: 0,
+              score: 0,
+              success: true,
+              linksDiscovered: 0,
+            },
+          ],
+          enqueuedPages: 2,
+          completed: false,
+        },
+      },
+    );
+
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0].url).toBe(seed);
+  });
 });
