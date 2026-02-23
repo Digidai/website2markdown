@@ -382,6 +382,17 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
     }
     const size = parseInt(sizeToken, 16);
     if (size === 0) {
+      const trailerEnd = lineEnd + 2;
+      if (
+        trailerEnd + 1 >= raw.length ||
+        raw[trailerEnd] !== 13 ||
+        raw[trailerEnd + 1] !== 10
+      ) {
+        throw new Error("Invalid chunked encoding: missing terminating trailer end");
+      }
+      if (trailerEnd + 2 !== raw.length) {
+        throw new Error("Invalid chunked encoding: unexpected bytes after terminating chunk");
+      }
       sawTerminator = true;
       break;
     }

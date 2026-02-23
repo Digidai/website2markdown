@@ -261,6 +261,21 @@ describe("fetchViaProxy", () => {
     ).rejects.toThrow("Invalid chunked encoding: non-hex chunk size");
   });
 
+  it("rejects chunked encoding without final trailer terminator", async () => {
+    const responseText =
+      "HTTP/1.1 200 OK\r\n" +
+      "Transfer-Encoding: chunked\r\n" +
+      "Content-Type: text/html\r\n\r\n" +
+      "5\r\nhello\r\n" +
+      "0\r\n";
+    const mock = createSocketFromRawResponse(responseText);
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    await expect(
+      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+    ).rejects.toThrow("Invalid chunked encoding: missing terminating trailer end");
+  });
+
   it("closes socket resources on malformed proxy response", async () => {
     const malformed = new TextEncoder().encode("HTTP/1.1 200 OK\r\n");
     let sent = false;
