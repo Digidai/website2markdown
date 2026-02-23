@@ -143,4 +143,56 @@ describe("fetchWithSafeRedirects resilience", () => {
       vi.useRealTimers();
     }
   });
+
+  it("allows redirects up to maxHops and then returns final response", async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { Location: "https://example.com/step-1" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await fetchWithSafeRedirects(
+      "https://example.com/start",
+      {},
+      1,
+      { maxRetries: 0, retryDelayMs: 0, maxRetryDelayMs: 0 },
+    );
+
+    expect(result.response.status).toBe(200);
+    expect(result.finalUrl).toBe("https://example.com/step-1");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails when redirects exceed maxHops", async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { Location: "https://example.com/step-1" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { Location: "https://example.com/step-2" },
+        }),
+      );
+    vi.stubGlobal("fetch", mockFetch);
+
+    await expect(
+      fetchWithSafeRedirects(
+        "https://example.com/start",
+        {},
+        1,
+        { maxRetries: 0, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      ),
+    ).rejects.toThrow("Too many redirects");
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
 });

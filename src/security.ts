@@ -445,8 +445,9 @@ export async function fetchWithSafeRedirects(
   let response: Response | null = null;
   const retryable = isIdempotentRequest(init);
   const normalizedRetryOptions = normalizeRetryOptions(retryOptions);
+  const redirectHopLimit = Math.max(0, Math.floor(maxHops));
 
-  for (let hops = 0; hops <= maxHops; hops++) {
+  for (let hops = 0; hops <= redirectHopLimit; hops++) {
     try {
       response = await fetchWithRetry(
         currentUrl,
@@ -464,6 +465,9 @@ export async function fetchWithSafeRedirects(
 
     const location = response.headers.get("Location");
     if (!location) break;
+    if (hops >= redirectHopLimit) {
+      throw new Error(`Too many redirects (max ${redirectHopLimit}).`);
+    }
 
     const nextUrl = new URL(location, currentUrl).href;
     if (!isSafeUrl(nextUrl)) {
