@@ -142,6 +142,50 @@ describe("dispatcher model", () => {
     expect(tooLong.error?.message).toContain("selector is too long");
   });
 
+  it("validates extract task boolean flags", () => {
+    const badForce = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          url: "https://example.com/article",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+          force_browser: "yes",
+        },
+      ],
+    });
+    expect(badForce.error?.code).toBe("INVALID_REQUEST");
+    expect(badForce.error?.message).toContain("force_browser");
+
+    const badNoCache = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          url: "https://example.com/article",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+          no_cache: 1,
+        },
+      ],
+    });
+    expect(badNoCache.error?.code).toBe("INVALID_REQUEST");
+    expect(badNoCache.error?.message).toContain("no_cache");
+
+    const badIncludeMarkdown = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          url: "https://example.com/article",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+          include_markdown: "true",
+        },
+      ],
+    });
+    expect(badIncludeMarkdown.error?.code).toBe("INVALID_REQUEST");
+    expect(badIncludeMarkdown.error?.message).toContain("include_markdown");
+  });
+
   it("returns validation error for invalid crawl task options", () => {
     const badFormat = validateJobCreatePayload({
       type: "crawl",

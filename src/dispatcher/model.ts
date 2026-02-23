@@ -331,6 +331,33 @@ export function validateJobCreatePayload(input: unknown): {
           };
         }
       }
+      if (task.force_browser !== undefined && typeof task.force_browser !== "boolean") {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "extract task force_browser must be a boolean.",
+            details: { index: i },
+          },
+        };
+      }
+      if (task.no_cache !== undefined && typeof task.no_cache !== "boolean") {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "extract task no_cache must be a boolean.",
+            details: { index: i },
+          },
+        };
+      }
+      if (task.include_markdown !== undefined && typeof task.include_markdown !== "boolean") {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "extract task include_markdown must be a boolean.",
+            details: { index: i },
+          },
+        };
+      }
 
       const inputSource = isObject(task.input) ? task.input : {};
       const hasUrl =
