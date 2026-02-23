@@ -83,6 +83,8 @@ describe("parseProxyUrl", () => {
     expect(parseProxyUrl("alice:secret@proxy.example.com:0")).toBeNull();
     expect(parseProxyUrl("alice:secret@proxy.example.com:70000")).toBeNull();
     expect(parseProxyUrl("alice:secret@proxy.example.com:not-a-port")).toBeNull();
+    expect(parseProxyUrl("alice:secret@proxy.example.com:8080abc")).toBeNull();
+    expect(parseProxyUrl("alice:secret@proxy.example.com:+8080")).toBeNull();
   });
 
   it("rejects empty proxy credentials", () => {

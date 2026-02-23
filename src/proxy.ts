@@ -101,6 +101,7 @@ export function parseProxyUrl(raw: string): ProxyConfig | null {
       portStr = hostPort.slice(hostColonIdx + 1);
     }
     if (!host || !portStr) return null;
+    if (!/^\d+$/.test(portStr)) return null;
     const port = parseInt(portStr, 10);
     if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
     return {
