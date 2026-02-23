@@ -343,21 +343,43 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
   const chunks: Uint8Array[] = [];
   let total = 0;
   let pos = 0;
+  let sawTerminator = false;
 
   while (pos < raw.length) {
     const lineEnd = indexOfBytes(raw, new Uint8Array([13, 10]), pos); // \r\n
-    if (lineEnd < 0) break;
+    if (lineEnd < 0) {
+      throw new Error("Invalid chunked encoding: missing chunk size line terminator");
+    }
     const sizeLine = lineDecoder.decode(raw.subarray(pos, lineEnd)).trim();
     const sizeToken = sizeLine.split(";", 1)[0];
     const size = parseInt(sizeToken, 16);
-    if (isNaN(size) || size === 0) break;
+    if (isNaN(size)) {
+      throw new Error("Invalid chunked encoding: non-hex chunk size");
+    }
+    if (size === 0) {
+      sawTerminator = true;
+      break;
+    }
     const chunkStart = lineEnd + 2;
     const chunkEnd = chunkStart + size;
-    if (chunkEnd > raw.length) break;
+    if (chunkEnd > raw.length) {
+      throw new Error("Invalid chunked encoding: truncated chunk body");
+    }
+    if (
+      chunkEnd + 1 >= raw.length ||
+      raw[chunkEnd] !== 13 ||
+      raw[chunkEnd + 1] !== 10
+    ) {
+      throw new Error("Invalid chunked encoding: missing chunk terminator");
+    }
     const chunk = raw.subarray(chunkStart, chunkEnd);
     chunks.push(chunk);
     total += chunk.byteLength;
     pos = chunkEnd + 2; // skip trailing \r\n
+  }
+
+  if (!sawTerminator) {
+    throw new Error("Invalid chunked encoding: missing terminating chunk");
   }
 
   return concatUint8Arrays(chunks, total);
