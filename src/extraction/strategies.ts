@@ -243,7 +243,9 @@ function extractStructured(
   html: string,
   schema: StructuredExtractionSchema,
   requestSelector?: string,
+  options?: ExtractionOptions,
 ): unknown {
+  const includeEmpty = options?.includeEmpty === true;
   const wrapped = html.includes("<html")
     ? html
     : `<html><head></head><body>${html}</body></html>`;
@@ -291,7 +293,8 @@ function extractStructured(
       }
 
       if (field.multiple) {
-        row[field.name] = nodes.map((node) => readFieldValue(node, field)).filter(Boolean);
+        const values = nodes.map((node) => readFieldValue(node, field));
+        row[field.name] = includeEmpty ? values : values.filter(Boolean);
       } else {
         row[field.name] = nodes.length > 0 ? readFieldValue(nodes[0], field) : "";
       }
@@ -409,6 +412,7 @@ function extractRegex(
 ): Record<string, string[]> {
   const result: Record<string, string[]> = {};
   const dedupe = options?.dedupe === true;
+  const includeEmpty = options?.includeEmpty === true;
   const flagsBase = options?.regexFlags || schema.flags || DEFAULT_REGEX_FLAGS;
   const flags = flagsBase.includes("g") ? flagsBase : `${flagsBase}g`;
 
@@ -427,9 +431,11 @@ function extractRegex(
     const hits: string[] = [];
     let match: RegExpExecArray | null;
     while ((match = regex.exec(html)) !== null) {
-      const captured = match.slice(1).find((item) => typeof item === "string" && item.length > 0);
-      const value = normalizeWhitespace((captured || match[0] || "").trim());
-      if (value) hits.push(value);
+      const captured = includeEmpty
+        ? match.slice(1).find((item): item is string => typeof item === "string")
+        : match.slice(1).find((item): item is string => typeof item === "string" && item.length > 0);
+      const value = normalizeWhitespace(((captured ?? match[0]) || "").trim());
+      if (value || includeEmpty) hits.push(value);
       if (hits.length > MAX_REGEX_MATCHES_PER_PATTERN) {
         throw new ExtractionStrategyError(
           "INVALID_REQUEST",
@@ -465,7 +471,7 @@ export function extractWithStrategy(
   let data: unknown;
   if (strategy === "css" || strategy === "xpath") {
     const normalized = normalizeStructuredSchema(schema);
-    data = extractStructured(strategy, html, normalized, selector);
+    data = extractStructured(strategy, html, normalized, selector, options);
   } else if (strategy === "regex") {
     const normalized = normalizeRegexSchema(schema);
     data = extractRegex(html, normalized, options);

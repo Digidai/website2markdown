@@ -132,6 +132,29 @@ describe("extractWithStrategy edge cases", () => {
     expect(result.meta.matches).toBe(3);
   });
 
+  it("supports includeEmpty option for structured and regex extraction", () => {
+    const structured = extractWithStrategy(
+      "css",
+      "<ul><li>A</li><li> </li><li>B</li></ul>",
+      {
+        fields: [{ name: "items", selector: "li", type: "text", multiple: true }],
+      },
+      { includeEmpty: true },
+    );
+    expect(structured.data).toEqual({ items: ["A", "", "B"] });
+
+    const regex = extractWithStrategy(
+      "regex",
+      "id= id=2",
+      {
+        patterns: { ids: "id=([0-9]*)" },
+        flags: "g",
+      },
+      { includeEmpty: true },
+    );
+    expect(regex.data).toEqual({ ids: ["", "2"] });
+  });
+
   it("rejects unsupported extraction strategies at runtime", () => {
     expectStrategyErrorCode(() => {
       extractWithStrategy("llm" as unknown as "css", "<h1>x</h1>", {});
