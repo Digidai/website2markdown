@@ -358,6 +358,15 @@ export function validateJobCreatePayload(input: unknown): {
           },
         };
       }
+      if (task.options !== undefined && !isObject(task.options)) {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "extract task options must be an object.",
+            details: { index: i },
+          },
+        };
+      }
 
       const inputSource = isObject(task.input) ? task.input : {};
       const hasUrl =
