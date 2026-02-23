@@ -280,6 +280,20 @@ describe("fetchViaProxy", () => {
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects proxy responses with invalid status lines", async () => {
+    const responseText =
+      "NOTHTTP\r\n" +
+      "Content-Type: text/plain\r\n\r\n" +
+      "oops";
+    const mock = createSocketFromRawResponse(responseText);
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    await expect(
+      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+    ).rejects.toThrow("Invalid HTTP status line from proxy");
+    expect(mock.socket.close).toHaveBeenCalledTimes(1);
+  });
+
   it("enforces 8MB max response size and still closes socket resources", async () => {
     const body = "x".repeat(8 * 1024 * 1024 + 1);
     const responseText =

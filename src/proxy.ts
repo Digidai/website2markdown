@@ -217,7 +217,10 @@ export async function fetchViaProxy(
     const [statusLine, ...headerLines] = headerSection.split("\r\n");
 
     const statusMatch = statusLine.match(/HTTP\/[\d.]+ (\d+)/);
-    const status = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+    if (!statusMatch) {
+      throw new Error("Invalid HTTP status line from proxy");
+    }
+    const status = parseInt(statusMatch[1], 10);
 
     const respHeaders: Record<string, string> = {};
     for (const line of headerLines) {
