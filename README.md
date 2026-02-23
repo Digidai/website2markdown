@@ -165,6 +165,100 @@ Response:
 }
 ```
 
+### Structured Extraction API
+
+Extract structured fields from URL or raw HTML.
+
+```bash
+curl -X POST https://md.genedai.me/api/extract \
+  -H "Authorization: Bearer <api-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strategy": "css",
+    "url": "https://example.com/article",
+    "schema": {
+      "fields": [
+        { "name": "title", "selector": "h1", "type": "text", "required": true },
+        { "name": "author", "selector": ".author", "type": "text" }
+      ]
+    },
+    "include_markdown": true
+  }'
+```
+
+Batch extraction (`items`) is also supported (max 10 items).
+
+### Job API (create / query / stream / run)
+
+Submit crawl/extract tasks as queued jobs, then run and monitor:
+
+```bash
+# 1) Create job
+curl -X POST https://md.genedai.me/api/jobs \
+  -H "Authorization: Bearer <api-token>" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: demo-job-1" \
+  -d '{
+    "type": "crawl",
+    "tasks": [
+      "https://example.com/a",
+      "https://example.com/b"
+    ],
+    "priority": 10,
+    "maxRetries": 2
+  }'
+
+# 2) Query status
+curl -H "Authorization: Bearer <api-token>" \
+  https://md.genedai.me/api/jobs/<job-id>
+
+# 3) Watch status stream (SSE)
+curl -N -H "Authorization: Bearer <api-token>" \
+  https://md.genedai.me/api/jobs/<job-id>/stream
+
+# 4) Execute queued tasks
+curl -X POST -H "Authorization: Bearer <api-token>" \
+  https://md.genedai.me/api/jobs/<job-id>/run
+```
+
+### Deep Crawl API
+
+Run BFS/BestFirst deep crawl with filters/scoring and optional checkpoint resume.
+
+```bash
+# non-stream
+curl -X POST https://md.genedai.me/api/deepcrawl \
+  -H "Authorization: Bearer <api-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "seed": "https://example.com/docs",
+    "max_depth": 2,
+    "max_pages": 20,
+    "strategy": "best_first",
+    "filters": {
+      "allow_domains": ["example.com"],
+      "url_patterns": ["https://example.com/docs/*"]
+    },
+    "scorer": {
+      "keywords": ["api", "reference"],
+      "weight": 2
+    },
+    "checkpoint": {
+      "crawl_id": "docs-crawl-001",
+      "snapshot_interval": 5
+    }
+  }'
+
+# stream mode (SSE: start/node/done/fail)
+curl -N -X POST https://md.genedai.me/api/deepcrawl \
+  -H "Authorization: Bearer <api-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "seed": "https://example.com/docs",
+    "stream": true
+  }'
+```
+
 ### Supported Sites
 
 Special adapters for optimal extraction on these platforms:
@@ -223,9 +317,15 @@ print(data["title"], data["method"])
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
 | `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |
+| `/api/extract` | POST | Structured extraction API (`css` / `xpath` / `regex`) |
+| `/api/jobs` | POST | Create queued crawl/extract job |
+| `/api/jobs/:id` | GET | Query job status |
+| `/api/jobs/:id/stream` | GET | SSE job status stream |
+| `/api/jobs/:id/run` | POST | Execute queued/failed tasks in job |
+| `/api/deepcrawl` | POST | Deep crawl API (BFS/BestFirst, stream/non-stream, checkpoint) |
 | `/img/<encoded-url>` | GET | Image proxy (bypasses hotlink protection) |
 | `/r2img/<key>` | GET | Serve image from R2 storage |
-| `/api/health` | GET | Health + runtime metrics + browser queue snapshot |
+| `/api/health` | GET | Health + runtime + operational metrics |
 
 ## Response Headers (Raw API)
 
@@ -255,14 +355,19 @@ print(data["title"], data["method"])
 | **Multiple Formats** | Markdown, HTML, text, or structured JSON output |
 | **CSS Selectors** | Target specific page elements for extraction |
 | **Batch API v2** | Convert up to 10 URLs with per-item format/selector/browser/cache options |
+| **Structured Extraction** | CSS/XPath/Regex extraction via `/api/extract` with optional markdown attachment |
+| **Job Dispatcher** | Queue + run + monitor crawl/extract workloads via `/api/jobs/*` |
+| **Deep Crawl** | BFS + BestFirst traversal, filters/scorers, stream mode, checkpoint/resume |
 | **Table Support** | Improved handling of simple and complex tables |
 | **Smart Extraction** | Readability strips nav, ads, sidebars — extracts main article content |
 | **Rendered View** | Dark-themed Markdown preview with GitHub CSS and tab switching |
+| **Session Profiles** | Persist/replay cookies and localStorage for repeat authenticated crawling |
+| **Proxy Pool Fallback** | Multi-proxy + UA/header variant rotation for challenge-prone targets |
 | **SSRF Protection** | Blocks private IPs, IPv6 link-local, cloud metadata endpoints |
 | **Timeout Protection** | Time-budgeted scrolling for Feishu virtual scroll documents |
 | **Built-in Rate Limiting** | Per-IP limits for conversion, stream, and batch routes |
 | **Runtime Paywall Rules** | Support dynamic paywall rule updates via env/KV JSON |
-| **Operational Health** | `/api/health` exposes runtime counters and browser queue stats |
+| **Operational Health** | `/api/health` exposes throughput/success/retry/backlog and P50/P95 latency |
 
 ## Tech Stack
 
@@ -284,26 +389,41 @@ print(data["title"], data["method"])
 ```
 md-genedai/
 ├── src/
-│   ├── index.ts              # Worker entry: routing, fetch handler, batch API
-│   ├── types.ts              # TypeScript interfaces (Env, SiteAdapter, etc.)
-│   ├── utils.ts              # Shared utility helpers
-│   ├── config.ts             # Constants: timeouts, limits, UA strings
-│   ├── security.ts           # SSRF validation, URL parsing, XSS escaping
-│   ├── converter.ts          # Readability + Turndown conversion, image proxy
-│   ├── paywall.ts            # Paywall detection, bypass headers, archive fallbacks
-│   ├── proxy.ts              # HTTP forward proxy via Cloudflare TCP sockets
+│   ├── index.ts              # Router + conversion + extraction + job/deepcrawl endpoints
+│   ├── types.ts              # Shared TS types (Env, extraction/job payloads, adapters)
+│   ├── config.ts             # Limits, timeouts, UA and parser constants
+│   ├── utils.ts              # Shared helpers (headers, parsing, formatting)
+│   ├── converter.ts          # Readability + Turndown pipeline and content shaping
+│   ├── security.ts           # SSRF guardrails, retry wrappers, safe fetch helpers
+│   ├── paywall.ts            # Paywall heuristics + runtime rule updates
+│   ├── proxy.ts              # Forward proxy + pool parsing/selection
 │   ├── browser/
-│   │   ├── index.ts          # Browser launcher, adapter registry, capacity gate
-│   │   ├── stealth.ts        # Anti-detection fingerprint patches
-│   │   └── adapters/         # 13 site-specific adapters
+│   │   ├── index.ts          # Browser rendering orchestrator and capacity control
+│   │   ├── stealth.ts        # Anti-detection hardening
+│   │   └── adapters/         # 14 site-specific browser adapters
 │   ├── cache/
-│   │   └── index.ts          # KV cache + R2 image storage
+│   │   └── index.ts          # KV conversion cache + R2 image storage
+│   ├── extraction/
+│   │   └── strategies.ts     # CSS/XPath/Regex structured extraction
+│   ├── dispatcher/
+│   │   ├── model.ts          # Job schema + KV persistence/idempotency
+│   │   └── runner.ts         # Job execution and retry orchestration
+│   ├── deepcrawl/
+│   │   ├── bfs.ts            # BFS/BestFirst traversal core
+│   │   ├── filters.ts        # Crawl filters (domains, patterns, content hints)
+│   │   └── scorers.ts        # Keyword/domain scoring for BestFirst strategy
+│   ├── session/
+│   │   └── profile.ts        # Session profile capture/replay (cookie/localStorage)
+│   ├── observability/
+│   │   └── metrics.ts        # Throughput/success/retry/backlog/latency snapshots
 │   ├── templates/
 │   │   ├── landing.ts        # Landing page HTML
 │   │   ├── rendered.ts       # Markdown preview page HTML
 │   │   ├── loading.ts        # SSE loading/progress page HTML
 │   │   └── error.ts          # Error page HTML
-│   └── __tests__/            # 21 test files
+│   └── __tests__/            # 33 test files
+├── docs/
+│   └── slo-reference.md      # SLO targets used by /api/health operational metrics
 ├── package.json
 ├── wrangler.toml             # Worker config: browser, KV, R2 bindings
 ├── tsconfig.json
@@ -333,20 +453,34 @@ This project uses **Cloudflare Git Integration** — push to `main` and Cloudfla
 ### Secrets / Runtime Variables
 
 ```bash
-# Required for /api/batch
+# Required: Bearer auth for protected write APIs
+# Used by: /api/batch, /api/extract, /api/jobs, /api/deepcrawl
 wrangler secret put API_TOKEN
 
-# Optional: protect raw API and /api/stream
+# Optional: protect raw convert API + /api/stream
 wrangler secret put PUBLIC_API_TOKEN
 
 # Optional: dynamic paywall rules (JSON array)
 wrangler secret put PAYWALL_RULES_JSON
+
+# Optional: single upstream proxy (format: username:password@host:port)
+wrangler secret put PROXY_URL
+
+# Optional: proxy pool for rotation/fallback (comma or newline separated)
+wrangler secret put PROXY_POOL
 ```
 
 Optional KV-driven paywall rule source:
 
 - Set `PAYWALL_RULES_KV_KEY` (plain env var) to a KV key that stores JSON paywall rules.
 - If both `PAYWALL_RULES_JSON` and KV key are configured, KV value takes precedence.
+
+Example plain env var in `wrangler.toml`:
+
+```toml
+[vars]
+PAYWALL_RULES_KV_KEY = "paywall:rules:v1"
+```
 
 ### Browser Rendering Binding
 
