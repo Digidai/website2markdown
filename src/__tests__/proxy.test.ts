@@ -178,6 +178,27 @@ describe("fetchViaProxy", () => {
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
 
+  it("decodes chunked body with case-insensitive transfer-encoding header", async () => {
+    const responseText =
+      "HTTP/1.1 200 OK\r\n" +
+      "Transfer-Encoding: Chunked\r\n" +
+      "Content-Type: text/plain\r\n\r\n" +
+      "5\r\nhello\r\n" +
+      "0\r\n\r\n";
+    const mock = createSocketFromRawResponse(responseText);
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    const result = await fetchViaProxy(
+      "https://example.com/path",
+      makeProxyConfig(),
+      {},
+      1000,
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toBe("hello");
+  });
+
   it("decodes UTF-8 chunked response bodies correctly", async () => {
     const bodyBytes = new TextEncoder().encode("你好");
     const chunkHeader = new TextEncoder().encode(

@@ -229,7 +229,7 @@ export async function fetchViaProxy(
     }
 
     // Handle chunked transfer encoding
-    if (respHeaders["transfer-encoding"]?.includes("chunked")) {
+    if (respHeaders["transfer-encoding"]?.toLowerCase().includes("chunked")) {
       bodyBytes = decodeChunked(bodyBytes);
     }
 
