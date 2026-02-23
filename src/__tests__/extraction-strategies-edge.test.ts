@@ -56,6 +56,32 @@ describe("extractWithStrategy edge cases", () => {
     expect(zeroLength.data).toEqual({ lookahead: [] });
   });
 
+  it("rejects empty regex patterns and match explosions", () => {
+    expectStrategyErrorCode(() => {
+      extractWithStrategy("regex", "x", { patterns: {} });
+    }, "INVALID_SCHEMA");
+
+    expectStrategyErrorCode(() => {
+      extractWithStrategy("regex", "x", { patterns: { bad: "" } });
+    }, "INVALID_SCHEMA");
+
+    const dense = Array.from({ length: 1002 }, () => "x").join(" ");
+    expectStrategyErrorCode(() => {
+      extractWithStrategy("regex", dense, {
+        patterns: { hits: "x" },
+        flags: "g",
+      });
+    }, "INVALID_REQUEST");
+  });
+
+  it("maps invalid CSS selectors to INVALID_SCHEMA", () => {
+    expectStrategyErrorCode(() => {
+      extractWithStrategy("css", "<div><h1>Title</h1></div>", {
+        fields: [{ name: "title", selector: "h1[" }],
+      });
+    }, "INVALID_SCHEMA");
+  });
+
   it("falls back to default root when selector roots are missing", () => {
     const cssResult = extractWithStrategy(
       "css",

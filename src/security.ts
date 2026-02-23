@@ -200,9 +200,35 @@ function normalizeRetryOptions(
   };
 }
 
-function waitMs(ms: number): Promise<void> {
+function waitMs(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.reject(new Error("Retry backoff aborted."));
+  }
   if (ms <= 0) return Promise.resolve();
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let onAbort: (() => void) | undefined;
+    const cleanup = () => {
+      if (signal && onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    }, ms);
+    if (!signal) return;
+    onAbort = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error("Retry backoff aborted."));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function getRetryDelayMs(
@@ -321,7 +347,7 @@ async function fetchWithRetry(
       retryOptions.retryDelayMs,
       retryOptions.maxRetryDelayMs,
     );
-    await waitMs(delay);
+    await waitMs(delay, init.signal ?? undefined);
   }
 
   if (lastError instanceof Error) {

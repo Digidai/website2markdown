@@ -118,4 +118,29 @@ describe("fetchWithSafeRedirects resilience", () => {
     ]);
     expect(calledUrls).not.toContain("http://127.0.0.1/admin");
   });
+
+  it("aborts retry backoff immediately when signal is canceled", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const mockFetch = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
+      vi.stubGlobal("fetch", mockFetch);
+
+      const run = fetchWithSafeRedirects(
+        "https://example.com/retry-abort",
+        { method: "GET", signal: controller.signal },
+        5,
+        { maxRetries: 3, retryDelayMs: 1000, maxRetryDelayMs: 1000 },
+      );
+
+      await Promise.resolve();
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      controller.abort();
+      await expect(run).rejects.toThrow("aborted");
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -12,6 +12,9 @@ import type {
 
 const DEFAULT_REGEX_FLAGS = "g";
 const MAX_HTML_INPUT_BYTES = 2_000_000;
+const MAX_REGEX_PATTERNS = 64;
+const MAX_REGEX_PATTERN_LENGTH = 4096;
+const MAX_REGEX_MATCHES_PER_PATTERN = 1000;
 
 export class ExtractionStrategyError extends Error {
   code: ExtractionErrorCode;
@@ -51,7 +54,18 @@ function escapeCssIdentifier(value: string): string {
 function queryByCss(root: any, selector: string): any[] {
   if (!selector || typeof selector !== "string") return [];
   if (!root?.querySelectorAll) return [];
-  return Array.from(root.querySelectorAll(selector) || []);
+  try {
+    return Array.from(root.querySelectorAll(selector) || []);
+  } catch (error) {
+    throw new ExtractionStrategyError(
+      "INVALID_SCHEMA",
+      "Invalid CSS selector in extraction schema.",
+      {
+        selector,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    );
+  }
 }
 
 function splitXpath(xpath: string): Array<{ axis: "child" | "descendant"; step: string }> {
@@ -298,8 +312,46 @@ function normalizeRegexSchema(schema: ExtractionSchema): RegexExtractionSchema {
 
   const maybeRegexSchema = schema as Partial<RegexExtractionSchema>;
   if (maybeRegexSchema.patterns && typeof maybeRegexSchema.patterns === "object") {
+    const patterns = maybeRegexSchema.patterns as Record<string, string>;
+    const entries = Object.entries(patterns);
+    if (entries.length === 0) {
+      throw new ExtractionStrategyError(
+        "INVALID_SCHEMA",
+        "Regex schema patterns must include at least one entry.",
+      );
+    }
+    if (entries.length > MAX_REGEX_PATTERNS) {
+      throw new ExtractionStrategyError(
+        "INVALID_SCHEMA",
+        `Regex schema patterns exceed limit (max ${MAX_REGEX_PATTERNS}).`,
+        { max: MAX_REGEX_PATTERNS, count: entries.length },
+      );
+    }
+    for (const [label, pattern] of entries) {
+      if (typeof pattern !== "string") {
+        throw new ExtractionStrategyError(
+          "INVALID_SCHEMA",
+          "Regex schema values must be strings.",
+          { label },
+        );
+      }
+      if (!pattern.length) {
+        throw new ExtractionStrategyError(
+          "INVALID_SCHEMA",
+          "Regex pattern cannot be empty.",
+          { label },
+        );
+      }
+      if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+        throw new ExtractionStrategyError(
+          "INVALID_SCHEMA",
+          `Regex pattern is too long (max ${MAX_REGEX_PATTERN_LENGTH} chars).`,
+          { label, max: MAX_REGEX_PATTERN_LENGTH, length: pattern.length },
+        );
+      }
+    }
     return {
-      patterns: maybeRegexSchema.patterns,
+      patterns,
       flags: maybeRegexSchema.flags,
     };
   }
@@ -315,6 +367,36 @@ function normalizeRegexSchema(schema: ExtractionSchema): RegexExtractionSchema {
       );
     }
     patterns[label] = pattern;
+  }
+  const count = Object.keys(patterns).length;
+  if (count === 0) {
+    throw new ExtractionStrategyError(
+      "INVALID_SCHEMA",
+      "Regex schema patterns must include at least one entry.",
+    );
+  }
+  if (count > MAX_REGEX_PATTERNS) {
+    throw new ExtractionStrategyError(
+      "INVALID_SCHEMA",
+      `Regex schema patterns exceed limit (max ${MAX_REGEX_PATTERNS}).`,
+      { max: MAX_REGEX_PATTERNS, count },
+    );
+  }
+  for (const [label, pattern] of Object.entries(patterns)) {
+    if (!pattern.length) {
+      throw new ExtractionStrategyError(
+        "INVALID_SCHEMA",
+        "Regex pattern cannot be empty.",
+        { label },
+      );
+    }
+    if (pattern.length > MAX_REGEX_PATTERN_LENGTH) {
+      throw new ExtractionStrategyError(
+        "INVALID_SCHEMA",
+        `Regex pattern is too long (max ${MAX_REGEX_PATTERN_LENGTH} chars).`,
+        { label, max: MAX_REGEX_PATTERN_LENGTH, length: pattern.length },
+      );
+    }
   }
 
   return { patterns };
@@ -348,6 +430,16 @@ function extractRegex(
       const captured = match.slice(1).find((item) => typeof item === "string" && item.length > 0);
       const value = normalizeWhitespace((captured || match[0] || "").trim());
       if (value) hits.push(value);
+      if (hits.length > MAX_REGEX_MATCHES_PER_PATTERN) {
+        throw new ExtractionStrategyError(
+          "INVALID_REQUEST",
+          `Regex extraction produced too many matches for "${label}" (max ${MAX_REGEX_MATCHES_PER_PATTERN}).`,
+          {
+            label,
+            max: MAX_REGEX_MATCHES_PER_PATTERN,
+          },
+        );
+      }
       if (match[0] === "") regex.lastIndex += 1;
     }
 
