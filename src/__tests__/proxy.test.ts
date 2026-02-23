@@ -294,6 +294,24 @@ describe("fetchViaProxy", () => {
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects outbound proxy headers containing CRLF characters", async () => {
+    const mock = createSocketFromRawResponse(
+      "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok",
+    );
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    await expect(
+      fetchViaProxy(
+        "https://example.com/path",
+        makeProxyConfig(),
+        {
+          "X-Test": "ok\r\nInjected: bad",
+        },
+        1000,
+      ),
+    ).rejects.toThrow("Invalid proxy request header value");
+  });
+
   it("enforces 8MB max response size and still closes socket resources", async () => {
     const body = "x".repeat(8 * 1024 * 1024 + 1);
     const responseText =

@@ -38,6 +38,17 @@ export interface ProxyPoolOptions {
 
 const PROXY_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 const HEADER_SEPARATOR_BYTES = new Uint8Array([13, 10, 13, 10]); // \r\n\r\n
+const HEADER_NAME_TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function assertValidProxyHeader(name: string, value: string): void {
+  const normalizedName = name.trim();
+  if (!normalizedName || !HEADER_NAME_TOKEN_PATTERN.test(normalizedName)) {
+    throw new Error(`Invalid proxy request header name: ${name}`);
+  }
+  if (value.includes("\r") || value.includes("\n")) {
+    throw new Error(`Invalid proxy request header value for ${normalizedName}`);
+  }
+}
 
 async function readWithTimeout<T>(
   task: Promise<T>,
@@ -172,6 +183,7 @@ export async function fetchViaProxy(
     httpReq += `Host: ${url.hostname}\r\n`;
     httpReq += `Proxy-Authorization: Basic ${authBase64}\r\n`;
     for (const [key, val] of Object.entries(headers)) {
+      assertValidProxyHeader(key, val);
       httpReq += `${key}: ${val}\r\n`;
     }
     httpReq += "Connection: close\r\n\r\n";
