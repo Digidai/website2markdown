@@ -113,6 +113,8 @@ const EXTRACT_BODY_MAX_BYTES = 1_000_000;
 const JOBS_BODY_MAX_BYTES = 200_000;
 const DEEPCRAWL_BODY_MAX_BYTES = 200_000;
 const IDEMPOTENCY_TTL_SECONDS = 86_400;
+const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const MAX_EXTRACT_BATCH_ITEMS = 10;
 const MAX_DEEPCRAWL_DEPTH = 6;
 const MAX_DEEPCRAWL_PAGES = 200;
@@ -3601,7 +3603,28 @@ async function handleJobs(
     );
   }
 
-  const idempotencyKey = request.headers.get("Idempotency-Key")?.trim();
+  const idempotencyHeader = request.headers.get("Idempotency-Key");
+  const idempotencyKey = idempotencyHeader?.trim() || undefined;
+  if (idempotencyKey) {
+    if (idempotencyKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: `Idempotency-Key is too long (max ${MAX_IDEMPOTENCY_KEY_LENGTH} characters).`,
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+    if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: "Idempotency-Key contains unsupported characters.",
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+  }
   if (idempotencyKey) {
     try {
       const existingJobId = await env.CACHE_KV.get(jobIdempotencyKey(idempotencyKey), "text");

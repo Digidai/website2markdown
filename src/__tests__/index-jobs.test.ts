@@ -144,6 +144,38 @@ describe("POST /api/jobs", () => {
     expect(payload.idempotent).toBe(true);
   });
 
+  it("rejects overly long Idempotency-Key values", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = jobsRequest(
+      { type: "crawl", tasks: ["https://example.com"] },
+      "token",
+      { "Idempotency-Key": "a".repeat(129) },
+    );
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("too long");
+  });
+
+  it("rejects Idempotency-Key values with unsupported characters", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = jobsRequest(
+      { type: "crawl", tasks: ["https://example.com"] },
+      "token",
+      { "Idempotency-Key": "key/with/slash" },
+    );
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("unsupported characters");
+  });
+
   it("runs queued crawl tasks via /api/jobs/:id/run", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("# job run success", {
