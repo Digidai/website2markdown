@@ -327,6 +327,18 @@ print(data["title"], data["method"])
 | `/r2img/<key>` | GET | Serve image from R2 storage |
 | `/api/health` | GET | Health + runtime + operational metrics |
 
+## Authentication Matrix
+
+| Route Group | Token Requirement | Notes |
+|---|---|---|
+| `/<url>` and format/query variants | No token by default | If `PUBLIC_API_TOKEN` is configured, API-style requests require bearer/query token |
+| `/api/stream` | No token by default | If `PUBLIC_API_TOKEN` is configured, token is required |
+| `/api/batch` | `Authorization: Bearer <API_TOKEN>` | If `API_TOKEN` is not configured, API returns `503` (`API_TOKEN not set`) |
+| `/api/extract` | `Authorization: Bearer <API_TOKEN>` | If `API_TOKEN` is not configured, API returns `503` |
+| `/api/jobs*` | `Authorization: Bearer <API_TOKEN>` | Includes create/query/stream/run |
+| `/api/deepcrawl` | `Authorization: Bearer <API_TOKEN>` | Stream and non-stream both require `API_TOKEN` |
+| `/api/health` | Public | Operational observability endpoint |
+
 ## Response Headers (Raw API)
 
 | Header | Description |
@@ -421,9 +433,11 @@ md-genedai/
 │   │   ├── rendered.ts       # Markdown preview page HTML
 │   │   ├── loading.ts        # SSE loading/progress page HTML
 │   │   └── error.ts          # Error page HTML
-│   └── __tests__/            # 33 test files
+│   └── __tests__/            # 34 test files
 ├── docs/
 │   └── slo-reference.md      # SLO targets used by /api/health operational metrics
+├── scripts/
+│   └── smoke-api.sh          # End-to-end API smoke checks for deployed/local worker
 ├── package.json
 ├── wrangler.toml             # Worker config: browser, KV, R2 bindings
 ├── tsconfig.json
@@ -501,8 +515,10 @@ binding = "MYBROWSER"
 ```bash
 npm install
 npm run dev           # Local dev at http://localhost:8787
+npx tsc --noEmit      # Type check
 npm test              # Run unit tests
 npm run test:watch    # Watch mode
+npx vitest run --coverage
 npm run smoke:api     # API smoke checks (requires BASE_URL + API_TOKEN env vars)
 ```
 
@@ -514,6 +530,23 @@ API_TOKEN="<api-token>" \
 TARGET_URL="https://example.com" \
 npm run smoke:api
 ```
+
+### Accurate Testing Baseline (2026-02-23)
+
+Validation run on **February 23, 2026**:
+
+| Check | Command | Result |
+|---|---|---|
+| Type safety | `npx tsc --noEmit` | Pass |
+| Unit/integration tests | `npm test` | Pass (`34` files, `376` tests) |
+| Coverage | `npx vitest run --coverage` | Pass (`Statements 86.29%`, `Branch 73.41%`, `Functions 93.36%`, `Lines 88.60%`) |
+| Live health check | `curl https://website2markdown.genedai.workers.dev/api/health` | Pass (`HTTP 200`, `status=ok`) |
+| Live public conversion | `GET /https://example.com?raw=true` | Pass (`HTTP 200`, markdown output) |
+
+Production note:
+
+- Protected write APIs (`/api/extract`, `/api/jobs*`, `/api/deepcrawl`, `/api/batch`) require `API_TOKEN`.
+- If `API_TOKEN` is not configured in deployed Worker, these endpoints return `503` (`API_TOKEN not set`).
 
 ## License
 
