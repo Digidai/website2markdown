@@ -312,6 +312,25 @@ describe("fetchViaProxy", () => {
     ).rejects.toThrow("Invalid proxy request header value");
   });
 
+  it("includes non-default target port in forwarded Host header", async () => {
+    const responseText =
+      "HTTP/1.1 200 OK\r\n" +
+      "Content-Type: text/plain\r\n\r\n" +
+      "ok";
+    const mock = createSocketFromRawResponse(responseText);
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    await fetchViaProxy(
+      "https://example.com:8443/path",
+      makeProxyConfig(),
+      {},
+      1000,
+    );
+
+    const payload = new TextDecoder().decode(mock.writtenChunks[0]);
+    expect(payload).toContain("Host: example.com:8443\r\n");
+  });
+
   it("enforces 8MB max response size and still closes socket resources", async () => {
     const body = "x".repeat(8 * 1024 * 1024 + 1);
     const responseText =

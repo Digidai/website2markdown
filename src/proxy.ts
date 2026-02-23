@@ -179,8 +179,12 @@ export async function fetchViaProxy(
     // Send HTTP request with full URL (forward proxy mode)
     // The proxy will handle HTTPS to the target on our behalf.
     const authBase64 = btoa(`${proxy.username}:${proxy.password}`);
+    const hostHeader = url.port &&
+      !((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80"))
+      ? `${url.hostname}:${url.port}`
+      : url.hostname;
     let httpReq = `GET ${targetUrl} HTTP/1.1\r\n`;
-    httpReq += `Host: ${url.hostname}\r\n`;
+    httpReq += `Host: ${hostHeader}\r\n`;
     httpReq += `Proxy-Authorization: Basic ${authBase64}\r\n`;
     for (const [key, val] of Object.entries(headers)) {
       assertValidProxyHeader(key, val);
