@@ -34,6 +34,17 @@ describe("dispatcher model", () => {
     expect(parsed.error?.code).toBe("INVALID_REQUEST");
   });
 
+  it("rejects string tasks for extract jobs", () => {
+    const parsed = validateJobCreatePayload({
+      type: "extract",
+      tasks: ["https://example.com/article"],
+    });
+
+    expect(parsed.payload).toBeUndefined();
+    expect(parsed.error?.code).toBe("INVALID_REQUEST");
+    expect(parsed.error?.message).toContain("must be an object");
+  });
+
   it("returns validation error for invalid crawl task options", () => {
     const badFormat = validateJobCreatePayload({
       type: "crawl",

@@ -151,6 +151,15 @@ export function validateJobCreatePayload(input: unknown): {
   for (let i = 0; i < input.tasks.length; i++) {
     const task = input.tasks[i];
     if (typeof task === "string") {
+      if (type === "extract") {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "extract task must be an object.",
+            details: { index: i },
+          },
+        };
+      }
       continue;
     }
     if (!isObject(task)) {
