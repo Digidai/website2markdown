@@ -250,6 +250,23 @@ export function validateJobCreatePayload(input: unknown): {
           },
         };
       }
+
+      const inputSource = isObject(task.input) ? task.input : {};
+      const hasUrl =
+        (typeof task.url === "string" && task.url.trim().length > 0) ||
+        (typeof inputSource.url === "string" && inputSource.url.trim().length > 0);
+      const hasHtml =
+        (typeof task.html === "string" && task.html.trim().length > 0) ||
+        (typeof inputSource.html === "string" && inputSource.html.trim().length > 0);
+      if (!hasUrl && !hasHtml) {
+        return {
+          error: {
+            code: "INVALID_REQUEST",
+            message: "extract task must include a non-empty url or html source.",
+            details: { index: i },
+          },
+        };
+      }
     }
   }
 

@@ -45,6 +45,38 @@ describe("dispatcher model", () => {
     expect(parsed.error?.message).toContain("must be an object");
   });
 
+  it("rejects extract tasks without url/html source", () => {
+    const parsed = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+        },
+      ],
+    });
+
+    expect(parsed.payload).toBeUndefined();
+    expect(parsed.error?.code).toBe("INVALID_REQUEST");
+    expect(parsed.error?.message).toContain("url or html source");
+  });
+
+  it("accepts nested input.url source for extract tasks", () => {
+    const parsed = validateJobCreatePayload({
+      type: "extract",
+      tasks: [
+        {
+          strategy: "css",
+          input: { url: "https://example.com/article" },
+          schema: { fields: [{ name: "title", selector: "h1" }] },
+        },
+      ],
+    });
+
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.payload?.tasks.length).toBe(1);
+  });
+
   it("returns validation error for invalid crawl task options", () => {
     const badFormat = validateJobCreatePayload({
       type: "crawl",
