@@ -5,7 +5,13 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import { connect } from "cloudflare:sockets";
-import { fetchViaProxy, parseProxyUrl, type ProxyConfig } from "../proxy";
+import {
+  fetchViaProxy,
+  fetchViaProxyPool,
+  parseProxyUrl,
+  parseProxyPool,
+  type ProxyConfig,
+} from "../proxy";
 
 type ProxyReadResult = { value?: Uint8Array; done: boolean };
 
@@ -48,6 +54,16 @@ function createMockSocket(readImpl: () => Promise<ProxyReadResult>) {
   return { socket, writer, reader, writtenChunks };
 }
 
+function createSocketFromRawResponse(responseText: string) {
+  const encoded = new TextEncoder().encode(responseText);
+  let sent = false;
+  return createMockSocket(async () => {
+    if (sent) return { done: true };
+    sent = true;
+    return { done: false, value: encoded };
+  });
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -67,6 +83,29 @@ describe("parseProxyUrl", () => {
     expect(parseProxyUrl("alice:secret@proxy.example.com:0")).toBeNull();
     expect(parseProxyUrl("alice:secret@proxy.example.com:70000")).toBeNull();
     expect(parseProxyUrl("alice:secret@proxy.example.com:not-a-port")).toBeNull();
+  });
+
+  it("parses proxy pools and deduplicates entries", () => {
+    const parsed = parseProxyPool(`
+      alice:secret@proxy-1.example.com:8080,
+      bob:secret@proxy-2.example.com:8080
+      alice:secret@proxy-1.example.com:8080
+      invalid-entry
+    `);
+    expect(parsed).toEqual([
+      {
+        host: "proxy-1.example.com",
+        port: 8080,
+        username: "alice",
+        password: "secret",
+      },
+      {
+        host: "proxy-2.example.com",
+        port: 8080,
+        username: "bob",
+        password: "secret",
+      },
+    ]);
   });
 });
 
@@ -187,5 +226,74 @@ describe("fetchViaProxy", () => {
     expect(mock.reader.cancel).toHaveBeenCalledTimes(1);
     expect(mock.writer.close).toHaveBeenCalledTimes(1);
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("rotates proxies until an accepted response is found", async () => {
+    const firstSocket = createSocketFromRawResponse(
+      "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\n\r\nblocked",
+    );
+    const secondSocket = createSocketFromRawResponse(
+      "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nok-via-second-proxy",
+    );
+    vi.mocked(connect)
+      .mockReturnValueOnce(firstSocket.socket as never)
+      .mockReturnValueOnce(secondSocket.socket as never);
+
+    const result = await fetchViaProxyPool(
+      "https://example.com/path",
+      [
+        {
+          host: "proxy-1.example.com",
+          port: 8080,
+          username: "u1",
+          password: "p1",
+        },
+        {
+          host: "proxy-2.example.com",
+          port: 8080,
+          username: "u2",
+          password: "p2",
+        },
+      ],
+      [{ name: "desktop", headers: {} }],
+      {
+        acceptResult: (candidate) => candidate.status === 200,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toBe("ok-via-second-proxy");
+    expect(result.proxyIndex).toBe(1);
+    expect(result.attempts).toBe(2);
+    expect(result.errors[0]).toContain("rejected status=403");
+  });
+
+  it("rotates header variants on a single proxy", async () => {
+    const firstVariant = createSocketFromRawResponse(
+      "HTTP/1.1 429 Too Many Requests\r\nContent-Type: text/html\r\n\r\nslow-down",
+    );
+    const secondVariant = createSocketFromRawResponse(
+      "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nok-mobile-variant",
+    );
+    vi.mocked(connect)
+      .mockReturnValueOnce(firstVariant.socket as never)
+      .mockReturnValueOnce(secondVariant.socket as never);
+
+    const result = await fetchViaProxyPool(
+      "https://example.com/path",
+      [makeProxyConfig()],
+      [
+        { name: "desktop", headers: { "User-Agent": "Desktop-UA" } },
+        { name: "mobile", headers: { "User-Agent": "Mobile-UA" } },
+      ],
+      {
+        acceptResult: (candidate) => candidate.status === 200,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.variant).toBe("mobile");
+    expect(result.attempts).toBe(2);
+    expect(result.errors[0]).toContain("rejected status=429");
   });
 });

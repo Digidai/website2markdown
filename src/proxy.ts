@@ -8,6 +8,34 @@ export interface ProxyConfig {
   password: string;
 }
 
+export interface ProxyHeaderVariant {
+  name: string;
+  headers: Record<string, string>;
+}
+
+export interface ProxyFetchResult {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export interface ProxyPoolResult extends ProxyFetchResult {
+  proxyIndex: number;
+  proxy: ProxyConfig;
+  variant: string;
+  attempts: number;
+  errors: string[];
+}
+
+export interface ProxyPoolOptions {
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  acceptResult?: (
+    result: ProxyFetchResult,
+    context: { proxyIndex: number; variant: string; attempts: number },
+  ) => boolean | Promise<boolean>;
+}
+
 const PROXY_RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 const HEADER_SEPARATOR_BYTES = new Uint8Array([13, 10, 13, 10]); // \r\n\r\n
 
@@ -69,6 +97,26 @@ export function parseProxyUrl(raw: string): ProxyConfig | null {
   }
 }
 
+/** Parse a proxy pool string (comma/newline/semicolon separated). */
+export function parseProxyPool(raw: string): ProxyConfig[] {
+  const parts = raw
+    .split(/[\n,;]/g)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const unique = new Set<string>();
+  const configs: ProxyConfig[] = [];
+
+  for (const part of parts) {
+    const parsed = parseProxyUrl(part);
+    if (!parsed) continue;
+    const dedupeKey = `${parsed.username}:${parsed.password}@${parsed.host}:${parsed.port}`;
+    if (unique.has(dedupeKey)) continue;
+    unique.add(dedupeKey);
+    configs.push(parsed);
+  }
+  return configs;
+}
+
 /**
  * Fetch a URL through an HTTP forward proxy.
  * Sends the full target URL to the proxy; the proxy handles TLS to the target.
@@ -80,7 +128,7 @@ export async function fetchViaProxy(
   headers: Record<string, string>,
   timeoutMs: number = 20_000,
   signal?: AbortSignal,
-): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+): Promise<ProxyFetchResult> {
   if (signal?.aborted) {
     throw new Error("Proxy request aborted");
   }
@@ -176,6 +224,71 @@ export async function fetchViaProxy(
       console.error("Proxy socket close failed:", errorMessage(e));
     }
   }
+}
+
+/**
+ * Try multiple proxies and header variants until one attempt is accepted.
+ * This is useful for anti-bot scenarios where a single proxy+UA pair may fail.
+ */
+export async function fetchViaProxyPool(
+  targetUrl: string,
+  proxies: ProxyConfig[],
+  variants: ProxyHeaderVariant[],
+  options: ProxyPoolOptions = {},
+): Promise<ProxyPoolResult> {
+  if (proxies.length === 0) {
+    throw new Error("Proxy pool is empty.");
+  }
+  const normalizedVariants = variants.length > 0
+    ? variants
+    : [{ name: "default", headers: {} }];
+
+  const errors: string[] = [];
+  let attempts = 0;
+
+  for (let proxyIndex = 0; proxyIndex < proxies.length; proxyIndex++) {
+    const proxy = proxies[proxyIndex];
+    for (const variant of normalizedVariants) {
+      attempts += 1;
+      try {
+        const result = await fetchViaProxy(
+          targetUrl,
+          proxy,
+          variant.headers,
+          options.timeoutMs ?? 20_000,
+          options.signal,
+        );
+        const accepted = options.acceptResult
+          ? await options.acceptResult(result, {
+            proxyIndex,
+            variant: variant.name,
+            attempts,
+          })
+          : result.status >= 200 && result.status < 400;
+        if (accepted) {
+          return {
+            ...result,
+            proxyIndex,
+            proxy,
+            variant: variant.name,
+            attempts,
+            errors,
+          };
+        }
+        errors.push(
+          `proxy[${proxyIndex}]/${variant.name}: rejected status=${result.status} body_bytes=${result.body.length}`,
+        );
+      } catch (error) {
+        errors.push(
+          `proxy[${proxyIndex}]/${variant.name}: ${errorMessage(error)}`,
+        );
+      }
+    }
+  }
+
+  throw new Error(
+    `All proxy attempts failed (${attempts} attempts): ${errors.join(" | ")}`,
+  );
 }
 
 function concatUint8Arrays(chunks: Uint8Array[], total: number): Uint8Array {

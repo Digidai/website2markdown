@@ -444,6 +444,88 @@ describe("twitter adapter thread behavior", () => {
     expect(html).toContain("Video: https://video.example/v.m3u8");
   });
 
+  it("renders X article blocks when fxtwitter tweet text is empty", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const reqUrl = String(input);
+      if (reqUrl.includes("api.fxtwitter.com/gosailglobal/status/2025402533972480275")) {
+        return new Response(JSON.stringify({
+          tweet: {
+            id: "2025402533972480275",
+            text: "",
+            raw_text: { text: "https://t.co/OXfzzWVB9C" },
+            author: { name: "Jason Zhu", screen_name: "GoSailGlobal" },
+            created_at: "Sun Feb 22 02:49:28 +0000 2026",
+            likes: 163,
+            retweets: 31,
+            replies: 11,
+            article: {
+              id: "2025399436021825537",
+              title: "OpenClaw Skills Deep Dive",
+              preview_text: "Preview text fallback.",
+              cover_media: {
+                media_info: {
+                  original_img_url: "https://pbs.twimg.com/media/HBus9uqbgAAlboc.jpg",
+                },
+              },
+              content: {
+                blocks: [
+                  { type: "unstyled", text: "This is paragraph one." },
+                  { type: "header-two", text: "Section title" },
+                  { type: "unordered-list-item", text: "List item" },
+                ],
+              },
+            },
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (reqUrl.includes("syndication.twitter.com/srv/timeline-profile")) {
+        return new Response("rate limited", { status: 429 });
+      }
+      throw new Error(`Unexpected fetch URL: ${reqUrl}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const html = await twitterAdapter.fetchDirect!(
+      "https://x.com/gosailglobal/status/2025402533972480275?s=46&t=abc",
+    );
+
+    expect(html).toContain("OpenClaw Skills Deep Dive");
+    expect(html).toContain("This is paragraph one.");
+    expect(html).toContain("Section title");
+    expect(html).toContain("- List item");
+    expect(html).toContain("https://pbs.twimg.com/media/HBus9uqbgAAlboc.jpg");
+    expect(html).not.toContain("https://t.co/OXfzzWVB9C");
+  });
+
+  it("falls back to raw_text when tweet.text is empty", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const reqUrl = String(input);
+      if (reqUrl.includes("api.fxtwitter.com/alice/status/555")) {
+        return new Response(JSON.stringify({
+          tweet: {
+            id: "555",
+            text: "",
+            raw_text: { text: "hello from raw_text" },
+            author: { name: "Alice", screen_name: "alice" },
+            created_at: "Mon Apr 01 09:00:00 +0000 2024",
+            likes: 1,
+            retweets: 0,
+            replies: 0,
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (reqUrl.includes("syndication.twitter.com/srv/timeline-profile")) {
+        return new Response("{}", { status: 429 });
+      }
+      throw new Error(`Unexpected fetch URL: ${reqUrl}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const html = await twitterAdapter.fetchDirect!("https://x.com/alice/status/555");
+
+    expect(html).toContain("hello from raw_text");
+  });
+
   it("returns null when both fxtwitter and oEmbed fail", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response("{}", { status: 500 }))

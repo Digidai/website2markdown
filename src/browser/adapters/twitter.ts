@@ -7,9 +7,33 @@ const FETCH_OPTS = {
 };
 
 /** Minimal tweet shape from fxtwitter. */
+interface FxRichText {
+  text?: string;
+}
+
+interface FxArticleBlock {
+  type?: string;
+  text?: string;
+}
+
+interface FxArticle {
+  id?: string;
+  title?: string;
+  preview_text?: string;
+  cover_media?: {
+    media_info?: {
+      original_img_url?: string;
+    };
+  };
+  content?: {
+    blocks?: FxArticleBlock[];
+  };
+}
+
 interface FxTweet {
   id: string;
   text: string;
+  raw_text?: FxRichText;
   author?: { name?: string; screen_name?: string };
   created_at?: string;
   likes?: number;
@@ -25,6 +49,7 @@ interface FxTweet {
     author?: { name?: string; screen_name?: string };
     text?: string;
   };
+  article?: FxArticle;
 }
 
 /** Fetch a single tweet from fxtwitter. Returns null on failure. */
@@ -144,10 +169,91 @@ async function fetchThread(user: string, id: string): Promise<FxTweet[]> {
 }
 
 /** Render a single tweet as an HTML <article> section. */
+function getTweetText(tweet: FxTweet): string {
+  const text = (tweet.text || "").trim();
+  if (text) return text;
+  return (tweet.raw_text?.text || "").trim();
+}
+
+function renderArticleContent(article: FxArticle): string {
+  let html = `<article>`;
+
+  const title = escapeHtml(article.title || "");
+  if (title) {
+    html += `<h2>${title}</h2>`;
+  }
+
+  const coverSrc = escapeHtml(article.cover_media?.media_info?.original_img_url || "");
+  if (coverSrc) {
+    html += `<figure><img src="${coverSrc}" /></figure>`;
+  }
+
+  const blocks = article.content?.blocks ?? [];
+  let renderedBlocks = 0;
+  let orderedIndex = 1;
+
+  for (const block of blocks) {
+    const blockType = block.type || "unstyled";
+    const rawText = (block.text || "").trim();
+    if (!rawText) continue;
+
+    const text = escapeHtml(rawText).replace(/\n/g, "<br>");
+    renderedBlocks++;
+
+    if (blockType === "header-one") {
+      html += `<h3>${text}</h3>`;
+      continue;
+    }
+    if (blockType === "header-two") {
+      html += `<h4>${text}</h4>`;
+      continue;
+    }
+    if (blockType === "header-three") {
+      html += `<h5>${text}</h5>`;
+      continue;
+    }
+    if (blockType === "blockquote") {
+      html += `<blockquote><p>${text}</p></blockquote>`;
+      continue;
+    }
+    if (blockType === "unordered-list-item") {
+      html += `<p>- ${text}</p>`;
+      continue;
+    }
+    if (blockType === "ordered-list-item") {
+      html += `<p>${orderedIndex}. ${text}</p>`;
+      orderedIndex++;
+      continue;
+    }
+
+    html += `<p>${text}</p>`;
+  }
+
+  if (renderedBlocks === 0) {
+    const preview = escapeHtml(article.preview_text || "").replace(/\n/g, "<br>");
+    if (preview) {
+      html += `<p>${preview}</p>`;
+    }
+  }
+
+  html += `</article>`;
+  return html;
+}
+
 function renderTweetSection(tweet: FxTweet): string {
-  const text = escapeHtml(tweet.text || "");
+  const tweetText = getTweetText(tweet);
+  const hideLinkOnlyText = Boolean(
+    tweet.article &&
+    /^https?:\/\/t\.co\/[A-Za-z0-9]+$/i.test(tweetText),
+  );
   let section = `<section>`;
-  section += `<p>${text.replace(/\n/g, "<br>")}</p>`;
+  if (tweetText && !hideLinkOnlyText) {
+    section += `<p>${escapeHtml(tweetText).replace(/\n/g, "<br>")}</p>`;
+  }
+
+  if (tweet.article) {
+    section += renderArticleContent(tweet.article);
+  }
 
   if (tweet.media?.photos?.length) {
     for (const photo of tweet.media.photos) {

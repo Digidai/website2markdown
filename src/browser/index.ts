@@ -17,6 +17,15 @@ import {
 import { isSafeUrl, escapeHtml } from "../security";
 import { isPaywallScript } from "../paywall";
 import { storeImage } from "../cache";
+import {
+  applySessionProfileToPage,
+  captureSessionProfileSnapshotFromPage,
+  clearSessionProfileFailure,
+  isLikelySessionExpiredHtml,
+  loadSessionProfile,
+  markSessionProfileFailure,
+  saveSessionProfileSnapshot,
+} from "../session/profile";
 
 // Adapter registry for non-Feishu sites
 import { wechatAdapter } from "./adapters/wechat";
@@ -268,6 +277,51 @@ function handleInterceptedRequest(req: any): void {
   req.continue();
 }
 
+async function applyStoredSessionProfile(
+  env: Env,
+  page: any,
+  url: string,
+): Promise<boolean> {
+  try {
+    const profile = await loadSessionProfile(env, url);
+    if (!profile) return false;
+    return applySessionProfileToPage(page, url, profile);
+  } catch (error) {
+    console.warn("Session profile apply failed:", errorMessage(error));
+    return false;
+  }
+}
+
+async function persistSessionProfileAfterRender(
+  env: Env,
+  page: any,
+  url: string,
+  html: string,
+  profileWasApplied: boolean,
+): Promise<void> {
+  try {
+    if (profileWasApplied && isLikelySessionExpiredHtml(html)) {
+      await markSessionProfileFailure(env, url);
+      return;
+    }
+
+    const snapshot = await captureSessionProfileSnapshotFromPage(page);
+    if (
+      snapshot.cookies.length === 0 &&
+      Object.keys(snapshot.localStorage).length === 0
+    ) {
+      if (profileWasApplied) {
+        await clearSessionProfileFailure(env, url);
+      }
+      return;
+    }
+
+    await saveSessionProfileSnapshot(env, url, snapshot);
+  } catch (error) {
+    console.warn("Session profile persist failed:", errorMessage(error));
+  }
+}
+
 const adapters: SiteAdapter[] = [
   feishuAdapter,
   wechatAdapter,
@@ -341,6 +395,7 @@ async function fetchWithBrowserFeishu(
     await page.setExtraHTTPHeaders({
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     });
+    const profileApplied = await applyStoredSessionProfile(env, page, url);
 
     // SSRF protection — set up handler before enabling interception
     page.on("request", handleInterceptedRequest);
@@ -777,6 +832,7 @@ async function fetchWithBrowserFeishu(
         })
         .join("\n");
       html += `</body></html>`;
+      await persistSessionProfileAfterRender(env, page, url, html, profileApplied);
       return html;
     }
 
@@ -787,6 +843,7 @@ async function fetchWithBrowserFeishu(
       "Browser page content read timed out.",
       abortSignal,
     );
+    await persistSessionProfileAfterRender(env, page, url, html, profileApplied);
     return html;
   } catch (error) {
     throw new Error(`Browser rendering failed: ${errorMessage(error)}`);
@@ -817,6 +874,7 @@ async function fetchWithBrowserAdapter(
 
     // Configure page for this site
     await adapter.configurePage(page, capturedImages);
+    const profileApplied = await applyStoredSessionProfile(env, page, url);
 
     // SSRF protection — set up handler before enabling interception
     page.on("request", handleInterceptedRequest);
@@ -858,6 +916,7 @@ async function fetchWithBrowserAdapter(
       abortSignal,
     );
     if (result?.html) {
+      await persistSessionProfileAfterRender(env, page, url, result.html, profileApplied);
       return result.html;
     }
 
@@ -868,6 +927,7 @@ async function fetchWithBrowserAdapter(
       "Browser page content read timed out.",
       abortSignal,
     );
+    await persistSessionProfileAfterRender(env, page, url, html, profileApplied);
     return html;
   } catch (error) {
     throw new Error(`Browser rendering failed: ${errorMessage(error)}`);
