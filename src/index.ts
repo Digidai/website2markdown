@@ -3928,8 +3928,10 @@ interface BatchNormalizedItem {
 
 function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
   if (typeof input === "string") {
+    const url = input.trim();
+    if (!url) return null;
     return {
-      url: input,
+      url,
       format: "markdown",
       selector: undefined,
       forceBrowser: false,
@@ -3941,6 +3943,10 @@ function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
   }
   const item = input as Partial<BatchUrlObjectInput>;
   if (typeof item.url !== "string") {
+    return null;
+  }
+  const normalizedUrl = item.url.trim();
+  if (!normalizedUrl) {
     return null;
   }
   const format = item.format || "markdown";
@@ -3960,7 +3966,7 @@ function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
     return null;
   }
   return {
-    url: item.url,
+    url: normalizedUrl,
     format: format as OutputFormat,
     selector: item.selector,
     forceBrowser: item.force_browser === true,

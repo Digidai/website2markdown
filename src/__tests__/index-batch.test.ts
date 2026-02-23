@@ -144,6 +144,22 @@ describe("POST /api/batch", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("returns 400 when urls contains blank URL items", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const req = batchRequest({
+      urls: ["   ", { url: "   ", format: "markdown" }],
+    }, "token");
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { error?: string };
+
+    expect(res.status).toBe(400);
+    expect(payload.error).toContain("Each batch item");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("accepts object-style batch items with per-item options", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("<html><body><article><h1>Hello</h1><p>World</p></article></body></html>", {
