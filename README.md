@@ -1,5 +1,7 @@
 # URL to Markdown Converter
 
+[English](./README.md) | [简体中文](./README.zh-CN.md)
+
 A Cloudflare Worker that converts **any** web page to clean Markdown. Supports three conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), and [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages.
 
 Prepend your domain before any URL and get instant Markdown output. No signup required, and API auth is optional/configurable.

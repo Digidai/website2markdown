@@ -55,6 +55,17 @@ describe("index route edge coverage", () => {
     expect(body).toContain("Markdown");
   });
 
+  it("serves Chinese landing page when lang=zh", async () => {
+    const req = new Request("https://md.example.com/?lang=zh");
+    const res = await worker.fetch(req, createMockEnv().env);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain('href="/?lang=zh"');
+    expect(body).toContain("任意 URL 转");
+    expect(body).toContain("转换");
+  });
+
   it("returns HTML error response when invalid url is requested by browser", async () => {
     const req = new Request("https://md.example.com/https://exa mple.com", {
       headers: { Accept: "text/html" },

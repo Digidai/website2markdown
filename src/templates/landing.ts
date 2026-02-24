@@ -1,12 +1,122 @@
 import { escapeHtml } from "../security";
 
-export function landingPageHTML(host: string): string {
+type LandingLang = "en" | "zh";
+
+export function landingPageHTML(host: string, lang: LandingLang = "en"): string {
   const h = escapeHtml(host);
+  const isZh = lang === "zh";
+  const t = isZh
+    ? {
+        htmlLang: "zh-CN",
+        locale: "zh_CN",
+        pageTitle: "任意 URL 转 Markdown",
+        schemaDescription: "将任意 URL 即时转换为干净、可读的 Markdown。适用于 AI Agent、LLM 和开发者。",
+        metaDescription:
+          "把任意网页转换为干净、可读的 Markdown。支持三条转换路径：原生边缘 Markdown、Readability + Turndown，以及无头浏览器渲染。适用于 AI Agent、LLM 和开发者。",
+        shareDescription: `在任意 URL 前加上 ${h}/，即可快速获得干净、可读的 Markdown。基于 Cloudflare Workers。`,
+        langSwitchAria: "选择语言",
+        badge: "Cloudflare Markdown for Agents",
+        heroTitleHtml: "任意 URL 转 <em>Markdown</em>，<br>即刻完成",
+        subtitleHtml: `在任意 URL 前加上 <strong>${h}/</strong>。<br>为 AI Agent、LLM 与开发者提供干净可读的 Markdown。`,
+        inputPlaceholder: "粘贴任意 URL...",
+        convertButton: "转换",
+        convertingButton: "转换中",
+        inputHintLead: "支持裸域名、http:// 与 https://",
+        feature1Label: "01 &mdash; 通用",
+        feature1Title: "任意网站",
+        feature1Desc: "三条转换路径：原生边缘 Markdown、Readability 提取，或无头浏览器渲染。",
+        feature2Label: "02 &mdash; API 优先",
+        feature2Title: "多种格式",
+        feature2Desc: "支持输出 <code>markdown</code>、<code>html</code>、<code>text</code>、<code>json</code>，并可用 CSS 选择器定向提取。",
+        feature3Label: "03 &mdash; 已缓存",
+        feature3Title: "响应更快",
+        feature3Desc: "结果缓存到 KV，重复访问更快；图片存入 R2，交付更稳定。",
+        howTitle: "工作原理",
+        step1Title: "URL 前缀",
+        step1Desc: `在任意网页地址前加上 <strong>${h}/</strong>。`,
+        step2Title: "边缘抓取",
+        step2Desc: "请求会携带 <code>Accept: text/markdown</code> 并通过 Cloudflare 边缘网络发出。",
+        step3Title: "干净输出",
+        step3Desc: "返回格式化 Markdown，可渲染预览，也可通过 API 获取原始文本。",
+        apiTitle: "API 参考",
+        apiGetDesc: "将单个 URL 转为 Markdown",
+        queryParams: "查询参数：",
+        rawDesc: "返回原始 Markdown（不包裹 HTML）",
+        formatDesc: "输出格式",
+        selectorDesc: "仅提取匹配的 CSS 选择器",
+        forceBrowserDesc: "强制使用无头浏览器渲染",
+        noCacheDesc: "绕过缓存，抓取最新内容",
+        responseHeaders: "响应头：",
+        sourceUrlDesc: "原始目标 URL",
+        batchDesc: "最多转换 10 个 URL（需要 <code>Authorization: Bearer &lt;token&gt;</code>）",
+        bodyLabel: "请求体",
+        returnsLabel: "返回",
+        curlExamples: "curl 示例：",
+        curlRaw: "# 获取原始 markdown",
+        curlJson: "# 获取 JSON 输出",
+        curlBatch: "# 批量转换",
+        exampleLabel: "试一个示例",
+        footerLead: "基于 Cloudflare Workers 构建",
+        mobilePlaceholder: "https://example.com/article",
+      }
+    : {
+        htmlLang: "en",
+        locale: "en_US",
+        pageTitle: "Convert Any URL to Markdown",
+        schemaDescription: "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
+        metaDescription:
+          "Convert any URL to clean, readable Markdown instantly. Three conversion paths: native edge Markdown, Readability + Turndown, and headless browser rendering. For AI agents, LLMs, and developers.",
+        shareDescription: `Prepend ${h}/ before any URL. Clean, readable Markdown for AI agents, LLMs, and developers. Powered by Cloudflare Workers.`,
+        langSwitchAria: "Language selector",
+        badge: "Cloudflare Markdown for Agents",
+        heroTitleHtml: "Any URL to <em>Markdown</em>,<br>instantly",
+        subtitleHtml: `Prepend <strong>${h}/</strong> before any URL.<br>Clean, readable Markdown for AI agents, LLMs, and developers.`,
+        inputPlaceholder: "paste any url...",
+        convertButton: "Convert",
+        convertingButton: "Converting",
+        inputHintLead: "Bare domains, http:// and https:// all work",
+        feature1Label: "01 &mdash; Universal",
+        feature1Title: "Any Website",
+        feature1Desc: "Three conversion paths: native edge Markdown, Readability extraction, or headless browser rendering.",
+        feature2Label: "02 &mdash; API-first",
+        feature2Title: "Multiple Formats",
+        feature2Desc: "Output as <code>markdown</code>, <code>html</code>, <code>text</code>, or <code>json</code>. Specify CSS selectors for targeted extraction.",
+        feature3Label: "03 &mdash; Cached",
+        feature3Title: "Fast Responses",
+        feature3Desc: "Results are cached in KV for instant repeat access. Images stored in R2 for reliable delivery.",
+        howTitle: "How it works",
+        step1Title: "Prepend URL",
+        step1Desc: `Add <strong>${h}/</strong> before any web address.`,
+        step2Title: "Edge Fetch",
+        step2Desc: "Request sent with <code>Accept: text/markdown</code> via Cloudflare edge network.",
+        step3Title: "Clean Output",
+        step3Desc: "Receive formatted Markdown &mdash; rendered preview or raw text via API.",
+        apiTitle: "API Reference",
+        apiGetDesc: "Convert a single URL to Markdown",
+        queryParams: "Query Parameters:",
+        rawDesc: "Return raw Markdown (no HTML wrapper)",
+        formatDesc: "Output format",
+        selectorDesc: "Extract only matching CSS selector",
+        forceBrowserDesc: "Force headless browser rendering",
+        noCacheDesc: "Bypass cache, fetch fresh content",
+        responseHeaders: "Response Headers:",
+        sourceUrlDesc: "The original target URL",
+        batchDesc: "Convert up to 10 URLs (requires <code>Authorization: Bearer &lt;token&gt;</code>)",
+        bodyLabel: "Body",
+        returnsLabel: "Returns",
+        curlExamples: "curl Examples:",
+        curlRaw: "# Get raw markdown",
+        curlJson: "# Get JSON output",
+        curlBatch: "# Batch conversion",
+        exampleLabel: "Try an example",
+        footerLead: "Built on Cloudflare Workers",
+        mobilePlaceholder: "https://example.com/article",
+      };
   const schemaJson = JSON.stringify({
     "@context": "https://schema.org",
     "@type": "WebApplication",
     name: host,
-    description: "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
+    description: t.schemaDescription,
     url: `https://${host}/`,
     applicationCategory: "DeveloperApplication",
     operatingSystem: "Any",
@@ -16,27 +126,27 @@ export function landingPageHTML(host: string): string {
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${t.htmlLang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${h} - Convert Any URL to Markdown</title>
-  <meta name="description" content="Convert any URL to clean, readable Markdown instantly. Three conversion paths: native edge Markdown, Readability + Turndown, and headless browser rendering. For AI agents, LLMs, and developers.">
+  <title>${h} - ${t.pageTitle}</title>
+  <meta name="description" content="${t.metaDescription}">
   <link rel="canonical" href="https://${h}/">
   <!-- Open Graph -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="${h} — Convert Any URL to Markdown">
-  <meta property="og:description" content="Prepend ${h}/ before any URL. Clean, readable Markdown for AI agents, LLMs, and developers. Powered by Cloudflare Workers.">
+  <meta property="og:title" content="${h} — ${t.pageTitle}">
+  <meta property="og:description" content="${t.shareDescription}">
   <meta property="og:url" content="https://${h}/">
   <meta property="og:site_name" content="${h}">
   <meta property="og:image" content="https://${h}/api/og">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:locale" content="en_US">
+  <meta property="og:locale" content="${t.locale}">
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${h} — Convert Any URL to Markdown">
-  <meta name="twitter:description" content="Prepend ${h}/ before any URL. Clean, readable Markdown for AI agents, LLMs, and developers.">
+  <meta name="twitter:title" content="${h} — ${t.pageTitle}">
+  <meta name="twitter:description" content="${t.shareDescription}">
   <meta name="twitter:image" content="https://${h}/api/og">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -107,6 +217,18 @@ export function landingPageHTML(host: string): string {
       position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column;
       align-items: center; justify-content: center; padding: 3rem 2rem 2rem; text-align: center;
     }
+
+    .lang-switch {
+      position: absolute; top: 1.2rem; right: 1.2rem; display: inline-flex; gap: 0.35rem;
+      padding: 0.25rem; background: rgba(17,19,24,0.72); border: 1px solid var(--border);
+      border-radius: 999px; backdrop-filter: blur(8px); animation: fadeUp 0.6s ease both;
+    }
+    .lang-link {
+      color: var(--text-secondary); text-decoration: none; font-size: 0.75rem; font-weight: 500;
+      letter-spacing: 0.02em; padding: 0.38rem 0.72rem; border-radius: 999px; transition: all 0.2s ease;
+    }
+    .lang-link:hover { color: var(--text-primary); background: rgba(255,255,255,0.04); }
+    .lang-link.active { color: var(--bg-deep); background: var(--accent); }
 
     .badge {
       display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.35rem 1rem;
@@ -229,6 +351,7 @@ export function landingPageHTML(host: string): string {
       .input-prefix { display: none; }
       .input-group input { padding: 1rem; }
       .hero { padding: 2rem 1.25rem 1.5rem; }
+      .lang-switch { top: 1rem; right: 1rem; }
     }
   </style>
 </head>
@@ -236,103 +359,105 @@ export function landingPageHTML(host: string): string {
   <div class="bg-glow"></div>
 
   <div class="hero">
+    <nav class="lang-switch" aria-label="${t.langSwitchAria}">
+      <a class="lang-link ${isZh ? "" : "active"}" href="/?lang=en">EN</a>
+      <a class="lang-link ${isZh ? "active" : ""}" href="/?lang=zh">中文</a>
+    </nav>
+
     <div class="badge">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-      Cloudflare Markdown for Agents
+      ${t.badge}
     </div>
 
-    <h1>Any URL to <em>Markdown</em>,<br>instantly</h1>
+    <h1>${t.heroTitleHtml}</h1>
 
-    <p class="subtitle">
-      Prepend <strong>${h}/</strong> before any URL.<br>
-      Clean, readable Markdown for AI agents, LLMs, and developers.
-    </p>
+    <p class="subtitle">${t.subtitleHtml}</p>
 
     <div class="input-wrapper">
       <form class="input-group" id="urlForm" onsubmit="return handleSubmit(event)">
         <div class="input-prefix">${h}/</div>
-        <input type="text" id="urlInput" placeholder="paste any url..." autocomplete="off" autofocus />
-        <button type="submit">Convert</button>
+        <input type="text" id="urlInput" placeholder="${t.inputPlaceholder}" autocomplete="off" autofocus />
+        <button type="submit">${t.convertButton}</button>
       </form>
     </div>
-    <p class="input-hint">Bare domains, http:// and https:// all work &mdash; <code>?format=json|html|text</code> &middot; <code>?selector=.css</code> &middot; <code>?raw=true</code> &middot; <code>?force_browser=true</code> &middot; <code>?no_cache=true</code></p>
+    <p class="input-hint">${t.inputHintLead} &mdash; <code>?format=json|html|text</code> &middot; <code>?selector=.css</code> &middot; <code>?raw=true</code> &middot; <code>?force_browser=true</code> &middot; <code>?no_cache=true</code></p>
 
     <div class="features">
       <div class="feature">
-        <div class="feature-label">01 &mdash; Universal</div>
-        <h3>Any Website</h3>
-        <p>Three conversion paths: native edge Markdown, Readability extraction, or headless browser rendering.</p>
+        <div class="feature-label">${t.feature1Label}</div>
+        <h3>${t.feature1Title}</h3>
+        <p>${t.feature1Desc}</p>
       </div>
       <div class="feature">
-        <div class="feature-label">02 &mdash; API-first</div>
-        <h3>Multiple Formats</h3>
-        <p>Output as <code>markdown</code>, <code>html</code>, <code>text</code>, or <code>json</code>. Specify CSS selectors for targeted extraction.</p>
+        <div class="feature-label">${t.feature2Label}</div>
+        <h3>${t.feature2Title}</h3>
+        <p>${t.feature2Desc}</p>
       </div>
       <div class="feature">
-        <div class="feature-label">03 &mdash; Cached</div>
-        <h3>Fast Responses</h3>
-        <p>Results are cached in KV for instant repeat access. Images stored in R2 for reliable delivery.</p>
+        <div class="feature-label">${t.feature3Label}</div>
+        <h3>${t.feature3Title}</h3>
+        <p>${t.feature3Desc}</p>
       </div>
     </div>
 
     <div class="how-section">
-      <h2>How it works</h2>
+      <h2>${t.howTitle}</h2>
       <div class="steps">
         <div class="step">
           <div class="step-num">i</div>
-          <h3>Prepend URL</h3>
-          <p>Add <strong>${h}/</strong> before any web address.</p>
+          <h3>${t.step1Title}</h3>
+          <p>${t.step1Desc}</p>
         </div>
         <div class="step">
           <div class="step-num">ii</div>
-          <h3>Edge Fetch</h3>
-          <p>Request sent with <code>Accept: text/markdown</code> via Cloudflare edge network.</p>
+          <h3>${t.step2Title}</h3>
+          <p>${t.step2Desc}</p>
         </div>
         <div class="step">
           <div class="step-num">iii</div>
-          <h3>Clean Output</h3>
-          <p>Receive formatted Markdown &mdash; rendered preview or raw text via API.</p>
+          <h3>${t.step3Title}</h3>
+          <p>${t.step3Desc}</p>
         </div>
       </div>
     </div>
 
     <div class="how-section" style="margin-top:3.5rem">
-      <h2>API Reference</h2>
+      <h2>${t.apiTitle}</h2>
       <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem 1.75rem;font-size:0.82rem;line-height:1.8;color:var(--text-secondary)">
-        <div style="margin-bottom:1rem"><strong style="color:var(--text-primary)">GET /{url}</strong> &mdash; Convert a single URL to Markdown</div>
-        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">Query Parameters:</strong></div>
+        <div style="margin-bottom:1rem"><strong style="color:var(--text-primary)">GET /{url}</strong> &mdash; ${t.apiGetDesc}</div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.queryParams}</strong></div>
         <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
-          <code>?raw=true</code> &mdash; Return raw Markdown (no HTML wrapper)<br>
-          <code>?format=</code><code>markdown</code>|<code>html</code>|<code>text</code>|<code>json</code> &mdash; Output format<br>
-          <code>?selector=.article</code> &mdash; Extract only matching CSS selector<br>
-          <code>?force_browser=true</code> &mdash; Force headless browser rendering<br>
-          <code>?no_cache=true</code> &mdash; Bypass cache, fetch fresh content
+          <code>?raw=true</code> &mdash; ${t.rawDesc}<br>
+          <code>?format=</code><code>markdown</code>|<code>html</code>|<code>text</code>|<code>json</code> &mdash; ${t.formatDesc}<br>
+          <code>?selector=.article</code> &mdash; ${t.selectorDesc}<br>
+          <code>?force_browser=true</code> &mdash; ${t.forceBrowserDesc}<br>
+          <code>?no_cache=true</code> &mdash; ${t.noCacheDesc}
         </div>
-        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">Response Headers:</strong></div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.responseHeaders}</strong></div>
         <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
           <code>X-Markdown-Method</code> &mdash; native | readability+turndown | browser+readability+turndown<br>
           <code>X-Cache-Status</code> &mdash; HIT | MISS<br>
-          <code>X-Source-URL</code> &mdash; The original target URL
+          <code>X-Source-URL</code> &mdash; ${t.sourceUrlDesc}
         </div>
-        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">POST /api/batch</strong> &mdash; Convert up to 10 URLs (requires <code>Authorization: Bearer &lt;token&gt;</code>)</div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">POST /api/batch</strong> &mdash; ${t.batchDesc}</div>
         <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1.5rem">
-          Body: <code>{"urls": ["https://...", "https://..."]}</code><br>
-          Returns: <code>{"results": [{url, markdown, title, method}, ...]}</code>
+          ${t.bodyLabel}: <code>{"urls": ["https://...", "https://..."]}</code><br>
+          ${t.returnsLabel}: <code>{"results": [{url, markdown, title, method}, ...]}</code>
         </div>
-        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">curl Examples:</strong></div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.curlExamples}</strong></div>
         <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.72rem;line-height:2;color:var(--text-muted)">
-          <code style="display:block;margin-bottom:0.4rem"># Get raw markdown</code>
+          <code style="display:block;margin-bottom:0.4rem">${t.curlRaw}</code>
           <code style="display:block;margin-bottom:0.75rem">curl -H "Accept: text/markdown" ${h}/https://example.com</code>
-          <code style="display:block;margin-bottom:0.4rem"># Get JSON output</code>
+          <code style="display:block;margin-bottom:0.4rem">${t.curlJson}</code>
           <code style="display:block;margin-bottom:0.75rem">curl "${h}/https://example.com?raw=true&amp;format=json"</code>
-          <code style="display:block;margin-bottom:0.4rem"># Batch conversion</code>
+          <code style="display:block;margin-bottom:0.4rem">${t.curlBatch}</code>
           <code style="display:block">curl -X POST ${h}/api/batch -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d '{"urls":["https://example.com"]}'</code>
         </div>
       </div>
     </div>
 
     <div class="example-box">
-      <div class="example-label">Try an example</div>
+      <div class="example-label">${t.exampleLabel}</div>
       <div class="example-url" onclick="window.location.href='/https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/'">
         <span class="hl">${h}/</span>https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/
       </div>
@@ -340,7 +465,7 @@ export function landingPageHTML(host: string): string {
   </div>
 
   <footer>
-    Built on Cloudflare Workers &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Markdown for Agents</a>
+    ${t.footerLead} &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Markdown for Agents</a>
   </footer>
 
   <script type="application/ld+json">${schemaJson}</script>
@@ -352,7 +477,7 @@ export function landingPageHTML(host: string): string {
       var btn = e.target.querySelector('button');
       var inp = document.getElementById('urlInput');
       btn.disabled = true;
-      btn.innerHTML = '<span class="btn-spinner"></span>Converting';
+      btn.innerHTML = '<span class="btn-spinner"></span>${t.convertingButton}';
       inp.disabled = true;
       window.location.href = '/' + input;
       return false;
@@ -362,13 +487,13 @@ export function landingPageHTML(host: string): string {
       if (e.persisted) {
         var btn = document.querySelector('#urlForm button');
         var inp = document.getElementById('urlInput');
-        if (btn) { btn.disabled = false; btn.textContent = 'Convert'; }
+        if (btn) { btn.disabled = false; btn.textContent = ${JSON.stringify(t.convertButton)}; }
         if (inp) inp.disabled = false;
       }
     });
     // On mobile, prefix is hidden — update placeholder to show full URL hint
     if (window.matchMedia('(max-width: 768px)').matches) {
-      document.getElementById('urlInput').placeholder = 'https://example.com/article';
+      document.getElementById('urlInput').placeholder = ${JSON.stringify(t.mobilePlaceholder)};
     }
   </script>
 </body>

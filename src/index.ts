@@ -1711,7 +1711,8 @@ export default {
 
     // No target URL → landing page
     if (!targetUrl) {
-      return new Response(landingPageHTML(host), {
+      const landingLang = url.searchParams.get("lang") === "zh" ? "zh" : "en";
+      return new Response(landingPageHTML(host, landingLang), {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Content-Security-Policy": LANDING_CSP,

@@ -11,6 +11,15 @@ describe("templates", () => {
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
   });
 
+  it("renders Chinese landing page when lang is zh", () => {
+    const html = landingPageHTML("md.example.com", "zh");
+    expect(html).toContain('href="/?lang=zh"');
+    expect(html).toContain('class="lang-link active" href="/?lang=zh"');
+    expect(html).toContain("任意 URL 转");
+    expect(html).toContain("转换");
+    expect(html).toContain('lang="zh-CN"');
+  });
+
   it("escapes title and message in error page", () => {
     const html = errorPageHTML("Oops <b>x</b>", 'Bad "msg" <img src=x>');
     expect(html).toContain("Oops &lt;b&gt;x&lt;/b&gt;");
