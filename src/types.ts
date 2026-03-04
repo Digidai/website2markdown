@@ -15,7 +15,8 @@ export interface Env {
 export type ConvertMethod =
   | "native"
   | "readability+turndown"
-  | "browser+readability+turndown";
+  | "browser+readability+turndown"
+  | "jina";
 
 export type OutputFormat = "markdown" | "html" | "text" | "json";
 

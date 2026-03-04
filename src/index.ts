@@ -76,6 +76,7 @@ import {
   extractProxyRetryToken,
 } from "./browser/proxy-retry";
 import { getCached, setCache, getImage } from "./cache";
+import { fetchViaJina } from "./jina";
 import {
   parseProxyUrl,
   parseProxyPool,
@@ -695,6 +696,7 @@ async function convertUrl(
   noCache: boolean,
   onProgress?: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
+  engine?: string,
 ): Promise<ConvertResult> {
   const progress = onProgress || (() => {});
   throwIfAborted(abortSignal);
@@ -720,6 +722,50 @@ async function convertUrl(
         },
       };
     }
+  }
+
+  // 2a. Jina fast path — skip all other conversion when engine=jina
+  if (engine === "jina") {
+    await progress("fetch", "Fetching via Jina Reader");
+    const jinaResult = await fetchViaJina(targetUrl, 15_000, abortSignal);
+    const jinaMarkdown = jinaResult.markdown;
+    const jinaTitle = jinaResult.title;
+
+    let output: string;
+    switch (format) {
+      case "html":
+        output = jinaMarkdown;
+        break;
+      case "text":
+        output = jinaMarkdown;
+        break;
+      case "json":
+        output = JSON.stringify({
+          url: targetUrl, title: jinaTitle, markdown: jinaMarkdown, method: "jina",
+          timestamp: new Date().toISOString(),
+        });
+        break;
+      default:
+        output = jinaMarkdown;
+    }
+
+    if (!noCache) {
+      await setCache(env, targetUrl, format, { content: output, method: "jina", title: jinaTitle }, selector);
+    }
+
+    return {
+      content: output,
+      title: jinaTitle,
+      method: "jina",
+      tokenCount: "",
+      cached: false,
+      diagnostics: {
+        cacheHit: false,
+        browserRendered: false,
+        paywallDetected: false,
+        fallbacks: [],
+      },
+    };
   }
 
   // 2. Fetch & parse
@@ -1188,6 +1234,23 @@ async function convertUrl(
     }
   }
 
+  // Jina fallback — last resort when basic conversion produced very little content
+  // Only triggers when: no specialized retrieval path was used, and the original HTML
+  // was substantial enough to suggest content extraction issues (not genuinely short pages)
+  if (markdown.length < 500 && !browserRendered && fallbacks.size === 0 && finalHtml.length > 2000) {
+    try {
+      const jinaResult = await fetchViaJina(conversionUrl, 15_000, abortSignal);
+      if (jinaResult.markdown.length > markdown.length) {
+        markdown = jinaResult.markdown;
+        extractedTitle = jinaResult.title || extractedTitle;
+        method = "jina";
+        fallbacks.add("jina_fallback");
+      }
+    } catch {
+      // Jina failed, continue with whatever we have
+    }
+  }
+
   switch (format) {
     case "html":
       output = contentHtml;
@@ -1359,6 +1422,7 @@ function handleStream(
   }
   const forceBrowser = url.searchParams.get("force_browser") === "true";
   const noCache = url.searchParams.get("no_cache") === "true";
+  const engine = url.searchParams.get("engine") || undefined;
 
   return sseResponse(async (send, streamSignal) => {
     try {
@@ -1366,6 +1430,7 @@ function handleStream(
         targetUrl, env, host, "markdown", selector, forceBrowser, noCache,
         async (step, label) => { await send("step", { id: step, label }); },
         streamSignal,
+        engine,
       );
       await send("done", {
         rawUrl: buildRawRequestPath(targetUrl),
@@ -1771,6 +1836,7 @@ export default {
       const forceBrowser = url.searchParams.get("force_browser") === "true";
       const noCache = url.searchParams.get("no_cache") === "true";
       const queryToken = url.searchParams.get("token");
+      const engine = url.searchParams.get("engine") || undefined;
 
       // Optional API auth for non-document requests.
       const isApiStyleRequest =
@@ -1828,6 +1894,7 @@ export default {
         if (forceBrowser) streamParams.set("force_browser", "true");
         if (noCache) streamParams.set("no_cache", "true");
         if (queryToken) streamParams.set("token", queryToken);
+        if (engine) streamParams.set("engine", engine);
         const sp = streamParams.toString();
 
         return new Response(
@@ -1846,6 +1913,7 @@ export default {
       // ── Raw / API calls → synchronous conversion ──
       const result = await convertUrlWithMetrics(
         targetUrl, env, host, format, selector, forceBrowser, noCache,
+        undefined, undefined, engine,
       );
 
       incrementCounter("conversionsTotal");

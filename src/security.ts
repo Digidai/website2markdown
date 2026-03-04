@@ -525,6 +525,7 @@ export function extractTargetUrl(
   targetSearchParams.delete("format");
   targetSearchParams.delete("selector");
   targetSearchParams.delete("token");
+  targetSearchParams.delete("engine");
   const remainingSearch = targetSearchParams.toString();
 
   if (remainingSearch) {

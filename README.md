@@ -107,6 +107,16 @@ curl "https://md.genedai.me/https://example.com?selector=%23main-content&raw=tru
 curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_browser=true"
 ```
 
+### Jina Reader Engine
+
+Use `engine=jina` to convert via [r.jina.ai](https://r.jina.ai) instead of the built-in pipeline. This is useful for JS-heavy pages when browser rendering is unavailable. Free tier: 20 RPM, 2 concurrent, per-IP rate limit.
+
+```bash
+curl "https://md.genedai.me/https://example.com?raw=true&engine=jina"
+```
+
+> Jina is also used automatically as a last-resort fallback when Readability extraction produces very little content and no browser/proxy path was used.
+
 ### Cache Control
 
 Results are cached in KV for fast repeat access. To bypass cache:
@@ -316,6 +326,7 @@ print(data["title"], data["method"])
 | `/<url>?format=text` | GET | Return plain text (no formatting) |
 | `/<url>?selector=.class` | GET | Extract specific CSS selector |
 | `/<url>?force_browser=true` | GET | Force browser rendering |
+| `/<url>?engine=jina` | GET | Convert via Jina Reader API |
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
 | `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |

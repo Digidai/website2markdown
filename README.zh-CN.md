@@ -106,6 +106,16 @@ curl "https://md.genedai.me/https://example.com?selector=%23main-content&raw=tru
 curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_browser=true"
 ```
 
+### Jina Reader 引擎
+
+使用 `engine=jina` 通过 [r.jina.ai](https://r.jina.ai) 转换，跳过内置流程。适用于浏览器渲染不可用时的 JS 重度页面。免费版限制：20 RPM、2 并发、按 IP 限流。
+
+```bash
+curl "https://md.genedai.me/https://example.com?raw=true&engine=jina"
+```
+
+> 当 Readability 提取内容极少且无浏览器/代理路径时，Jina 也会作为最后兜底自动触发。
+
 ### 缓存控制
 
 结果会缓存到 KV。若需跳过缓存：
@@ -279,6 +289,7 @@ print(data["title"], data["method"])
 | `/<url>?format=text` | GET | 返回纯文本（无格式） |
 | `/<url>?selector=.class` | GET | 提取指定 CSS 选择器 |
 | `/<url>?force_browser=true` | GET | 强制浏览器渲染 |
+| `/<url>?engine=jina` | GET | 通过 Jina Reader API 转换 |
 | `/<url>?no_cache=true` | GET | 跳过 KV 缓存 |
 | `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`） |
 | `/api/batch` | POST | 批量转换（最多 10 条） |
