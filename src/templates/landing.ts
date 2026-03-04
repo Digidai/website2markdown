@@ -24,7 +24,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         inputHintLead: "支持裸域名、http:// 与 https://",
         feature1Label: "01 &mdash; 通用",
         feature1Title: "任意网站",
-        feature1Desc: "三条转换路径：原生边缘 Markdown、Readability 提取，或无头浏览器渲染。",
+        feature1Desc: "四条转换路径：原生边缘 Markdown、Readability 提取、无头浏览器渲染，或 Jina Reader API。",
         feature2Label: "02 &mdash; API 优先",
         feature2Title: "多种格式",
         feature2Desc: "支持输出 <code>markdown</code>、<code>html</code>、<code>text</code>、<code>json</code>，并可用 CSS 选择器定向提取。",
@@ -45,6 +45,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         formatDesc: "输出格式",
         selectorDesc: "仅提取匹配的 CSS 选择器",
         forceBrowserDesc: "强制使用无头浏览器渲染",
+        engineDesc: "使用 Jina Reader API 转换",
         noCacheDesc: "绕过缓存，抓取最新内容",
         responseHeaders: "响应头：",
         sourceUrlDesc: "原始目标 URL",
@@ -77,7 +78,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         inputHintLead: "Bare domains, http:// and https:// all work",
         feature1Label: "01 &mdash; Universal",
         feature1Title: "Any Website",
-        feature1Desc: "Three conversion paths: native edge Markdown, Readability extraction, or headless browser rendering.",
+        feature1Desc: "Four conversion paths: native edge Markdown, Readability extraction, headless browser rendering, or Jina Reader API.",
         feature2Label: "02 &mdash; API-first",
         feature2Title: "Multiple Formats",
         feature2Desc: "Output as <code>markdown</code>, <code>html</code>, <code>text</code>, or <code>json</code>. Specify CSS selectors for targeted extraction.",
@@ -98,6 +99,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         formatDesc: "Output format",
         selectorDesc: "Extract only matching CSS selector",
         forceBrowserDesc: "Force headless browser rendering",
+        engineDesc: "Convert via Jina Reader API",
         noCacheDesc: "Bypass cache, fetch fresh content",
         responseHeaders: "Response Headers:",
         sourceUrlDesc: "The original target URL",
@@ -380,7 +382,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         <button type="submit">${t.convertButton}</button>
       </form>
     </div>
-    <p class="input-hint">${t.inputHintLead} &mdash; <code>?format=json|html|text</code> &middot; <code>?selector=.css</code> &middot; <code>?raw=true</code> &middot; <code>?force_browser=true</code> &middot; <code>?no_cache=true</code></p>
+    <p class="input-hint">${t.inputHintLead} &mdash; <code>?format=json|html|text</code> &middot; <code>?selector=.css</code> &middot; <code>?raw=true</code> &middot; <code>?force_browser=true</code> &middot; <code>?engine=jina</code> &middot; <code>?no_cache=true</code></p>
 
     <div class="features">
       <div class="feature">
@@ -431,11 +433,12 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <code>?format=</code><code>markdown</code>|<code>html</code>|<code>text</code>|<code>json</code> &mdash; ${t.formatDesc}<br>
           <code>?selector=.article</code> &mdash; ${t.selectorDesc}<br>
           <code>?force_browser=true</code> &mdash; ${t.forceBrowserDesc}<br>
+          <code>?engine=jina</code> &mdash; ${t.engineDesc}<br>
           <code>?no_cache=true</code> &mdash; ${t.noCacheDesc}
         </div>
         <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.responseHeaders}</strong></div>
         <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
-          <code>X-Markdown-Method</code> &mdash; native | readability+turndown | browser+readability+turndown<br>
+          <code>X-Markdown-Method</code> &mdash; native | readability+turndown | browser+readability+turndown | jina<br>
           <code>X-Cache-Status</code> &mdash; HIT | MISS<br>
           <code>X-Source-URL</code> &mdash; ${t.sourceUrlDesc}
         </div>
