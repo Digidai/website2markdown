@@ -2,7 +2,7 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-A Cloudflare Worker that converts **any** web page to clean Markdown. Supports three conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), and [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages.
+A Cloudflare Worker that converts **any** web page to clean Markdown. Supports four conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages, and [Jina Reader](https://r.jina.ai) as an optional engine or last-resort fallback.
 
 Prepend your domain before any URL and get instant Markdown output. No signup required, and API auth is optional/configurable.
 
@@ -12,7 +12,7 @@ Prepend your domain before any URL and get instant Markdown output. No signup re
 https://<your-worker-domain>/<target-url>
 ```
 
-### Three-Tier Conversion Flow
+### Conversion Flow
 
 ```
 Request
@@ -149,7 +149,7 @@ curl -X POST https://md.genedai.me/api/batch \
 
 `urls` supports:
 - String item: `"https://example.com/a"` (defaults to markdown)
-- Object item: `{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean }`
+- Object item: `{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean, "engine?": "jina" }`
 
 Response:
 ```json
@@ -372,7 +372,7 @@ print(data["title"], data["method"])
 
 | Feature | Description |
 |---|---|
-| **Any Website** | Works on every site with three conversion paths |
+| **Any Website** | Works on every site with four conversion paths |
 | **Site Adapters** | Specialized extractors for WeChat, Feishu, Zhihu, Yuque, Notion, Juejin |
 | **Anti-Bot Bypass** | Browser Rendering handles JS challenges, CAPTCHAs, and verification |
 | **KV Cache** | Results cached for instant repeat access |

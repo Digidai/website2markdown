@@ -12,7 +12,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         pageTitle: "任意 URL 转 Markdown",
         schemaDescription: "将任意 URL 即时转换为干净、可读的 Markdown。适用于 AI Agent、LLM 和开发者。",
         metaDescription:
-          "把任意网页转换为干净、可读的 Markdown。支持三条转换路径：原生边缘 Markdown、Readability + Turndown，以及无头浏览器渲染。适用于 AI Agent、LLM 和开发者。",
+          "把任意网页转换为干净、可读的 Markdown。支持四条转换路径：原生边缘 Markdown、Readability + Turndown、无头浏览器渲染，以及 Jina Reader API。适用于 AI Agent、LLM 和开发者。",
         shareDescription: `在任意 URL 前加上 ${h}/，即可快速获得干净、可读的 Markdown。基于 Cloudflare Workers。`,
         langSwitchAria: "选择语言",
         badge: "Cloudflare Markdown for Agents",
@@ -66,7 +66,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         pageTitle: "Convert Any URL to Markdown",
         schemaDescription: "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
         metaDescription:
-          "Convert any URL to clean, readable Markdown instantly. Three conversion paths: native edge Markdown, Readability + Turndown, and headless browser rendering. For AI agents, LLMs, and developers.",
+          "Convert any URL to clean, readable Markdown instantly. Four conversion paths: native edge Markdown, Readability + Turndown, headless browser rendering, and Jina Reader API. For AI agents, LLMs, and developers.",
         shareDescription: `Prepend ${h}/ before any URL. Clean, readable Markdown for AI agents, LLMs, and developers. Powered by Cloudflare Workers.`,
         langSwitchAria: "Language selector",
         badge: "Cloudflare Markdown for Agents",

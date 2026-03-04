@@ -3,7 +3,7 @@
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
 一个 Cloudflare Worker，可以把**任意网页**转换为干净、可读的 Markdown。
-支持三条转换路径：[Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/)（原生）、[Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown)（兜底）、以及 [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/)（用于反爬/重 JS 页面）。
+支持四条转换路径：[Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/)（原生）、[Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown)（兜底）、[Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/)（用于反爬/重 JS 页面）、以及 [Jina Reader](https://r.jina.ai)（可选引擎或最终兜底）。
 
 把你的域名前缀加在目标 URL 前即可直接获得 Markdown 输出。无需注册，API 鉴权可选。
 
@@ -13,7 +13,7 @@
 https://<your-worker-domain>/<target-url>
 ```
 
-### 三层转换流程
+### 转换流程
 
 ```
 Request
@@ -146,7 +146,7 @@ curl -X POST https://md.genedai.me/api/batch \
 
 `urls` 支持：
 - 字符串项：`"https://example.com/a"`（默认 markdown）
-- 对象项：`{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean }`
+- 对象项：`{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean, "engine?": "jina" }`
 
 ### 结构化提取 API
 
@@ -335,7 +335,7 @@ print(data["title"], data["method"])
 
 | 功能 | 说明 |
 |---|---|
-| **任意网站** | 三条转换路径覆盖更多页面类型 |
+| **任意网站** | 四条转换路径覆盖更多页面类型 |
 | **站点适配器** | WeChat / Feishu / Zhihu / Yuque / Notion / Juejin 专项提取 |
 | **反爬绕过** | Browser Rendering 处理 JS 挑战与验证场景 |
 | **KV 缓存** | 重复请求快速返回 |

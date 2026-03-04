@@ -1983,7 +1983,9 @@ function buildResponse(
       ? "browser"
       : method === "native"
         ? "native"
-        : "fallback";
+        : method === "jina"
+          ? "jina"
+          : "fallback";
 
   if (wantsRaw || format === "json" || format === "text" || format === "html") {
     const contentType =
@@ -3989,6 +3991,7 @@ interface BatchUrlObjectInput {
   selector?: string;
   force_browser?: boolean;
   no_cache?: boolean;
+  engine?: string;
 }
 
 interface BatchNormalizedItem {
@@ -3997,6 +4000,7 @@ interface BatchNormalizedItem {
   selector?: string;
   forceBrowser: boolean;
   noCache: boolean;
+  engine?: string;
 }
 
 function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
@@ -4041,12 +4045,14 @@ function normalizeBatchItem(input: unknown): BatchNormalizedItem | null {
   if (item.no_cache !== undefined && typeof item.no_cache !== "boolean") {
     return null;
   }
+  const engine = typeof item.engine === "string" ? item.engine : undefined;
   return {
     url: normalizedUrl,
     format: format as OutputFormat,
     selector: normalizedSelector || undefined,
     forceBrowser: item.force_browser === true,
     noCache: item.no_cache === true,
+    engine,
   };
 }
 
@@ -4131,7 +4137,7 @@ async function handleBatch(
       return Response.json(
         {
           error:
-            "Each batch item must be either a URL string or { url, format?, selector?, force_browser?, no_cache? }",
+            "Each batch item must be either a URL string or { url, format?, selector?, force_browser?, no_cache?, engine? }",
         },
         { status: 400, headers: CORS_HEADERS },
       );
@@ -4152,6 +4158,7 @@ async function handleBatch(
           item.noCache,
           undefined,
           request.signal,
+          item.engine,
         );
         incrementCounter("conversionsTotal");
         if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");
