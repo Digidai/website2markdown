@@ -314,8 +314,13 @@ export async function storeImage(
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    // Extract extension from content type
-    const ext = contentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
+    // Extract extension — prefer wx_fmt param for WeChat images where
+    // content-type may be generic "application/octet-stream"
+    let ext = contentType.split("/")[1]?.split(";")[0]?.trim() || "bin";
+    if ((ext === "bin" || ext === "octet-stream") && imageUrl.includes("mmbiz.qpic.cn")) {
+      const fmtMatch = imageUrl.match(/wx_fmt=(\w+)/);
+      if (fmtMatch) ext = fmtMatch[1];
+    }
     const key = `images/${hash}.${ext}`;
 
     await withTransientRetry(() =>

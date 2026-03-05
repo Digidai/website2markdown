@@ -166,6 +166,29 @@ describe("cache edge behavior", () => {
     expect(key.endsWith(".bin")).toBe(true);
   });
 
+  it("uses wx_fmt param for WeChat image extension when content-type is generic", async () => {
+    const { env, mocks } = createCacheEnv();
+    const key = await storeImage(
+      env,
+      "https://mmbiz.qpic.cn/mmbiz_jpg/abc123/640?wx_fmt=jpeg&from=appmsg",
+      new Uint8Array([1, 2, 3]),
+      "application/octet-stream",
+    );
+    expect(key.endsWith(".jpeg")).toBe(true);
+    expect(mocks.r2Put).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps content-type extension for WeChat images when content-type is specific", async () => {
+    const { env } = createCacheEnv();
+    const key = await storeImage(
+      env,
+      "https://mmbiz.qpic.cn/mmbiz_png/abc123/640?wx_fmt=png",
+      new Uint8Array([1, 2]),
+      "image/png",
+    );
+    expect(key.endsWith(".png")).toBe(true);
+  });
+
   it("retries transient r2 write errors and succeeds", async () => {
     const { env, mocks } = createCacheEnv();
     mocks.r2Put

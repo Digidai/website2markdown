@@ -93,6 +93,27 @@ describe("adapter behavior", () => {
     expect(processed).not.toContain("footer");
   });
 
+  it("wechat postProcess converts code-snippet blocks to clean pre/code", () => {
+    const html = `<html><body>
+      <section class="code-snippet__fix" style="display:block">
+        <ul class="code-snippet__line-index"><li>1</li><li>2</li></ul>
+        <pre data-lang="Python"><code>print("hello")</code><code>print("world")</code></pre>
+      </section>
+    </body></html>`;
+    const processed = wechatAdapter.postProcess!(html);
+    expect(processed).toContain('<pre data-lang="Python">');
+    expect(processed).toContain("print");
+    expect(processed).toContain("hello");
+    expect(processed).not.toContain("code-snippet__line-index");
+    expect(processed).not.toContain("code-snippet__fix");
+  });
+
+  it("wechat postProcess passes through plain content unchanged", () => {
+    const html = `<html><body><div id="js_content">plain article</div></body></html>`;
+    const processed = wechatAdapter.postProcess!(html);
+    expect(processed).toContain("plain article");
+  });
+
   it("keeps feishu adapter as no-op extraction", async () => {
     expect(feishuAdapter.alwaysBrowser).toBe(true);
     expect(await feishuAdapter.extract({} as any, new Map())).toBeNull();

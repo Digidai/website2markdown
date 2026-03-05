@@ -47,6 +47,14 @@ describe("htmlToMarkdown", () => {
     expect(markdown).toContain("~~struck~~");
   });
 
+  it("converts pre[data-lang] to language-tagged fenced code blocks", () => {
+    const html = '<html><body><pre data-lang="python"><code>def hello():\n    print("hi")</code></pre></body></html>';
+    const { markdown } = htmlToMarkdown(html, "https://example.com");
+    expect(markdown).toContain("```python");
+    expect(markdown).toContain('def hello()');
+    expect(markdown).toContain("```");
+  });
+
   it("extracts only selected element when selector provided", () => {
     const html = `<html><body>
       <div class="sidebar">Sidebar noise</div>

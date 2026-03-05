@@ -19,6 +19,19 @@ turndown.addRule("strikethrough", {
   replacement: (content) => `~~${content}~~`,
 });
 
+// Language-tagged code blocks — handles <pre data-lang="xxx"> from WeChat adapter
+turndown.addRule("langCodeBlock", {
+  filter: (node: any) => {
+    return node.nodeName === "PRE" && node.getAttribute?.("data-lang");
+  },
+  replacement: (_content: string, node: any) => {
+    const lang = node.getAttribute("data-lang") || "";
+    const code = node.querySelector?.("code");
+    const text = (code ? code.textContent : node.textContent) || "";
+    return `\n\n\`\`\`${lang}\n${text.replace(/\n+$/, "")}\n\`\`\`\n\n`;
+  },
+});
+
 // Better table handling — preserve HTML tables that Turndown can't convert well
 turndown.addRule("complexTable", {
   filter: (node: any) => {
