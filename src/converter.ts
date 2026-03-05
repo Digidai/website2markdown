@@ -236,13 +236,13 @@ export function htmlToText(
   const { markdown } = htmlToMarkdown(html, url, selector);
   const boundedMarkdown = clampRegexInput(markdown);
   if (!boundedMarkdown.trim()) return "";
-  // Strip markdown formatting
+  // Strip markdown formatting (use negated character classes to avoid ReDoS)
   return boundedMarkdown
     .replace(/#{1,6}\s/g, "")
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
-    .replace(/~~(.+?)~~/g, "$1")
-    .replace(/`(.+?)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/^[-*+]\s/gm, "")

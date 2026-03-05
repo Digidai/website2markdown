@@ -100,7 +100,10 @@ function touchBoundedMap<T>(
 function getMemoized<T>(map: Map<string, T>, key: string): T | undefined {
   const value = map.get(key);
   if (value === undefined) return undefined;
-  touchBoundedMap(map, key, value, Number.MAX_SAFE_INTEGER);
+  // Re-insert at tail for LRU recency; capacity is enforced by callers via
+  // touchBoundedMap, but on read we only need to refresh position without evicting.
+  map.delete(key);
+  map.set(key, value);
   return value;
 }
 

@@ -392,7 +392,12 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
     const size = parseInt(sizeToken, 16);
     if (size === 0) {
       let trailerPos = lineEnd + 2;
+      let trailerCount = 0;
+      const MAX_TRAILERS = 32;
       while (true) {
+        if (++trailerCount > MAX_TRAILERS) {
+          throw new Error("Invalid chunked encoding: too many trailer lines");
+        }
         const trailerLineEnd = indexOfBytes(raw, CRLF_BYTES, trailerPos);
         if (trailerLineEnd < 0) {
           throw new Error("Invalid chunked encoding: missing terminating trailer end");

@@ -43,6 +43,9 @@ export async function fetchViaJina(
 
     const json = (await response.json()) as JinaResponse;
 
+    if (json.code !== undefined && json.code !== 200) {
+      throw new Error(`Jina Reader returned error code ${json.code}`);
+    }
     if (!json.data?.content) {
       throw new Error("Jina Reader returned empty content");
     }
