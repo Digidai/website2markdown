@@ -8,7 +8,9 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "smoke:api": "bash scripts/smoke-api.sh",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "npx -y node@22 ./node_modules/vitest/vitest.mjs run --coverage",
     "test:watch": "vitest"
   },
   "devDependencies": {

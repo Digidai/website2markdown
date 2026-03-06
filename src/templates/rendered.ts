@@ -25,6 +25,7 @@ export function renderedPageHTML(
   method: "native" | "fallback" | "browser" | "jina",
   cached: boolean = false,
   articleTitle: string = "",
+  rawRequestPath: string = buildRawRequestPath(sourceUrl),
 ): string {
   const escapedContent = escapeHtml(content);
   const ogTitle = articleTitle || sourceUrl;
@@ -38,7 +39,7 @@ export function renderedPageHTML(
   };
   const status = statusConfig[method];
   const cacheLabel = cached ? '<span class="cache-pill">CACHED</span>' : '';
-  const rawHref = escapeHtml(buildRawRequestPath(sourceUrl));
+  const rawHref = escapeHtml(rawRequestPath);
 
   return `<!DOCTYPE html>
 <html lang="en">

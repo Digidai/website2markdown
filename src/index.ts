@@ -34,7 +34,7 @@ import {
   escapeHtml,
   fetchWithSafeRedirects,
 } from "./security";
-import { htmlToMarkdown, htmlToText, proxyImageUrls } from "./converter";
+import { htmlToMarkdown, proxyImageUrls } from "./converter";
 import {
   extractWithStrategy,
   ExtractionStrategyError,
@@ -449,6 +449,27 @@ function markdownToBasicHtml(markdown: string): string {
   return `<pre>${escapeHtml(markdown)}</pre>`;
 }
 
+/** Convert markdown to plain text while preserving the final extracted content. */
+function markdownToPlainText(markdown: string): string {
+  return markdown
+    .replace(/\r\n?/g, "\n")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/```[\t ]*[^\n]*\n([\s\S]*?)```/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/_([^_\n]+)_/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/^>\s?/gm, "")
+    .replace(/^[-*+]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 /** Check if the request prefers JSON error responses. */
 function wantsJsonError(request: Request): boolean {
   const accept = request.headers.get("Accept") || "";
@@ -682,6 +703,7 @@ interface ConvertResult {
   title: string;
   method: ConvertMethod;
   tokenCount: string;
+  sourceContentType: string;
   cached: boolean;
   diagnostics: ConvertDiagnostics;
 }
@@ -703,6 +725,7 @@ async function convertUrl(
   const fallbacks = new Set<string>();
   let browserRendered = false;
   let paywallDetected = false;
+  let sourceContentType = "text/html";
 
   // 1. Cache
   if (!noCache) {
@@ -713,6 +736,7 @@ async function convertUrl(
         title: cached.title || "",
         method: cached.method as ConvertMethod,
         tokenCount: "",
+        sourceContentType: cached.sourceContentType || "",
         cached: true,
         diagnostics: {
           cacheHit: true,
@@ -730,14 +754,15 @@ async function convertUrl(
     const jinaResult = await fetchViaJina(targetUrl, 15_000, abortSignal);
     const jinaMarkdown = jinaResult.markdown;
     const jinaTitle = jinaResult.title;
+    sourceContentType = "text/markdown";
 
     let output: string;
     switch (format) {
       case "html":
-        output = jinaMarkdown;
+        output = markdownToBasicHtml(jinaMarkdown);
         break;
       case "text":
-        output = jinaMarkdown;
+        output = markdownToPlainText(jinaMarkdown);
         break;
       case "json":
         output = JSON.stringify({
@@ -750,7 +775,18 @@ async function convertUrl(
     }
 
     if (!noCache) {
-      await setCache(env, targetUrl, format, { content: output, method: "jina", title: jinaTitle }, selector);
+      await setCache(
+        env,
+        targetUrl,
+        format,
+        {
+          content: output,
+          method: "jina",
+          title: jinaTitle,
+          sourceContentType,
+        },
+        selector,
+      );
     }
 
     return {
@@ -758,6 +794,7 @@ async function convertUrl(
       title: jinaTitle,
       method: "jina",
       tokenCount: "",
+      sourceContentType,
       cached: false,
       diagnostics: {
         cacheHit: false,
@@ -1013,6 +1050,7 @@ async function convertUrl(
       throwIfAborted(abortSignal);
       await progress("analyze", "Analyzing content");
       const contentType = response.headers.get("Content-Type") || "";
+      sourceContentType = contentType || "text/html";
       const isTextContent = contentType.includes("text/html") ||
         contentType.includes("application/xhtml") ||
         contentType.includes("text/markdown") ||
@@ -1073,13 +1111,27 @@ async function convertUrl(
           case "html":
             nativeOutput = markdownToBasicHtml(body);
             break;
+          case "text":
+            nativeOutput = markdownToPlainText(body);
+            break;
           default:
             nativeOutput = body;
         }
 
         if (!noCache) {
           throwIfAborted(abortSignal);
-          await setCache(env, targetUrl, format, { content: nativeOutput, method: "native", title: "" }, selector);
+          await setCache(
+            env,
+            targetUrl,
+            format,
+            {
+              content: nativeOutput,
+              method: "native",
+              title: "",
+              sourceContentType,
+            },
+            selector,
+          );
         }
 
         return {
@@ -1087,6 +1139,7 @@ async function convertUrl(
           title: "",
           method: "native",
           tokenCount,
+          sourceContentType,
           cached: false,
           diagnostics: {
             cacheHit: false,
@@ -1244,6 +1297,7 @@ async function convertUrl(
         markdown = jinaResult.markdown;
         extractedTitle = jinaResult.title || extractedTitle;
         method = "jina";
+        sourceContentType = "text/markdown";
         fallbacks.add("jina_fallback");
       }
     } catch {
@@ -1253,10 +1307,10 @@ async function convertUrl(
 
   switch (format) {
     case "html":
-      output = contentHtml;
+      output = method === "jina" ? markdownToBasicHtml(markdown) : contentHtml;
       break;
     case "text":
-      output = htmlToText(finalHtml, conversionUrl, selector);
+      output = markdownToPlainText(markdown);
       break;
     case "json":
       output = JSON.stringify({
@@ -1279,7 +1333,18 @@ async function convertUrl(
   // 10. Cache
   if (!noCache) {
     throwIfAborted(abortSignal);
-    await setCache(env, targetUrl, format, { content: output, method, title: extractedTitle }, selector);
+    await setCache(
+      env,
+      targetUrl,
+      format,
+      {
+        content: output,
+        method,
+        title: extractedTitle,
+        sourceContentType,
+      },
+      selector,
+    );
   }
 
   return {
@@ -1287,6 +1352,7 @@ async function convertUrl(
     title: extractedTitle,
     method,
     tokenCount: "",
+    sourceContentType,
     cached: false,
     diagnostics: {
       cacheHit: false,
@@ -1422,7 +1488,15 @@ function handleStream(
   }
   const forceBrowser = url.searchParams.get("force_browser") === "true";
   const noCache = url.searchParams.get("no_cache") === "true";
+  const queryToken = url.searchParams.get("token");
   const engine = url.searchParams.get("engine") || undefined;
+  const rawRequestPath = buildRawRequestPath(targetUrl, {
+    selector,
+    forceBrowser,
+    noCache,
+    engine,
+    token: queryToken || undefined,
+  });
 
   return sseResponse(async (send, streamSignal) => {
     try {
@@ -1433,7 +1507,7 @@ function handleStream(
         engine,
       );
       await send("done", {
-        rawUrl: buildRawRequestPath(targetUrl),
+        rawUrl: rawRequestPath,
         title: result.title,
         method: result.method,
         tokenCount: result.tokenCount,
@@ -1837,6 +1911,13 @@ export default {
       const noCache = url.searchParams.get("no_cache") === "true";
       const queryToken = url.searchParams.get("token");
       const engine = url.searchParams.get("engine") || undefined;
+      const rawRequestPath = buildRawRequestPath(targetUrl, {
+        selector,
+        forceBrowser,
+        noCache,
+        engine,
+        token: queryToken || undefined,
+      });
 
       // Optional API auth for non-document requests.
       const isApiStyleRequest =
@@ -1884,6 +1965,7 @@ export default {
                 paywallDetected: false,
                 fallbacks: [],
               },
+              rawRequestPath,
             );
           }
         }
@@ -1898,7 +1980,7 @@ export default {
         const sp = streamParams.toString();
 
         return new Response(
-          loadingPageHTML(host, targetUrl, sp ? "&" + sp : ""),
+          loadingPageHTML(host, targetUrl, sp ? "&" + sp : "", rawRequestPath),
           {
             headers: {
               "Content-Type": "text/html; charset=utf-8",
@@ -1937,6 +2019,7 @@ export default {
       return buildResponse(
         result.content, targetUrl, host, result.method, format,
         wantsRaw, result.tokenCount, result.cached, result.title, result.diagnostics,
+        rawRequestPath,
       );
     } catch (err: unknown) {
       if (err instanceof ConvertError) {
@@ -1977,6 +2060,7 @@ function buildResponse(
   cached: boolean,
   title: string = "",
   diagnostics?: ConvertDiagnostics,
+  rawRequestPath?: string,
 ): Response {
   const methodLabel =
     method === "browser+readability+turndown"
@@ -2023,7 +2107,16 @@ function buildResponse(
   }
 
   return new Response(
-    renderedPageHTML(host, content, sourceUrl, tokenCount, methodLabel, cached, title),
+    renderedPageHTML(
+      host,
+      content,
+      sourceUrl,
+      tokenCount,
+      methodLabel,
+      cached,
+      title,
+      rawRequestPath,
+    ),
     {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
@@ -3101,7 +3194,7 @@ async function executeDeepCrawl(
       markdown,
       title: converted.title,
       method: converted.method,
-      contentType: "text/html",
+      contentType: converted.sourceContentType || undefined,
     };
   };
 

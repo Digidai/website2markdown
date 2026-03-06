@@ -539,6 +539,25 @@ export function extractTargetUrl(
 }
 
 /** Build a stable raw markdown request path for a target URL. */
-export function buildRawRequestPath(targetUrl: string): string {
-  return `/${encodeURIComponent(targetUrl)}?raw=true`;
+export interface RawRequestPathOptions {
+  selector?: string;
+  forceBrowser?: boolean;
+  noCache?: boolean;
+  engine?: string;
+  token?: string;
+}
+
+/** Build a stable raw markdown request path for a target URL. */
+export function buildRawRequestPath(
+  targetUrl: string,
+  options: RawRequestPathOptions = {},
+): string {
+  const params = new URLSearchParams();
+  params.set("raw", "true");
+  if (options.selector) params.set("selector", options.selector);
+  if (options.forceBrowser) params.set("force_browser", "true");
+  if (options.noCache) params.set("no_cache", "true");
+  if (options.engine) params.set("engine", options.engine);
+  if (options.token) params.set("token", options.token);
+  return `/${encodeURIComponent(targetUrl)}?${params.toString()}`;
 }

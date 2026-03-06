@@ -409,7 +409,7 @@ md-genedai/
 │   │   ├── rendered.ts       # Markdown preview page HTML
 │   │   ├── loading.ts        # SSE loading/progress page HTML
 │   │   └── error.ts          # Error page HTML
-│   └── __tests__/            # 34 test files
+│   └── __tests__/            # 37 test files
 ├── docs/
 │   └── slo-reference.md      # SLO targets used by /api/health operational metrics
 ├── scripts/
@@ -491,10 +491,10 @@ binding = "MYBROWSER"
 ```bash
 npm install
 npm run dev           # 本地开发：http://localhost:8787
-npx tsc --noEmit      # 类型检查
+npm run typecheck     # 类型检查
 npm test              # 运行单元测试
 npm run test:watch    # watch 模式
-npx vitest run --coverage
+npm run test:coverage # 覆盖率（为兼容性固定使用 Node 22 执行）
 npm run smoke:api     # API 冒烟测试（需 BASE_URL + API_TOKEN）
 ```
 
@@ -507,15 +507,15 @@ TARGET_URL="https://example.com" \
 npm run smoke:api
 ```
 
-### 准确测试基线（2026-02-23）
+### 准确测试基线（2026-03-06）
 
-基于 **2026 年 2 月 23 日**的验证结果：
+基于 **2026 年 3 月 6 日**的验证结果：
 
 | 检查项 | 命令 | 结果 |
 |---|---|---|
-| 类型安全 | `npx tsc --noEmit` | Pass |
-| 单元/集成测试 | `npm test` | Pass（`34` files, `376` tests） |
-| 覆盖率 | `npx vitest run --coverage` | Pass（`Statements 86.29%`, `Branch 73.41%`, `Functions 93.36%`, `Lines 88.60%`） |
+| 类型安全 | `npm run typecheck` | Pass |
+| 单元/集成测试 | `npm test` | Pass（`37` files, `478` tests） |
+| 覆盖率 | `npm run test:coverage` | Pass（`Statements 86.84%`, `Branch 76.48%`, `Functions 93.38%`, `Lines 88.97%`） |
 | 线上健康检查 | `curl https://website2markdown.genedai.workers.dev/api/health` | Pass（`HTTP 200`, `status=ok`） |
 | 线上公开转换 | `GET /https://example.com?raw=true` | Pass（`HTTP 200`，返回 markdown） |
 

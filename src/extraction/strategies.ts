@@ -238,6 +238,17 @@ function countMatches(value: unknown): number {
   return 1;
 }
 
+function hasMeaningfulValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.some((item) => hasMeaningfulValue(item));
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .some((item) => hasMeaningfulValue(item));
+  }
+  return true;
+}
+
 function extractStructured(
   strategy: ExtractionStrategyType,
   html: string,
@@ -297,6 +308,14 @@ function extractStructured(
         row[field.name] = includeEmpty ? values : values.filter(Boolean);
       } else {
         row[field.name] = nodes.length > 0 ? readFieldValue(nodes[0], field) : "";
+      }
+
+      if (field.required && !hasMeaningfulValue(row[field.name])) {
+        throw new ExtractionStrategyError(
+          "EXTRACTION_FAILED",
+          `Required field "${field.name}" was not found.`,
+          { field: field.name },
+        );
       }
     }
     return row;

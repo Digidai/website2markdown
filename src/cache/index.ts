@@ -2,7 +2,12 @@ import type { Env } from "../types";
 import { CACHE_TTL_DEFAULT, CACHE_TTL_SHORT } from "../config";
 import { errorMessage } from "../utils";
 
-type CachedPayload = { content: string; method: string; title: string };
+type CachedPayload = {
+  content: string;
+  method: string;
+  title: string;
+  sourceContentType?: string;
+};
 
 /** In-process hot cache to reduce KV roundtrips and JSON parse overhead. */
 export const HOT_CACHE_TTL_MS = 15_000;
@@ -112,6 +117,7 @@ function clonePayload(data: CachedPayload): CachedPayload {
     content: data.content,
     method: data.method,
     title: data.title,
+    ...(data.sourceContentType ? { sourceContentType: data.sourceContentType } : {}),
   };
 }
 
@@ -129,6 +135,9 @@ function parseCachedPayload(raw: string): CachedPayload | null {
     content: parsed.content,
     method: parsed.method,
     title: parsed.title,
+    ...(typeof parsed.sourceContentType === "string" && parsed.sourceContentType
+      ? { sourceContentType: parsed.sourceContentType }
+      : {}),
   };
 }
 

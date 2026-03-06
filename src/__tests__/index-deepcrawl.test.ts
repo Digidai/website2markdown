@@ -58,6 +58,33 @@ function stubGraphFetch(pages: Record<string, string>): void {
   }));
 }
 
+function stubGraphFetchWithContentType(
+  pages: Record<string, { body: string; contentType: string }>,
+): void {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const rawUrl =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const lookup = rawUrl.split("#")[0];
+    const page = pages[lookup];
+
+    if (!page) {
+      return new Response("Not Found", {
+        status: 404,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      });
+    }
+
+    return new Response(page.body, {
+      status: 200,
+      headers: { "Content-Type": page.contentType },
+    });
+  }));
+}
+
 describe("POST /api/deepcrawl", () => {
   const seed = "https://crawl.example.com/start";
   const graph: Record<string, string> = {
@@ -290,5 +317,41 @@ describe("POST /api/deepcrawl", () => {
     expect(payload.error).toBe("Invalid request");
     expect(payload.message).toContain("filters.allow_domains");
     expect(payload.message).toContain("invalid domain");
+  });
+
+  it("uses upstream content type when applying content_types filters", async () => {
+    stubGraphFetchWithContentType({
+      [seed]: {
+        body: "# Start\n\n[child](/a)",
+        contentType: "text/markdown; charset=utf-8",
+      },
+      "https://crawl.example.com/a": {
+        body: "# A page",
+        contentType: "text/markdown; charset=utf-8",
+      },
+    });
+    const { env } = setupInMemoryKv();
+
+    const req = deepcrawlRequest({
+      seed,
+      max_depth: 1,
+      max_pages: 2,
+      filters: {
+        content_types: ["text/markdown"],
+      },
+      fetch: {
+        no_cache: true,
+      },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as {
+      results?: Array<{ success?: boolean; error?: string; method?: string }>;
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.results?.[0]?.success).toBe(true);
+    expect(payload.results?.[0]?.error).toBeUndefined();
+    expect(payload.results?.[0]?.method).toBe("native");
   });
 });

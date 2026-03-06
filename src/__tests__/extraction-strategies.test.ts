@@ -85,5 +85,15 @@ describe("extractWithStrategy", () => {
       }),
     ).toThrowError(ExtractionStrategyError);
   });
-});
 
+  it("throws when a required field is missing", () => {
+    expect(() =>
+      extractWithStrategy("css", "<article><h1>Hello</h1></article>", {
+        fields: [
+          { name: "title", selector: "h1", type: "text" },
+          { name: "author", selector: ".author", type: "text", required: true },
+        ],
+      }),
+    ).toThrowError(/Required field "author" was not found/);
+  });
+});

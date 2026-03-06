@@ -4,6 +4,7 @@ import {
   isValidUrl,
   needsBrowserRendering,
   extractTargetUrl,
+  buildRawRequestPath,
   escapeHtml,
 } from "../security";
 
@@ -247,6 +248,26 @@ describe("extractTargetUrl", () => {
   it("does not add ? when no remaining params exist", () => {
     const result = extractTargetUrl("/https://example.com/page?id=123", "?raw=true&format=json");
     expect(result).toBe("https://example.com/page?id=123");
+  });
+});
+
+describe("buildRawRequestPath", () => {
+  it("builds a stable raw path without optional params", () => {
+    expect(buildRawRequestPath("https://example.com/page")).toBe(
+      "/https%3A%2F%2Fexample.com%2Fpage?raw=true",
+    );
+  });
+
+  it("preserves selector, browser, cache, engine and token params", () => {
+    expect(buildRawRequestPath("https://example.com/page", {
+      selector: ".main",
+      forceBrowser: true,
+      noCache: true,
+      engine: "jina",
+      token: "public-token",
+    })).toBe(
+      "/https%3A%2F%2Fexample.com%2Fpage?raw=true&selector=.main&force_browser=true&no_cache=true&engine=jina&token=public-token",
+    );
   });
 });
 

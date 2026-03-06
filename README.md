@@ -446,7 +446,7 @@ md-genedai/
 │   │   ├── rendered.ts       # Markdown preview page HTML
 │   │   ├── loading.ts        # SSE loading/progress page HTML
 │   │   └── error.ts          # Error page HTML
-│   └── __tests__/            # 34 test files
+│   └── __tests__/            # 37 test files
 ├── docs/
 │   └── slo-reference.md      # SLO targets used by /api/health operational metrics
 ├── scripts/
@@ -528,10 +528,10 @@ binding = "MYBROWSER"
 ```bash
 npm install
 npm run dev           # Local dev at http://localhost:8787
-npx tsc --noEmit      # Type check
+npm run typecheck     # Type check
 npm test              # Run unit tests
 npm run test:watch    # Watch mode
-npx vitest run --coverage
+npm run test:coverage # Coverage (uses a pinned Node 22 runner for compatibility)
 npm run smoke:api     # API smoke checks (requires BASE_URL + API_TOKEN env vars)
 ```
 
@@ -544,15 +544,15 @@ TARGET_URL="https://example.com" \
 npm run smoke:api
 ```
 
-### Accurate Testing Baseline (2026-02-23)
+### Accurate Testing Baseline (2026-03-06)
 
-Validation run on **February 23, 2026**:
+Validation run on **March 6, 2026**:
 
 | Check | Command | Result |
 |---|---|---|
-| Type safety | `npx tsc --noEmit` | Pass |
-| Unit/integration tests | `npm test` | Pass (`34` files, `376` tests) |
-| Coverage | `npx vitest run --coverage` | Pass (`Statements 86.29%`, `Branch 73.41%`, `Functions 93.36%`, `Lines 88.60%`) |
+| Type safety | `npm run typecheck` | Pass |
+| Unit/integration tests | `npm test` | Pass (`37` files, `478` tests) |
+| Coverage | `npm run test:coverage` | Pass (`Statements 86.84%`, `Branch 76.48%`, `Functions 93.38%`, `Lines 88.97%`) |
 | Live health check | `curl https://website2markdown.genedai.workers.dev/api/health` | Pass (`HTTP 200`, `status=ok`) |
 | Live public conversion | `GET /https://example.com?raw=true` | Pass (`HTTP 200`, markdown output) |
 

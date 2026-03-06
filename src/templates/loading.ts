@@ -4,17 +4,18 @@ export function loadingPageHTML(
   host: string,
   targetUrl: string,
   extraStreamParams: string,
+  rawRequestPath: string = buildRawRequestPath(targetUrl),
 ): string {
   const h = escapeHtml(host);
   const streamUrl = `/api/stream?url=${encodeURIComponent(targetUrl)}${extraStreamParams}`;
   const displayUrl =
     targetUrl.length > 70 ? targetUrl.slice(0, 67) + "..." : targetUrl;
   // Escape characters unsafe in inline <script>: </script> injection, U+2028/2029 line terminators
-  const config = JSON.stringify({ host, targetUrl, streamUrl })
+  const config = JSON.stringify({ host, targetUrl, streamUrl, rawRequestPath })
     .replace(/</g, "\\u003c")
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
-  const rawHref = escapeHtml(buildRawRequestPath(targetUrl));
+  const rawHref = escapeHtml(rawRequestPath);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -395,7 +396,7 @@ export function loadingPageHTML(
       if (data.cached) document.getElementById('r-cache').style.display = '';
       if (data.tokenCount) document.getElementById('r-tokens').textContent = data.tokenCount + ' tokens';
 
-      var rawUrl = data.rawUrl || ('/' + encodeURIComponent(C.targetUrl) + '?raw=true');
+      var rawUrl = data.rawUrl || C.rawRequestPath || ('/' + encodeURIComponent(C.targetUrl) + '?raw=true');
       document.getElementById('r-raw').href = rawUrl;
 
       if (data.title) document.title = data.title + ' \\u2014 ' + C.host;

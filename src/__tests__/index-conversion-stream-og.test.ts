@@ -186,6 +186,25 @@ describe("index conversion/stream/og routes", () => {
     expect(payload.markdown).toContain("# md json");
   });
 
+  it("returns text format for native markdown source", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("# Heading\n\n- item", {
+        status: 200,
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+      }),
+    ));
+
+    const req = new Request("https://md.example.com/https://example.com/md?raw=true&format=text");
+    const res = await worker.fetch(req, createMockEnv().env);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/plain");
+    expect(body).toContain("Heading");
+    expect(body).toContain("item");
+    expect(body).not.toContain("# ");
+  });
+
   it("returns text format converted from html", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("<html><head><title>T</title></head><body><h1>Hello</h1><p>World</p></body></html>", {
@@ -202,6 +221,61 @@ describe("index conversion/stream/og routes", () => {
     expect(res.headers.get("Content-Type")).toContain("text/plain");
     expect(body).toContain("Hello");
     expect(body).toContain("World");
+  });
+
+  it("returns html format rendered from engine=jina markdown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        code: 200,
+        data: {
+          url: "https://example.com/jina",
+          title: "Jina Title",
+          content: "# Jina Heading\n\nBody text",
+        },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      }),
+    ));
+
+    const req = new Request(
+      "https://md.example.com/https://example.com/jina?raw=true&format=html&engine=jina",
+    );
+    const res = await worker.fetch(req, createMockEnv().env);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    expect(body).toContain("<pre>");
+    expect(body).toContain("# Jina Heading");
+  });
+
+  it("returns text format stripped from engine=jina markdown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        code: 200,
+        data: {
+          url: "https://example.com/jina",
+          title: "Jina Title",
+          content: "# Jina Heading\n\n- Body item",
+        },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      }),
+    ));
+
+    const req = new Request(
+      "https://md.example.com/https://example.com/jina?raw=true&format=text&engine=jina",
+    );
+    const res = await worker.fetch(req, createMockEnv().env);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/plain");
+    expect(body).toContain("Jina Heading");
+    expect(body).toContain("Body item");
+    expect(body).not.toContain("# ");
   });
 
   it("returns 400 for oversized selector on sync convert route", async () => {
@@ -314,6 +388,33 @@ describe("index conversion/stream/og routes", () => {
     expect(body).toContain("event: done");
     expect(body).toContain("\"rawUrl\":\"/https%3A%2F%2Fexample.com%2Fstream?raw=true\"");
     expect(body).toContain("\"method\":\"native\"");
+  });
+
+  it("preserves conversion params in /api/stream rawUrl payload", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        code: 200,
+        data: {
+          url: "https://example.com/stream",
+          title: "Stream Title",
+          content: "# stream markdown",
+        },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      }),
+    ));
+
+    const req = new Request(
+      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&selector=.main&force_browser=true&no_cache=true&engine=jina&token=public-token",
+    );
+    const res = await worker.fetch(req, createMockEnv().env);
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain(
+      "\"rawUrl\":\"/https%3A%2F%2Fexample.com%2Fstream?raw=true&selector=.main&force_browser=true&no_cache=true&engine=jina&token=public-token\"",
+    );
   });
 
   it("streams fail event when conversion throws ConvertError", async () => {

@@ -32,9 +32,10 @@ describe("templates", () => {
       "md.example.com",
       "https://example.com/path?q=<x>",
       "&selector=.main",
+      "/https%3A%2F%2Fexample.com%2Fpath%3Fq%3D%3Cx%3E?raw=true&selector=.main&engine=jina",
     );
     expect(html).toContain("/api/stream?url=");
-    expect(html).toContain('/https%3A%2F%2Fexample.com%2Fpath%3Fq%3D%3Cx%3E?raw=true');
+    expect(html).toContain('/https%3A%2F%2Fexample.com%2Fpath%3Fq%3D%3Cx%3E?raw=true&selector=.main&engine=jina');
     expect(html).toContain("\\u003c");
     expect(html).toContain("selector=.main");
   });
@@ -48,11 +49,12 @@ describe("templates", () => {
       "fallback",
       true,
       'Art "Title"',
+      '/https%3A%2F%2Fexample.com%2F%22x%22?raw=true&selector=.main',
     );
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
     expect(html).toContain("Art &quot;Title&quot;");
     expect(html).toContain("CACHED");
-    expect(html).toContain('/https%3A%2F%2Fexample.com%2F%22x%22?raw=true');
+    expect(html).toContain('/https%3A%2F%2Fexample.com%2F%22x%22?raw=true&amp;selector=.main');
     expect(html).not.toContain('<script>alert("x")</script>');
   });
 });
