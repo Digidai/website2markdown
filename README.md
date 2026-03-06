@@ -307,7 +307,7 @@ Special adapters for optimal extraction on these platforms:
 | Site | Features |
 |---|---|
 | **WeChat** (`mp.weixin.qq.com`) | MicroMessenger UA, image proxy for hotlink bypass |
-| **Feishu/Lark** (`.feishu.cn`, `.larksuite.com`) | Virtual scroll handling, R2 image storage, UI noise removal |
+| **Feishu/Lark Docs** (document surfaces such as `/wiki`, `/docx`, `/docs` on `.feishu.cn` / `.larksuite.com`) | Virtual scroll handling, R2 image storage, UI noise removal |
 | **Zhihu** (`zhihu.com/p/`) | Login wall removal, lazy image swap, hybrid proxy bypass |
 | **Yuque** (`yuque.com`) | SPA rendering, sidebar/toc removal |
 | **Notion** (`notion.site`, `notion.so`) | SPA rendering, lazy scroll loading |

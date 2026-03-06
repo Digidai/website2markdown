@@ -21,6 +21,11 @@ describe("getAdapter", () => {
     expect(getAdapter("https://example.larksuite.com/docs/xyz")).toBe(feishuAdapter);
   });
 
+  it("does not treat public Feishu site pages as Feishu docs", () => {
+    expect(getAdapter("https://www.feishu.cn/content/article/7598492868155608024")).toBe(genericAdapter);
+    expect(getAdapter("https://open.feishu.cn/document/home/index")).toBe(genericAdapter);
+  });
+
   it("matches WeChat URLs", () => {
     expect(getAdapter("https://mp.weixin.qq.com/s/abc123")).toBe(wechatAdapter);
   });
@@ -88,6 +93,11 @@ describe("getAdapter", () => {
 describe("alwaysNeedsBrowser", () => {
   it("returns true for Feishu", () => {
     expect(alwaysNeedsBrowser("https://x.feishu.cn/wiki/abc")).toBe(true);
+  });
+
+  it("returns false for public Feishu site pages", () => {
+    expect(alwaysNeedsBrowser("https://www.feishu.cn/content/article/7598492868155608024")).toBe(false);
+    expect(alwaysNeedsBrowser("https://open.feishu.cn/document/home/index")).toBe(false);
   });
 
   it("returns true for WeChat", () => {

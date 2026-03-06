@@ -274,7 +274,7 @@ Deep Crawl 还支持：
 | 站点 | 特性 |
 |---|---|
 | **WeChat** (`mp.weixin.qq.com`) | MicroMessenger UA、图片代理绕过防盗链 |
-| **Feishu/Lark** (`.feishu.cn`, `.larksuite.com`) | 虚拟滚动处理、R2 图片存储、页面噪音清理 |
+| **飞书/Lark 文档**（`.feishu.cn` / `.larksuite.com` 下的文档路径，例如 `/wiki`、`/docx`、`/docs`） | 虚拟滚动处理、R2 图片存储、页面噪音清理 |
 | **Zhihu** (`zhihu.com/p/`) | 登录墙处理、懒加载图片修复、混合代理绕过 |
 | **Yuque** (`yuque.com`) | SPA 渲染、侧边栏/目录清理 |
 | **Notion** (`notion.site`, `notion.so`) | SPA 渲染、懒加载滚动 |

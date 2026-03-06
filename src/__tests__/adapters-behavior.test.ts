@@ -3,7 +3,7 @@ import { genericAdapter } from "../browser/adapters/generic";
 import { wechatAdapter } from "../browser/adapters/wechat";
 import { redditAdapter } from "../browser/adapters/reddit";
 import { neteaseAdapter } from "../browser/adapters/netease";
-import { feishuAdapter } from "../browser/adapters/feishu";
+import { feishuAdapter, isFeishuDocumentUrl } from "../browser/adapters/feishu";
 import { twitterAdapter } from "../browser/adapters/twitter";
 
 type MockPage = {
@@ -117,6 +117,16 @@ describe("adapter behavior", () => {
   it("keeps feishu adapter as no-op extraction", async () => {
     expect(feishuAdapter.alwaysBrowser).toBe(true);
     expect(await feishuAdapter.extract({} as any, new Map())).toBeNull();
+  });
+
+  it("only matches Feishu collaborative document surfaces", () => {
+    expect(isFeishuDocumentUrl("https://team.feishu.cn/wiki/abc")).toBe(true);
+    expect(isFeishuDocumentUrl("https://team.feishu.cn/docx/abc")).toBe(true);
+    expect(isFeishuDocumentUrl("https://example.larksuite.com/docs/xyz")).toBe(true);
+
+    expect(isFeishuDocumentUrl("https://www.feishu.cn/content/article/7598492868155608024")).toBe(false);
+    expect(isFeishuDocumentUrl("https://open.feishu.cn/document/home/index")).toBe(false);
+    expect(isFeishuDocumentUrl("https://accounts.feishu.cn/accounts/page/login")).toBe(false);
   });
 
   it("fetches twitter thread via fxtwitter direct API path", async () => {
