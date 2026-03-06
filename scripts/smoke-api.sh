@@ -98,7 +98,7 @@ let data = "";
 process.stdin.on("data", (c) => data += c);
 process.stdin.on("end", () => {
   const payload = JSON.parse(data);
-  if (!payload.job || !payload.job.id) process.exit(1);
+  if (!payload.jobId || payload.jobId !== "'"${job_id}"'") process.exit(1);
 });
 '
 

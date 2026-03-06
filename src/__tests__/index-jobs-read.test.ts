@@ -7,11 +7,18 @@ vi.mock("cloudflare:sockets", () => ({
 import worker from "../index";
 import { jobStorageKey } from "../dispatcher/model";
 import { createMockEnv } from "./test-helpers";
+import { createMockJobCoordinatorNamespace } from "./job-coordinator-test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+function createJobEnv(overrides?: Parameters<typeof createMockEnv>[0]) {
+  const ctx = createMockEnv(overrides);
+  ctx.env.JOB_COORDINATOR = createMockJobCoordinatorNamespace(ctx.env);
+  return ctx;
+}
 
 describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
   it("returns 503 for status endpoint when API_TOKEN is missing", async () => {
@@ -39,7 +46,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
   });
 
   it("returns 401 without valid bearer token", async () => {
-    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const { env } = createJobEnv({ API_TOKEN: "token" });
     const req = new Request("https://md.example.com/api/jobs/job-1");
 
     const res = await worker.fetch(req, env);
@@ -47,7 +54,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
   });
 
   it("returns 404 for missing job", async () => {
-    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const { env } = createJobEnv({ API_TOKEN: "token" });
     const req = new Request("https://md.example.com/api/jobs/job-1", {
       headers: { Authorization: "Bearer token" },
     });
@@ -60,7 +67,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
   });
 
   it("returns job summary for existing job", async () => {
-    const { env, mocks } = createMockEnv({ API_TOKEN: "token" });
+    const { env, mocks } = createJobEnv({ API_TOKEN: "token" });
     mocks.kvGet.mockImplementation(async (key: string) => {
       if (key === jobStorageKey("job-1")) {
         return JSON.stringify({
@@ -97,7 +104,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
   });
 
   it("streams job status and done for terminal job", async () => {
-    const { env, mocks } = createMockEnv({ API_TOKEN: "token" });
+    const { env, mocks } = createJobEnv({ API_TOKEN: "token" });
     mocks.kvGet.mockImplementation(async (key: string) => {
       if (key === jobStorageKey("job-done")) {
         return JSON.stringify({
@@ -130,7 +137,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
   });
 
   it("returns 400 for invalid job id characters in path", async () => {
-    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const { env } = createJobEnv({ API_TOKEN: "token" });
     const req = new Request("https://md.example.com/api/jobs/job%0A1", {
       headers: { Authorization: "Bearer token" },
     });
@@ -144,7 +151,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
   });
 
   it("returns 400 for malformed /api/jobs/:id action path", async () => {
-    const { env } = createMockEnv({ API_TOKEN: "token" });
+    const { env } = createJobEnv({ API_TOKEN: "token" });
     const req = new Request("https://md.example.com/api/jobs/job-1/unknown", {
       headers: { Authorization: "Bearer token" },
     });

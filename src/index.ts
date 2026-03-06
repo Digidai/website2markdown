@@ -58,12 +58,17 @@ import {
 } from "./deepcrawl/scorers";
 import {
   buildJobRecord,
-  jobIdempotencyKey,
   jobStorageKey,
   validateJobCreatePayload,
 } from "./dispatcher/model";
 import { runTasksWithControls } from "./dispatcher/runner";
-import type { JobRecord, JobTaskRecord } from "./dispatcher/model";
+import type {
+  CrawlTaskInput,
+  CrawlTaskInputObject,
+  JobCreatePayload,
+  JobRecord,
+  JobTaskRecord,
+} from "./dispatcher/model";
 import {
   fetchWithBrowser,
   alwaysNeedsBrowser,
@@ -501,6 +506,40 @@ async function timingSafeEqual(a: string, b: string): Promise<boolean> {
   let diff = sig1.length ^ sig2.length;
   for (let i = 0; i < sig1.length; i++) diff |= sig1[i] ^ sig2[i];
   return diff === 0;
+}
+
+function stableStringify(value: unknown): string {
+  const seen = new WeakSet<object>();
+  const normalize = (input: unknown): unknown => {
+    if (Array.isArray(input)) {
+      return input.map((item) => normalize(item));
+    }
+    if (input && typeof input === "object") {
+      const obj = input as Record<string, unknown>;
+      if (seen.has(obj)) {
+        throw new Error("Cannot stable-stringify circular structures.");
+      }
+      seen.add(obj);
+      const normalized: Record<string, unknown> = {};
+      for (const key of Object.keys(obj).sort()) {
+        normalized[key] = normalize(obj[key]);
+      }
+      return normalized;
+    }
+    return input;
+  };
+
+  return JSON.stringify(normalize(value));
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const buffer = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /**
@@ -2718,9 +2757,27 @@ interface DeepCrawlNormalizedPayload {
   forceBrowser: boolean;
   noCache: boolean;
   crawlId: string;
+  checkpointEnabled: boolean;
   resume: boolean;
   snapshotInterval: number;
   checkpointTtlSeconds: number;
+}
+
+interface DeepCrawlCheckpointConfig {
+  maxDepth: number;
+  maxPages: number;
+  includeExternal: boolean;
+  urlPatterns: string[];
+  allowDomains: string[];
+  blockDomains: string[];
+  contentTypes: string[];
+  keywords: string[];
+  keywordWeight: number;
+  scoreThreshold: number;
+  includeMarkdown: boolean;
+  selector?: string;
+  forceBrowser: boolean;
+  noCache: boolean;
 }
 
 interface DeepCrawlCheckpointRecord {
@@ -2728,6 +2785,7 @@ interface DeepCrawlCheckpointRecord {
   crawlId: string;
   seed: string;
   strategy: DeepCrawlStrategy;
+  config?: DeepCrawlCheckpointConfig;
   maxDepth: number;
   maxPages: number;
   includeExternal: boolean;
@@ -2827,6 +2885,43 @@ function normalizeDomainList(values: string[], field: string): string[] {
     }
   }
   return normalized;
+}
+
+function buildDeepCrawlCheckpointConfig(
+  payload: Pick<
+    DeepCrawlNormalizedPayload,
+    | "maxDepth"
+    | "maxPages"
+    | "includeExternal"
+    | "urlPatterns"
+    | "allowDomains"
+    | "blockDomains"
+    | "contentTypes"
+    | "keywords"
+    | "keywordWeight"
+    | "scoreThreshold"
+    | "includeMarkdown"
+    | "selector"
+    | "forceBrowser"
+    | "noCache"
+  >,
+): DeepCrawlCheckpointConfig {
+  return {
+    maxDepth: payload.maxDepth,
+    maxPages: payload.maxPages,
+    includeExternal: payload.includeExternal,
+    urlPatterns: [...payload.urlPatterns],
+    allowDomains: [...payload.allowDomains],
+    blockDomains: [...payload.blockDomains],
+    contentTypes: [...payload.contentTypes],
+    keywords: [...payload.keywords],
+    keywordWeight: payload.keywordWeight,
+    scoreThreshold: payload.scoreThreshold,
+    includeMarkdown: payload.includeMarkdown,
+    ...(payload.selector ? { selector: payload.selector } : {}),
+    forceBrowser: payload.forceBrowser,
+    noCache: payload.noCache,
+  };
 }
 
 function normalizeDeepCrawlPayload(input: unknown): DeepCrawlNormalizedPayload {
@@ -2973,21 +3068,28 @@ function normalizeDeepCrawlPayload(input: unknown): DeepCrawlNormalizedPayload {
       "checkpoint.crawl_id is required when checkpoint.resume is true.",
     );
   }
-
-  const snapshotInterval = parseBoundedInteger(
-    checkpoint.snapshot_interval,
-    "checkpoint.snapshot_interval",
-    DEEPCRAWL_DEFAULT_CHECKPOINT_EVERY,
-    1,
-    100,
-  );
-  const checkpointTtlSeconds = parseBoundedInteger(
-    checkpoint.ttl_seconds,
-    "checkpoint.ttl_seconds",
-    DEEPCRAWL_DEFAULT_CHECKPOINT_TTL_SECONDS,
-    60,
-    86_400 * 30,
-  );
+  const checkpointEnabled = resume ||
+    !!providedCrawlId ||
+    checkpoint.snapshot_interval !== undefined ||
+    checkpoint.ttl_seconds !== undefined;
+  const snapshotInterval = checkpointEnabled
+    ? parseBoundedInteger(
+      checkpoint.snapshot_interval,
+      "checkpoint.snapshot_interval",
+      DEEPCRAWL_DEFAULT_CHECKPOINT_EVERY,
+      1,
+      100,
+    )
+    : DEEPCRAWL_DEFAULT_CHECKPOINT_EVERY;
+  const checkpointTtlSeconds = checkpointEnabled
+    ? parseBoundedInteger(
+      checkpoint.ttl_seconds,
+      "checkpoint.ttl_seconds",
+      DEEPCRAWL_DEFAULT_CHECKPOINT_TTL_SECONDS,
+      60,
+      86_400 * 30,
+    )
+    : DEEPCRAWL_DEFAULT_CHECKPOINT_TTL_SECONDS;
   const crawlId = providedCrawlId || crypto.randomUUID();
 
   return {
@@ -3009,6 +3111,7 @@ function normalizeDeepCrawlPayload(input: unknown): DeepCrawlNormalizedPayload {
     forceBrowser,
     noCache,
     crawlId,
+    checkpointEnabled,
     resume,
     snapshotInterval,
     checkpointTtlSeconds,
@@ -3062,6 +3165,9 @@ async function loadDeepCrawlCheckpoint(
       crawlId: typeof parsed.crawlId === "string" ? parsed.crawlId : crawlId,
       seed: typeof parsed.seed === "string" ? parsed.seed : "",
       strategy: parsed.strategy === "best_first" ? "best_first" : "bfs",
+      config: parsed.config && typeof parsed.config === "object"
+        ? parsed.config as DeepCrawlCheckpointConfig
+        : undefined,
       maxDepth: Number(parsed.maxDepth) || 0,
       maxPages: Number(parsed.maxPages) || 0,
       includeExternal: !!parsed.includeExternal,
@@ -3085,6 +3191,7 @@ async function persistDeepCrawlCheckpoint(
     crawlId: payload.crawlId,
     seed: payload.seed,
     strategy: payload.strategy,
+    config: buildDeepCrawlCheckpointConfig(payload),
     maxDepth: payload.maxDepth,
     maxPages: payload.maxPages,
     includeExternal: payload.includeExternal,
@@ -3141,6 +3248,25 @@ async function executeDeepCrawl(
         409,
       );
     }
+    if (checkpoint.config) {
+      const expected = stableStringify(checkpoint.config);
+      const received = stableStringify(buildDeepCrawlCheckpointConfig(payload));
+      if (expected !== received) {
+        throw new DeepCrawlRequestError(
+          "checkpoint configuration does not match current request.",
+          409,
+        );
+      }
+    } else if (
+      checkpoint.maxDepth !== payload.maxDepth ||
+      checkpoint.maxPages !== payload.maxPages ||
+      checkpoint.includeExternal !== payload.includeExternal
+    ) {
+      throw new DeepCrawlRequestError(
+        "checkpoint configuration does not match current request.",
+        409,
+      );
+    }
     initialState = checkpoint.state;
     resumed = true;
   }
@@ -3157,17 +3283,21 @@ async function executeDeepCrawl(
     scoreThreshold: payload.scoreThreshold,
     signal,
     ...(initialState ? { initialState } : {}),
-    checkpointEvery: payload.snapshotInterval,
-    onCheckpoint: async (state) => {
-      try {
-        await persistDeepCrawlCheckpoint(env, payload, state);
-      } catch (error) {
-        console.warn("deepcrawl.checkpoint_failed", {
-          crawlId: payload.crawlId,
-          error: errorMessage(error),
-        });
+    ...(payload.checkpointEnabled
+      ? {
+        checkpointEvery: payload.snapshotInterval,
+        onCheckpoint: async (state: DeepCrawlStateSnapshot) => {
+          try {
+            await persistDeepCrawlCheckpoint(env, payload, state);
+          } catch (error) {
+            console.warn("deepcrawl.checkpoint_failed", {
+              crawlId: payload.crawlId,
+              error: errorMessage(error),
+            });
+          }
+        },
       }
-    },
+      : {}),
     onResult: async (node) => {
       if (onNode) await onNode(node);
     },
@@ -3489,6 +3619,32 @@ function summarizeJob(job: StoredJobRecord): Record<string, unknown> {
 type JobPathAction = "status" | "stream" | "run";
 const MAX_JOB_ID_LENGTH = 128;
 const JOB_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
+const JOB_COORDINATOR_ENTRY_KEY = "entry";
+const JOB_COORDINATOR_RUN_LOCK_KEY = "run-lock";
+const JOB_RUN_LOCK_TTL_MS = 120_000;
+const JOB_RUN_LOCK_RENEW_MS = 30_000;
+
+interface JobCreateCoordinatorInput {
+  payload: JobCreatePayload;
+  idempotencyKey?: string;
+}
+
+interface JobRunCoordinatorInput {
+  jobId: string;
+  host: string;
+}
+
+interface JobIdempotencyCoordinatorRecord {
+  version: 1;
+  payloadHash: string;
+  job: JobRecord;
+  createdAt: string;
+}
+
+interface JobRunLockRecord {
+  token: string;
+  expiresAt: number;
+}
 
 function parseJobPath(path: string): { id: string; action: JobPathAction } | null {
   const parts = path.split("/").filter(Boolean);
@@ -3604,6 +3760,7 @@ function recalculateJobCounters(job: JobRecord): void {
   let queued = 0;
   let running = 0;
   let canceled = 0;
+  let retryCount = 0;
 
   for (const task of job.tasks) {
     if (task.status === "succeeded") succeeded += 1;
@@ -3611,6 +3768,7 @@ function recalculateJobCounters(job: JobRecord): void {
     else if (task.status === "queued") queued += 1;
     else if (task.status === "running") running += 1;
     else if (task.status === "canceled") canceled += 1;
+    retryCount += Math.max(0, task.retryCount || 0);
   }
 
   job.succeededTasks = succeeded;
@@ -3618,6 +3776,7 @@ function recalculateJobCounters(job: JobRecord): void {
   job.queuedTasks = queued;
   job.runningTasks = running;
   job.canceledTasks = canceled;
+  job.retryCount = retryCount;
 
   if (running > 0) {
     job.status = "running";
@@ -3642,15 +3801,107 @@ function normalizeTaskResultForStorage(result: unknown): unknown {
   };
 }
 
-async function handleRunJob(
-  request: Request,
+function buildJobCreateResponse(
+  job: JobRecord,
+  idempotent: boolean,
+): Record<string, unknown> {
+  return {
+    jobId: job.id,
+    type: job.type,
+    status: job.status,
+    totalTasks: job.totalTasks,
+    priority: job.priority,
+    maxRetries: job.maxRetries,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    idempotent,
+  };
+}
+
+async function persistStoredJobRecord(env: Env, job: JobRecord): Promise<void> {
+  await env.CACHE_KV.put(
+    jobStorageKey(job.id),
+    JSON.stringify(job),
+    { expirationTtl: IDEMPOTENCY_TTL_SECONDS * 30 },
+  );
+}
+
+function getJobCoordinatorStub(
+  env: Env,
+  name: string,
+): DurableObjectStub | null {
+  if (!env.JOB_COORDINATOR) return null;
+  return env.JOB_COORDINATOR.get(env.JOB_COORDINATOR.idFromName(name));
+}
+
+function missingJobCoordinatorResponse(): Response {
+  return Response.json(
+    {
+      error: "Service misconfigured",
+      message: "JOB_COORDINATOR binding not set",
+    },
+    { status: 503, headers: CORS_HEADERS },
+  );
+}
+
+async function proxyCoordinatorRequest(
+  stub: DurableObjectStub,
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return stub.fetch(new Request(`https://job-coordinator${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal,
+  }));
+}
+
+function buildIdempotencyCoordinatorName(idempotencyKey?: string): string {
+  return idempotencyKey
+    ? `idempotency:${idempotencyKey}`
+    : `create:${crypto.randomUUID()}`;
+}
+
+function buildRunCoordinatorName(jobId: string): string {
+  return `run:${jobId}`;
+}
+
+function remainingRetriesForTask(task: JobTaskRecord, maxRetries: number): number {
+  return Math.max(0, maxRetries - Math.max(0, task.retryCount || 0));
+}
+
+function isTaskRunnable(task: JobTaskRecord, maxRetries: number): boolean {
+  if (task.status === "queued") return true;
+  return task.status === "failed" && remainingRetriesForTask(task, maxRetries) > 0;
+}
+
+function recoverInterruptedTasks(job: JobRecord, nowIso: string): boolean {
+  let recovered = false;
+  for (const task of job.tasks) {
+    if (task.status !== "running") continue;
+    task.status = "failed";
+    task.error = task.error || "Previous run was interrupted.";
+    task.result = undefined;
+    task.updatedAt = nowIso;
+    recovered = true;
+  }
+  if (recovered) {
+    recalculateJobCounters(job);
+    job.updatedAt = nowIso;
+  }
+  return recovered;
+}
+
+async function executeJobRun(
   env: Env,
   host: string,
   jobId: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
-  const authError = await authorizeApiTokenRequest(request, env);
-  if (authError) return authError;
-
   const job = await loadStoredJobRecord(env, jobId);
   if (!job) {
     return Response.json(
@@ -3659,16 +3910,14 @@ async function handleRunJob(
     );
   }
 
-  if (job.status === "running") {
-    return Response.json(
-      { error: "Conflict", message: "Job is already running." },
-      { status: 409, headers: CORS_HEADERS },
-    );
+  const nowIso = new Date().toISOString();
+  if (recoverInterruptedTasks(job, nowIso)) {
+    await persistStoredJobRecord(env, job);
   }
 
   const runnableTaskIds = new Set(
     job.tasks
-      .filter((task) => task.status === "queued" || task.status === "failed")
+      .filter((task) => isTaskRunnable(task, job.maxRetries))
       .map((task) => task.id),
   );
   if (runnableTaskIds.size === 0) {
@@ -3676,24 +3925,22 @@ async function handleRunJob(
       {
         ...summarizeJob(job),
         executedTasks: 0,
+        failedTasksInRun: 0,
+        retriesUsedInRun: 0,
+        durationMs: 0,
       },
       { headers: CORS_HEADERS },
     );
   }
 
   for (const task of job.tasks) {
-    if (runnableTaskIds.has(task.id)) {
-      task.status = "running";
-      task.updatedAt = new Date().toISOString();
-    }
+    if (!runnableTaskIds.has(task.id)) continue;
+    task.status = "running";
+    task.updatedAt = new Date().toISOString();
   }
   recalculateJobCounters(job);
   job.updatedAt = new Date().toISOString();
-  await env.CACHE_KV.put(
-    jobStorageKey(job.id),
-    JSON.stringify(job),
-    { expirationTtl: IDEMPOTENCY_TTL_SECONDS * 30 },
-  );
+  await persistStoredJobRecord(env, job);
 
   const runnableTasks = job.tasks.filter((task) => runnableTaskIds.has(task.id));
   const runStartedAt = Date.now();
@@ -3703,12 +3950,13 @@ async function handleRunJob(
       input: task,
       url: task.url,
       retryCount: task.retryCount,
+      maxRetries: remainingRetriesForTask(task, job.maxRetries),
     })),
     async (runnerTask) => {
       const task = runnerTask.input as JobTaskRecord;
 
       if (job.type === "crawl") {
-        const crawlInput = task.input as any;
+        const crawlInput = task.input as CrawlTaskInput | CrawlTaskInputObject;
         const targetUrl = typeof crawlInput === "string" ? crawlInput : crawlInput?.url;
         if (typeof targetUrl !== "string" || !isValidUrl(targetUrl) || !isSafeUrl(targetUrl)) {
           return {
@@ -3733,7 +3981,7 @@ async function handleRunJob(
             forceBrowser,
             noCache,
             undefined,
-            request.signal,
+            signal,
           );
           return {
             success: true,
@@ -3781,7 +4029,7 @@ async function handleRunJob(
             item.forceBrowser,
             item.noCache,
             undefined,
-            request.signal,
+            signal,
           );
           html = converted.content;
         }
@@ -3827,7 +4075,7 @@ async function handleRunJob(
       baseDelayMs: 500,
       maxDelayMs: 30_000,
       rateLimitStatusCodes: [429, 503],
-      signal: request.signal,
+      signal,
     },
   );
 
@@ -3844,24 +4092,18 @@ async function handleRunJob(
   for (const task of job.tasks) {
     const outcome = resultById.get(task.id);
     if (!outcome) continue;
-    task.retryCount = Math.max(task.retryCount, Math.max(0, outcome.attempts - 1));
+    task.retryCount += Math.max(0, outcome.attempts - 1);
     task.status = outcome.success ? "succeeded" : "failed";
     task.error = outcome.success ? undefined : outcome.error || "Task failed";
-    if (outcome.success) {
-      task.result = normalizeTaskResultForStorage(outcome.result);
-    } else {
-      task.result = undefined;
-    }
+    task.result = outcome.success
+      ? normalizeTaskResultForStorage(outcome.result)
+      : undefined;
     task.updatedAt = new Date().toISOString();
   }
 
   recalculateJobCounters(job);
   job.updatedAt = new Date().toISOString();
-  await env.CACHE_KV.put(
-    jobStorageKey(job.id),
-    JSON.stringify(job),
-    { expirationTtl: IDEMPOTENCY_TTL_SECONDS * 30 },
-  );
+  await persistStoredJobRecord(env, job);
 
   const failedInRun = results.filter((item) => !item.success).length;
   logMetric("jobs.run_completed", {
@@ -3883,6 +4125,26 @@ async function handleRunJob(
       durationMs: runDurationMs,
     },
     { headers: CORS_HEADERS },
+  );
+}
+
+async function handleRunJob(
+  request: Request,
+  env: Env,
+  host: string,
+  jobId: string,
+): Promise<Response> {
+  const authError = await authorizeApiTokenRequest(request, env);
+  if (authError) return authError;
+
+  const stub = getJobCoordinatorStub(env, buildRunCoordinatorName(jobId));
+  if (!stub) return missingJobCoordinatorResponse();
+
+  return proxyCoordinatorRequest(
+    stub,
+    "/run",
+    { jobId, host } satisfies JobRunCoordinatorInput,
+    request.signal,
   );
 }
 
@@ -3975,67 +4237,31 @@ async function handleJobs(
       );
     }
   }
-  if (idempotencyKey) {
-    try {
-      const existingJobId = await env.CACHE_KV.get(jobIdempotencyKey(idempotencyKey), "text");
-      if (existingJobId) {
-        const existingRaw = await env.CACHE_KV.get(jobStorageKey(existingJobId), "text");
-        if (existingRaw) {
-          const parsed = JSON.parse(existingRaw) as Record<string, unknown>;
-          const hasShape =
-            parsed &&
-            typeof parsed.id === "string" &&
-            typeof parsed.type === "string" &&
-            typeof parsed.status === "string" &&
-            typeof parsed.totalTasks === "number" &&
-            Number.isFinite(parsed.totalTasks) &&
-            typeof parsed.createdAt === "string" &&
-            typeof parsed.updatedAt === "string";
-          if (hasShape) {
-            return Response.json(
-              {
-                jobId: parsed.id,
-                type: parsed.type,
-                status: parsed.status,
-                totalTasks: parsed.totalTasks,
-                createdAt: parsed.createdAt,
-                updatedAt: parsed.updatedAt,
-                idempotent: true,
-              },
-              { status: 200, headers: CORS_HEADERS },
-            );
-          }
-        }
-      }
-    } catch {
-      // Fall through and create a new job if idempotency lookup fails.
-    }
-  }
 
-  const job = buildJobRecord(validated.payload!);
-  try {
-    await env.CACHE_KV.put(
-      jobStorageKey(job.id),
-      JSON.stringify(job),
-      { expirationTtl: IDEMPOTENCY_TTL_SECONDS * 30 },
-    );
-    if (idempotencyKey) {
-      await env.CACHE_KV.put(
-        jobIdempotencyKey(idempotencyKey),
-        job.id,
-        { expirationTtl: IDEMPOTENCY_TTL_SECONDS },
-      );
-    }
-  } catch (error) {
-    console.error("Failed to persist job:", errorMessage(error));
-    return Response.json(
-      {
-        error: "Storage error",
-        message: "Failed to persist job.",
-      },
-      { status: 500, headers: CORS_HEADERS },
-    );
-  }
+  const stub = getJobCoordinatorStub(
+    env,
+    buildIdempotencyCoordinatorName(idempotencyKey),
+  );
+  if (!stub) return missingJobCoordinatorResponse();
+
+  return proxyCoordinatorRequest(
+    stub,
+    "/create",
+    {
+      payload: validated.payload!,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    } satisfies JobCreateCoordinatorInput,
+    request.signal,
+  );
+}
+
+async function createAndPersistJob(
+  env: Env,
+  payload: JobCreatePayload,
+  idempotent: boolean,
+): Promise<JobRecord> {
+  const job = buildJobRecord(payload);
+  await persistStoredJobRecord(env, job);
 
   incrementCounter("jobsCreated");
   recordJobCreated(job.totalTasks);
@@ -4044,23 +4270,257 @@ async function handleJobs(
     type: job.type,
     totalTasks: job.totalTasks,
     priority: job.priority,
-    idempotency: !!idempotencyKey,
+    idempotency: idempotent,
   });
 
-  return Response.json(
-    {
-      jobId: job.id,
-      type: job.type,
-      status: job.status,
-      totalTasks: job.totalTasks,
-      priority: job.priority,
-      maxRetries: job.maxRetries,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt,
-      idempotent: false,
-    },
-    { status: 202, headers: CORS_HEADERS },
-  );
+  return job;
+}
+
+export class JobCoordinator {
+  constructor(
+    private readonly state: DurableObjectState,
+    private readonly env: Env,
+  ) {}
+
+  async fetch(request: Request): Promise<Response> {
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", {
+        status: 405,
+        headers: CORS_HEADERS,
+      });
+    }
+
+    const url = new URL(request.url);
+    try {
+      if (url.pathname === "/create") {
+        return await this.handleCreate(request);
+      }
+      if (url.pathname === "/run") {
+        return await this.handleRun(request);
+      }
+      return new Response("Not Found", {
+        status: 404,
+        headers: CORS_HEADERS,
+      });
+    } catch (error) {
+      console.error("job.coordinator_failed", {
+        path: url.pathname,
+        error: errorMessage(error),
+      });
+      return Response.json(
+        {
+          error: "Internal Error",
+          message: "Coordinator request failed.",
+        },
+        { status: 500, headers: CORS_HEADERS },
+      );
+    }
+  }
+
+  private async handleCreate(request: Request): Promise<Response> {
+    let body: JobCreateCoordinatorInput;
+    try {
+      body = await request.json() as JobCreateCoordinatorInput;
+    } catch {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: "Body must be valid JSON.",
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+
+    if (!body || typeof body !== "object" || !body.payload || typeof body.payload !== "object") {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: "payload is required.",
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+
+    return this.state.blockConcurrencyWhile(async () => {
+      if (!body.idempotencyKey) {
+        try {
+          const job = await createAndPersistJob(this.env, body.payload, false);
+          return Response.json(
+            buildJobCreateResponse(job, false),
+            { status: 202, headers: CORS_HEADERS },
+          );
+        } catch (error) {
+          console.error("Failed to persist job:", errorMessage(error));
+          return Response.json(
+            {
+              error: "Storage error",
+              message: "Failed to persist job.",
+            },
+            { status: 500, headers: CORS_HEADERS },
+          );
+        }
+      }
+
+      const payloadHash = await sha256Hex(stableStringify(body.payload));
+      const existing = await this.state.storage.get<JobIdempotencyCoordinatorRecord>(
+        JOB_COORDINATOR_ENTRY_KEY,
+      );
+
+      if (existing) {
+        if (existing.payloadHash !== payloadHash) {
+          return Response.json(
+            {
+              error: "Conflict",
+              message: "Idempotency-Key cannot be reused with a different payload.",
+            },
+            { status: 409, headers: CORS_HEADERS },
+          );
+        }
+
+        let job = await loadStoredJobRecord(this.env, existing.job.id);
+        if (!job) {
+          await persistStoredJobRecord(this.env, existing.job);
+          job = existing.job;
+        }
+        return Response.json(
+          buildJobCreateResponse(job, true),
+          { status: 200, headers: CORS_HEADERS },
+        );
+      }
+
+      const job = buildJobRecord(body.payload);
+      await this.state.storage.put(JOB_COORDINATOR_ENTRY_KEY, {
+        version: 1,
+        payloadHash,
+        job,
+        createdAt: new Date().toISOString(),
+      } satisfies JobIdempotencyCoordinatorRecord);
+
+      try {
+        await persistStoredJobRecord(this.env, job);
+      } catch (error) {
+        await this.state.storage.delete(JOB_COORDINATOR_ENTRY_KEY);
+        console.error("Failed to persist job:", errorMessage(error));
+        return Response.json(
+          {
+            error: "Storage error",
+            message: "Failed to persist job.",
+          },
+          { status: 500, headers: CORS_HEADERS },
+        );
+      }
+
+      incrementCounter("jobsCreated");
+      recordJobCreated(job.totalTasks);
+      logMetric("jobs.created", {
+        jobId: job.id,
+        type: job.type,
+        totalTasks: job.totalTasks,
+        priority: job.priority,
+        idempotency: true,
+      });
+
+      return Response.json(
+        buildJobCreateResponse(job, false),
+        { status: 202, headers: CORS_HEADERS },
+      );
+    });
+  }
+
+  private async handleRun(request: Request): Promise<Response> {
+    let body: JobRunCoordinatorInput;
+    try {
+      body = await request.json() as JobRunCoordinatorInput;
+    } catch {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: "Body must be valid JSON.",
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+
+    if (
+      !body ||
+      typeof body !== "object" ||
+      typeof body.jobId !== "string" ||
+      !body.jobId.trim() ||
+      typeof body.host !== "string" ||
+      !body.host.trim()
+    ) {
+      return Response.json(
+        {
+          error: "Invalid request",
+          message: "jobId and host are required.",
+        },
+        { status: 400, headers: CORS_HEADERS },
+      );
+    }
+
+    const token = crypto.randomUUID();
+    const conflict = await this.acquireRunLock(token);
+    if (conflict) return conflict;
+
+    const renewTimer = setInterval(() => {
+      void this.renewRunLock(token);
+    }, JOB_RUN_LOCK_RENEW_MS);
+
+    try {
+      return await executeJobRun(
+        this.env,
+        body.host,
+        body.jobId,
+        request.signal,
+      );
+    } finally {
+      clearInterval(renewTimer);
+      await this.releaseRunLock(token);
+    }
+  }
+
+  private async acquireRunLock(token: string): Promise<Response | null> {
+    return this.state.blockConcurrencyWhile(async () => {
+      const current = await this.state.storage.get<JobRunLockRecord>(
+        JOB_COORDINATOR_RUN_LOCK_KEY,
+      );
+      const now = Date.now();
+      if (current && current.expiresAt > now) {
+        return Response.json(
+          {
+            error: "Conflict",
+            message: "Job is already running.",
+          },
+          { status: 409, headers: CORS_HEADERS },
+        );
+      }
+
+      await this.state.storage.put(JOB_COORDINATOR_RUN_LOCK_KEY, {
+        token,
+        expiresAt: now + JOB_RUN_LOCK_TTL_MS,
+      } satisfies JobRunLockRecord);
+      return null;
+    });
+  }
+
+  private async renewRunLock(token: string): Promise<void> {
+    const current = await this.state.storage.get<JobRunLockRecord>(
+      JOB_COORDINATOR_RUN_LOCK_KEY,
+    );
+    if (!current || current.token !== token) return;
+    await this.state.storage.put(JOB_COORDINATOR_RUN_LOCK_KEY, {
+      token,
+      expiresAt: Date.now() + JOB_RUN_LOCK_TTL_MS,
+    } satisfies JobRunLockRecord);
+  }
+
+  private async releaseRunLock(token: string): Promise<void> {
+    const current = await this.state.storage.get<JobRunLockRecord>(
+      JOB_COORDINATOR_RUN_LOCK_KEY,
+    );
+    if (!current || current.token !== token) return;
+    await this.state.storage.delete(JOB_COORDINATOR_RUN_LOCK_KEY);
+  }
 }
 
 // ─── Batch handler ───────────────────────────────────────────

@@ -249,13 +249,13 @@ Job API notes:
 - Supports both `type: "crawl"` and `type: "extract"`.
 - `type: "crawl"` accepts string URLs or object tasks with `format`, `selector`, `force_browser`, and `no_cache`.
 - `type: "extract"` reuses the same task shape as `/api/extract`.
-- `Idempotency-Key` returns the existing job when the same request is replayed.
+- `Idempotency-Key` is keyed by both the header value and request payload: same key + same payload returns the existing job; same key + different payload returns `409 Conflict`.
 - `priority` is normalized to `1..100` (default `10`), `maxRetries` to `0..10` (default `2`).
 - Up to `100` tasks are allowed per job.
 
 ### Deep Crawl API
 
-Run BFS/BestFirst deep crawl with filters/scoring and optional checkpoint resume.
+Run BFS/BestFirst deep crawl with filters/scoring and opt-in checkpoint resume.
 
 ```bash
 # non-stream
@@ -558,12 +558,19 @@ binding = "MYBROWSER"
 ```bash
 npm install
 npm run dev           # Local dev at http://localhost:8787
+npm run build         # Dry-run bundle to dist/
 npm run typecheck     # Type check
 npm test              # Run unit tests
 npm run test:watch    # Watch mode
-npm run test:coverage # Coverage (uses a pinned Node 22 runner for compatibility)
+npm run test:coverage # Coverage
 npm run smoke:api     # API smoke checks (requires BASE_URL + API_TOKEN env vars)
 ```
+
+Checkpoint behavior:
+
+- Deep crawl checkpoint persistence is only enabled when you provide `checkpoint` options such as `crawl_id`, `resume`, `snapshot_interval`, or `ttl_seconds`.
+- If you omit `checkpoint`, the API still returns a `crawlId` for tracing, but no checkpoint record is written.
+- Resume requests must match the original crawl configuration; changing filters, scoring, or fetch options returns `409 Conflict`.
 
 Smoke example:
 
@@ -574,17 +581,18 @@ TARGET_URL="https://example.com" \
 npm run smoke:api
 ```
 
-### Accurate Testing Baseline (2026-03-06)
+### Validation Workflow (2026-03-06)
 
-Validation run on **March 6, 2026**:
+Use Node 22 locally (see [`.nvmrc`](./.nvmrc)) or rely on GitHub Actions in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml):
 
-| Check | Command | Result |
-|---|---|---|
-| Type safety | `npm run typecheck` | Pass |
-| Unit/integration tests | `npm test` | Pass (`37` files, `480` tests) |
-| Coverage | `npm run test:coverage` | Pass (`Statements 86.84%`, `Branch 76.56%`, `Functions 93.39%`, `Lines 88.96%`) |
-| Live health check | `curl https://website2markdown.genedai.workers.dev/api/health` | Pass (`HTTP 200`, `status=ok`) |
-| Live public conversion | `GET /https://example.com?raw=true` | Pass (`HTTP 200`, markdown output) |
+| Check | Command |
+|---|---|
+| Type safety | `npm run typecheck` |
+| Unit/integration tests | `npm test` |
+| Coverage | `npm run test:coverage` |
+| Worker bundle dry-run | `npm run build` |
+| Live health check | `curl https://website2markdown.genedai.workers.dev/api/health` |
+| Live public conversion | `GET /https://website2markdown.genedai.workers.dev/https://example.com?raw=true` |
 
 Production note:
 

@@ -218,11 +218,13 @@ Job API 补充：
 - 同时支持 `type: "crawl"` 和 `type: "extract"`。
 - `type: "crawl"` 支持字符串 URL，也支持带 `format`、`selector`、`force_browser`、`no_cache` 的对象任务。
 - `type: "extract"` 直接复用 `/api/extract` 的单条任务结构。
-- 带相同 `Idempotency-Key` 的重放请求会直接返回已有任务。
+- `Idempotency-Key` 同时绑定 header 值与请求体：同 key 且同 payload 会返回已有任务；同 key 但不同 payload 会返回 `409 Conflict`。
 - `priority` 会被规范到 `1..100`（默认 `10`），`maxRetries` 会被规范到 `0..10`（默认 `2`）。
 - 单个 job 最多支持 `100` 个任务。
 
 ### Deep Crawl API
+
+运行 BFS/BestFirst deep crawl，支持过滤/打分，以及显式开启的 checkpoint 续跑。
 
 ```bash
 # non-stream
@@ -523,12 +525,19 @@ binding = "MYBROWSER"
 ```bash
 npm install
 npm run dev           # 本地开发：http://localhost:8787
+npm run build         # Dry-run 打包到 dist/
 npm run typecheck     # 类型检查
 npm test              # 运行单元测试
 npm run test:watch    # watch 模式
-npm run test:coverage # 覆盖率（为兼容性固定使用 Node 22 执行）
+npm run test:coverage # 覆盖率
 npm run smoke:api     # API 冒烟测试（需 BASE_URL + API_TOKEN）
 ```
+
+Checkpoint 行为：
+
+- 只有在传入 `checkpoint` 选项（如 `crawl_id`、`resume`、`snapshot_interval`、`ttl_seconds`）时，Deep Crawl 才会持久化 checkpoint。
+- 如果省略 `checkpoint`，API 仍会返回 `crawlId` 作为追踪标识，但不会写入 checkpoint 记录。
+- `resume` 请求必须与原始 crawl 配置一致；若过滤器、打分器或抓取选项发生变化，会返回 `409 Conflict`。
 
 冒烟测试示例：
 
@@ -539,17 +548,18 @@ TARGET_URL="https://example.com" \
 npm run smoke:api
 ```
 
-### 准确测试基线（2026-03-06）
+### 验证流程（2026-03-06）
 
-基于 **2026 年 3 月 6 日**的验证结果：
+本地请优先使用 Node 22（见 [`.nvmrc`](./.nvmrc)），或直接依赖 GitHub Actions 工作流 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)：
 
-| 检查项 | 命令 | 结果 |
-|---|---|---|
-| 类型安全 | `npm run typecheck` | Pass |
-| 单元/集成测试 | `npm test` | Pass（`37` files, `480` tests） |
-| 覆盖率 | `npm run test:coverage` | Pass（`Statements 86.84%`, `Branch 76.56%`, `Functions 93.39%`, `Lines 88.96%`） |
-| 线上健康检查 | `curl https://website2markdown.genedai.workers.dev/api/health` | Pass（`HTTP 200`, `status=ok`） |
-| 线上公开转换 | `GET /https://example.com?raw=true` | Pass（`HTTP 200`，返回 markdown） |
+| 检查项 | 命令 |
+|---|---|
+| 类型安全 | `npm run typecheck` |
+| 单元/集成测试 | `npm test` |
+| 覆盖率 | `npm run test:coverage` |
+| Worker dry-run 打包 | `npm run build` |
+| 线上健康检查 | `curl https://website2markdown.genedai.workers.dev/api/health` |
+| 线上公开转换 | `GET /https://website2markdown.genedai.workers.dev/https://example.com?raw=true` |
 
 生产说明：
 

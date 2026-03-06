@@ -3,6 +3,7 @@ export interface RunnerTask<TInput = unknown> {
   input: TInput;
   url?: string;
   retryCount?: number;
+  maxRetries?: number;
 }
 
 export interface TaskExecutionOutcome {
@@ -129,11 +130,12 @@ export async function runTasksWithControls<TInput>(
 
   async function processTask(task: RunnerTask<TInput>): Promise<RunnerTaskResult> {
     const domain = parseDomain(task.url);
+    const taskMaxRetries = Math.max(0, task.maxRetries ?? maxRetries);
     let attempts = 0;
     let lastStatusCode: number | undefined;
     let lastError = "";
 
-    while (attempts <= maxRetries) {
+    while (attempts <= taskMaxRetries) {
       if (signal?.aborted) {
         return {
           id: task.id,
@@ -185,7 +187,7 @@ export async function runTasksWithControls<TInput>(
       lastStatusCode = outcome.statusCode;
       lastError = outcome.error || "Task failed";
       const shouldRetry =
-        attempts <= maxRetries &&
+        attempts <= taskMaxRetries &&
         (!outcome.statusCode || rateLimitCodes.has(outcome.statusCode));
 
       if (!shouldRetry) {

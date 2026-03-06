@@ -2,6 +2,7 @@ export interface Env {
   MYBROWSER: Fetcher;
   CACHE_KV: KVNamespace;
   IMAGE_BUCKET: R2Bucket;
+  JOB_COORDINATOR?: DurableObjectNamespace;
   API_TOKEN?: string;
   PUBLIC_API_TOKEN?: string;
   PAYWALL_RULES_JSON?: string;

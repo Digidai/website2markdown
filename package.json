@@ -5,12 +5,13 @@
   "description": "Convert any URL to Markdown via Cloudflare's Markdown for Agents",
   "scripts": {
     "dev": "wrangler dev",
+    "build": "node ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "smoke:api": "bash scripts/smoke-api.sh",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "npx -y node@22 ./node_modules/vitest/vitest.mjs run --coverage",
+    "test:coverage": "node ./node_modules/vitest/vitest.mjs run --coverage",
     "test:watch": "vitest"
   },
   "devDependencies": {

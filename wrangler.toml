@@ -16,6 +16,15 @@ id = "ce411570e9734bae989e03c705804c94"
 binding = "IMAGE_BUCKET"
 bucket_name = "md-images"
 
+[durable_objects]
+bindings = [
+  { name = "JOB_COORDINATOR", class_name = "JobCoordinator" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["JobCoordinator"]
+
 [observability]
 enabled = true
 

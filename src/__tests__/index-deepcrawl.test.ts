@@ -144,6 +144,24 @@ describe("POST /api/deepcrawl", () => {
     expect(store.has("deepcrawl:v1:crawl-1")).toBe(true);
   });
 
+  it("does not persist checkpoint state unless checkpoint options are provided", async () => {
+    stubGraphFetch(graph);
+    const { env, store } = setupInMemoryKv();
+
+    const req = deepcrawlRequest({
+      seed,
+      max_depth: 1,
+      max_pages: 2,
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as { crawlId?: string };
+
+    expect(res.status).toBe(200);
+    expect(payload.crawlId).toBeTruthy();
+    expect(Array.from(store.keys()).some((key) => key.startsWith("deepcrawl:v1:"))).toBe(false);
+  });
+
   it("streams start/node/done events in stream mode", async () => {
     stubGraphFetch(graph);
     const { env } = setupInMemoryKv();
@@ -190,7 +208,7 @@ describe("POST /api/deepcrawl", () => {
     const resumeReq = deepcrawlRequest({
       seed,
       max_depth: 2,
-      max_pages: 5,
+      max_pages: 2,
       checkpoint: {
         crawl_id: "crawl-resume",
         resume: true,
@@ -208,6 +226,46 @@ describe("POST /api/deepcrawl", () => {
     expect(resumeRes.status).toBe(200);
     expect(resumePayload.resumed).toBe(true);
     expect(resumePayload.results?.length).toBeGreaterThan(2);
+  });
+
+  it("returns 409 when resume request changes checkpointed crawl configuration", async () => {
+    stubGraphFetch(graph);
+    const { env } = setupInMemoryKv();
+
+    const firstReq = deepcrawlRequest({
+      seed,
+      max_depth: 2,
+      max_pages: 2,
+      filters: {
+        allow_domains: ["crawl.example.com"],
+      },
+      checkpoint: {
+        crawl_id: "crawl-config-mismatch",
+        snapshot_interval: 1,
+      },
+    }, "token");
+    const firstRes = await worker.fetch(firstReq, env);
+    expect(firstRes.status).toBe(200);
+
+    const resumeReq = deepcrawlRequest({
+      seed,
+      max_depth: 2,
+      max_pages: 2,
+      filters: {
+        allow_domains: ["other.example.com"],
+      },
+      checkpoint: {
+        crawl_id: "crawl-config-mismatch",
+        resume: true,
+        snapshot_interval: 1,
+      },
+    }, "token");
+    const resumeRes = await worker.fetch(resumeReq, env);
+    const payload = await resumeRes.json() as { error?: string; message?: string };
+
+    expect(resumeRes.status).toBe(409);
+    expect(payload.error).toBe("Invalid request");
+    expect(payload.message).toContain("checkpoint configuration");
   });
 
   it("returns 400 when resume is true without checkpoint.crawl_id", async () => {
