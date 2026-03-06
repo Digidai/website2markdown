@@ -9,6 +9,9 @@ describe("templates", () => {
     const html = landingPageHTML('md.example.com"><script>alert(1)</script>');
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("GET /api/stream");
+    expect(html).toContain("POST /api/deepcrawl");
+    expect(html).toContain('curl -H "Accept: text/markdown" https://md.example.com');
   });
 
   it("renders Chinese landing page when lang is zh", () => {
@@ -22,6 +25,7 @@ describe("templates", () => {
     expect(html).toContain("/api/jobs");
     expect(html).toContain("/api/deepcrawl");
     expect(html).toContain("PUBLIC_API_TOKEN");
+    expect(html).toContain("任务编排和 Deep Crawl");
   });
 
   it("escapes title and message in error page", () => {

@@ -12,8 +12,8 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         pageTitle: "任意 URL 转 Markdown",
         schemaDescription: "将任意 URL 即时转换为干净、可读的 Markdown。适用于 AI Agent、LLM 和开发者。",
         metaDescription:
-          "把任意网页转换为干净、可读的 Markdown。支持四条转换路径：原生边缘 Markdown、Readability + Turndown、无头浏览器渲染，以及 Jina Reader API。适用于 AI Agent、LLM 和开发者。",
-        shareDescription: `在任意 URL 前加上 ${h}/，即可快速获得干净、可读的 Markdown。基于 Cloudflare Workers。`,
+          "把任意网页转换为干净、可读的 Markdown，并支持 SSE 流式转换、批量转换、结构化提取、任务编排和 Deep Crawl。适用于 AI Agent、LLM 和开发者。",
+        shareDescription: `在任意 URL 前加上 ${h}/，即可快速获得干净、可读的 Markdown，并使用 stream / batch / extract / jobs / deepcrawl API。基于 Cloudflare Workers。`,
         langSwitchAria: "选择语言",
         badge: "Cloudflare Markdown for Agents",
         heroTitleHtml: "任意 URL 转 <em>Markdown</em>，<br>即刻完成",
@@ -79,8 +79,8 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         pageTitle: "Convert Any URL to Markdown",
         schemaDescription: "Convert any URL to clean, readable Markdown instantly. For AI agents, LLMs, and developers.",
         metaDescription:
-          "Convert any URL to clean, readable Markdown instantly. Four conversion paths: native edge Markdown, Readability + Turndown, headless browser rendering, and Jina Reader API. For AI agents, LLMs, and developers.",
-        shareDescription: `Prepend ${h}/ before any URL. Clean, readable Markdown for AI agents, LLMs, and developers. Powered by Cloudflare Workers.`,
+          "Convert any URL to clean, readable Markdown instantly, with SSE streaming, batch conversion, structured extraction, queued jobs, and deep crawl APIs.",
+        shareDescription: `Prepend ${h}/ before any URL. Clean, readable Markdown plus stream, batch, extract, jobs, and deep crawl APIs. Powered by Cloudflare Workers.`,
         langSwitchAria: "Language selector",
         badge: "Cloudflare Markdown for Agents",
         heroTitleHtml: "Any URL to <em>Markdown</em>,<br>instantly",
@@ -492,15 +492,15 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.curlExamples}</strong></div>
         <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.72rem;line-height:2;color:var(--text-muted)">
           <code style="display:block;margin-bottom:0.4rem">${t.curlRaw}</code>
-          <code style="display:block;margin-bottom:0.75rem">curl -H "Accept: text/markdown" ${h}/https://example.com</code>
+          <code style="display:block;margin-bottom:0.75rem">curl -H "Accept: text/markdown" https://${h}/https://example.com</code>
           <code style="display:block;margin-bottom:0.4rem">${t.curlJson}</code>
-          <code style="display:block;margin-bottom:0.75rem">curl "${h}/https://example.com?raw=true&amp;format=json"</code>
+          <code style="display:block;margin-bottom:0.75rem">curl "https://${h}/https://example.com?raw=true&amp;format=json"</code>
           <code style="display:block;margin-bottom:0.4rem">${t.curlBatch}</code>
-          <code style="display:block;margin-bottom:0.75rem">curl -X POST ${h}/api/batch -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"urls":["https://example.com"]}'</code>
+          <code style="display:block;margin-bottom:0.75rem">curl -X POST https://${h}/api/batch -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"urls":["https://example.com"]}'</code>
           <code style="display:block;margin-bottom:0.4rem">${t.curlExtract}</code>
-          <code style="display:block;margin-bottom:0.75rem">curl -X POST ${h}/api/extract -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"strategy":"css","url":"https://example.com","schema":{"fields":[{"name":"title","selector":"h1","type":"text","required":true}]}}'</code>
+          <code style="display:block;margin-bottom:0.75rem">curl -X POST https://${h}/api/extract -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"strategy":"css","url":"https://example.com","schema":{"fields":[{"name":"title","selector":"h1","type":"text","required":true}]}}'</code>
           <code style="display:block;margin-bottom:0.4rem">${t.curlCrawl}</code>
-          <code style="display:block">curl -X POST ${h}/api/deepcrawl -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"seed":"https://example.com/docs","stream":true}'</code>
+          <code style="display:block">curl -X POST https://${h}/api/deepcrawl -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"seed":"https://example.com/docs","stream":true}'</code>
         </div>
       </div>
     </div>
