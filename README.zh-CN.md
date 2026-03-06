@@ -514,8 +514,8 @@ npm run smoke:api
 | 检查项 | 命令 | 结果 |
 |---|---|---|
 | 类型安全 | `npm run typecheck` | Pass |
-| 单元/集成测试 | `npm test` | Pass（`37` files, `478` tests） |
-| 覆盖率 | `npm run test:coverage` | Pass（`Statements 86.84%`, `Branch 76.48%`, `Functions 93.38%`, `Lines 88.97%`） |
+| 单元/集成测试 | `npm test` | Pass（`37` files, `480` tests） |
+| 覆盖率 | `npm run test:coverage` | Pass（`Statements 86.84%`, `Branch 76.56%`, `Functions 93.39%`, `Lines 88.96%`） |
 | 线上健康检查 | `curl https://website2markdown.genedai.workers.dev/api/health` | Pass（`HTTP 200`, `status=ok`） |
 | 线上公开转换 | `GET /https://example.com?raw=true` | Pass（`HTTP 200`，返回 markdown） |
 

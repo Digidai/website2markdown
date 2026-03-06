@@ -5,6 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
+import { setCache } from "../cache";
 import { createMockEnv } from "./test-helpers";
 
 afterEach(() => {
@@ -341,6 +342,34 @@ describe("POST /api/deepcrawl", () => {
       },
       fetch: {
         no_cache: true,
+      },
+    }, "token");
+
+    const res = await worker.fetch(req, env);
+    const payload = await res.json() as {
+      results?: Array<{ success?: boolean; error?: string; method?: string }>;
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.results?.[0]?.success).toBe(true);
+    expect(payload.results?.[0]?.error).toBeUndefined();
+    expect(payload.results?.[0]?.method).toBe("native");
+  });
+
+  it("infers markdown content type for legacy native cache entries", async () => {
+    const { env } = setupInMemoryKv();
+    await setCache(env, seed, "html", {
+      content: "<pre># Cached Start</pre>",
+      method: "native",
+      title: "",
+    });
+
+    const req = deepcrawlRequest({
+      seed,
+      max_depth: 1,
+      max_pages: 1,
+      filters: {
+        content_types: ["text/markdown"],
       },
     }, "token");
 

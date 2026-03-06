@@ -183,17 +183,19 @@ async function urlHash(str: string): Promise<string> {
   return hash;
 }
 
-/** Build a cache key from URL + format + optional selector. KV key max is 512 bytes. */
+/** Build a cache key from URL + format + optional selector/engine. KV key max is 512 bytes. */
 async function cacheKey(
   url: string,
   format: string,
   selector?: string,
+  engine?: string,
 ): Promise<string> {
-  const memoKey = `${format}\u0000${selector || ""}\u0000${url}`;
+  const memoKey = `${format}\u0000${selector || ""}\u0000${engine || ""}\u0000${url}`;
   const memoized = getMemoized(cacheKeyMemo, memoKey);
   if (memoized) return memoized;
 
   const maxKeyLength = 500;
+  const enginePart = engine ? `:eng=${engine}` : "";
   let selPart = selector ? `:sel=${selector}` : "";
 
   // Keep selector bounded in cache keys.
@@ -202,7 +204,7 @@ async function cacheKey(
     selPart = `:sel=${selector.slice(0, 120)}:sh=${selectorHash}`;
   }
 
-  let full = `md:${format}${selPart}:${url}`;
+  let full = `md:${format}${enginePart}${selPart}:${url}`;
   if (full.length <= maxKeyLength) {
     touchBoundedMap(cacheKeyMemo, memoKey, full, CACHE_KEY_MEMO_CAPACITY);
     return full;
@@ -212,7 +214,7 @@ async function cacheKey(
   if (selector && !selPart.includes(":sh=")) {
     const selectorHash = await urlHash(selector);
     selPart = `:sel=${selector.slice(0, 120)}:sh=${selectorHash}`;
-    full = `md:${format}${selPart}:${url}`;
+    full = `md:${format}${enginePart}${selPart}:${url}`;
     if (full.length <= maxKeyLength) {
       touchBoundedMap(cacheKeyMemo, memoKey, full, CACHE_KEY_MEMO_CAPACITY);
       return full;
@@ -220,8 +222,8 @@ async function cacheKey(
   }
 
   // Truncate URL and append SHA-256 hash.
-  const hash = await urlHash(`${url}|${selector || ""}`);
-  const prefix = `md:${format}${selPart}:`;
+  const hash = await urlHash(`${url}|${selector || ""}|${engine || ""}`);
+  const prefix = `md:${format}${enginePart}${selPart}:`;
   const suffix = `:h=${hash}`;
   const maxUrlLength = Math.max(0, maxKeyLength - prefix.length - suffix.length);
   const finalKey = `${prefix}${url.slice(0, maxUrlLength)}${suffix}`;
@@ -235,9 +237,10 @@ export async function getCached(
   url: string,
   format: string,
   selector?: string,
+  engine?: string,
 ): Promise<CachedPayload | null> {
   try {
-    const key = await cacheKey(url, format, selector);
+    const key = await cacheKey(url, format, selector, engine);
 
     const hot = getHotCache(key);
     if (hot) return hot;
@@ -265,9 +268,10 @@ export async function setCache(
   data: CachedPayload,
   selector?: string,
   ttl?: number,
+  engine?: string,
 ): Promise<void> {
   try {
-    const key = await cacheKey(url, format, selector);
+    const key = await cacheKey(url, format, selector, engine);
     const effectiveTtl = ttl ?? getTtlForUrl(url);
     putHotCache(key, data, hotTtlMs(effectiveTtl));
     await withTransientRetry(() =>

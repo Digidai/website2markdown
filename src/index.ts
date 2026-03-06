@@ -470,6 +470,12 @@ function markdownToPlainText(markdown: string): string {
     .trim();
 }
 
+function resolveCachedSourceContentType(method: string, sourceContentType?: string): string {
+  if (sourceContentType) return sourceContentType;
+  if (method === "jina" || method === "native") return "text/markdown";
+  return "text/html";
+}
+
 /** Check if the request prefers JSON error responses. */
 function wantsJsonError(request: Request): boolean {
   const accept = request.headers.get("Accept") || "";
@@ -729,14 +735,17 @@ async function convertUrl(
 
   // 1. Cache
   if (!noCache) {
-    const cached = await getCached(env, targetUrl, format, selector);
+    const cached = await getCached(env, targetUrl, format, selector, engine);
     if (cached) {
       return {
         content: cached.content,
         title: cached.title || "",
         method: cached.method as ConvertMethod,
         tokenCount: "",
-        sourceContentType: cached.sourceContentType || "",
+        sourceContentType: resolveCachedSourceContentType(
+          cached.method,
+          cached.sourceContentType,
+        ),
         cached: true,
         diagnostics: {
           cacheHit: true,
@@ -786,6 +795,8 @@ async function convertUrl(
           sourceContentType,
         },
         selector,
+        undefined,
+        engine,
       );
     }
 
@@ -1131,6 +1142,8 @@ async function convertUrl(
               sourceContentType,
             },
             selector,
+            undefined,
+            engine,
           );
         }
 
@@ -1344,6 +1357,8 @@ async function convertUrl(
         sourceContentType,
       },
       selector,
+      undefined,
+      engine,
     );
   }
 
@@ -1947,7 +1962,7 @@ export default {
       if (!wantsRaw && format === "markdown" && isDocumentNav) {
         // Check cache for instant display
         if (!noCache) {
-          const cached = await getCached(env, targetUrl, "markdown", selector);
+          const cached = await getCached(env, targetUrl, "markdown", selector, engine);
           if (cached) {
             incrementCounter("conversionsTotal");
             incrementCounter("cacheHits");

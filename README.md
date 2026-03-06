@@ -551,8 +551,8 @@ Validation run on **March 6, 2026**:
 | Check | Command | Result |
 |---|---|---|
 | Type safety | `npm run typecheck` | Pass |
-| Unit/integration tests | `npm test` | Pass (`37` files, `478` tests) |
-| Coverage | `npm run test:coverage` | Pass (`Statements 86.84%`, `Branch 76.48%`, `Functions 93.38%`, `Lines 88.97%`) |
+| Unit/integration tests | `npm test` | Pass (`37` files, `480` tests) |
+| Coverage | `npm run test:coverage` | Pass (`Statements 86.84%`, `Branch 76.56%`, `Functions 93.39%`, `Lines 88.96%`) |
 | Live health check | `curl https://website2markdown.genedai.workers.dev/api/health` | Pass (`HTTP 200`, `status=ok`) |
 | Live public conversion | `GET /https://example.com?raw=true` | Pass (`HTTP 200`, markdown output) |
 

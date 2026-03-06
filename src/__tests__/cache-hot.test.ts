@@ -59,6 +59,25 @@ describe("cache hot layer", () => {
     expect(get).not.toHaveBeenCalled();
   });
 
+  it("isolates cache entries by engine", async () => {
+    const { env, get } = createEnv();
+    const url = `https://example.com/hot-engine-${Date.now()}`;
+    const defaultData = makePayload("default");
+    const jinaData = {
+      content: "<pre># jina</pre>",
+      method: "jina",
+      title: "title-jina",
+    };
+
+    await setCache(env, url, "html", defaultData);
+    await setCache(env, url, "html", jinaData, undefined, undefined, "jina");
+    get.mockClear();
+
+    expect(await getCached(env, url, "html")).toEqual(defaultData);
+    expect(await getCached(env, url, "html", undefined, "jina")).toEqual(jinaData);
+    expect(get).not.toHaveBeenCalled();
+  });
+
   it("expires hot cache by TTL and falls back to KV", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-02-19T00:00:00.000Z"));
