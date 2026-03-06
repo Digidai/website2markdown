@@ -5,6 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
+import { jobStorageKey } from "../dispatcher/model";
 import { createMockEnv } from "./test-helpers";
 import { createMockJobCoordinatorNamespace } from "./job-coordinator-test-helpers";
 
