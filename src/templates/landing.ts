@@ -28,16 +28,16 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         feature2Label: "02 &mdash; API 优先",
         feature2Title: "多种格式",
         feature2Desc: "支持输出 <code>markdown</code>、<code>html</code>、<code>text</code>、<code>json</code>，并可用 CSS 选择器定向提取。",
-        feature3Label: "03 &mdash; 已缓存",
-        feature3Title: "响应更快",
-        feature3Desc: "结果缓存到 KV，重复访问更快；图片存入 R2，交付更稳定。",
+        feature3Label: "03 &mdash; 工作流",
+        feature3Title: "批量、提取、深爬",
+        feature3Desc: "使用 <code>/api/batch</code>、<code>/api/extract</code>、<code>/api/jobs</code>、<code>/api/deepcrawl</code> 处理大规模转换与结构化采集。",
         howTitle: "工作原理",
         step1Title: "URL 前缀",
         step1Desc: `在任意网页地址前加上 <strong>${h}/</strong>。`,
         step2Title: "边缘抓取",
-        step2Desc: "请求会携带 <code>Accept: text/markdown</code> 并通过 Cloudflare 边缘网络发出。",
+        step2Desc: "请求会在 Cloudflare 边缘完成校验、可选鉴权与抓取，并按原生 / Readability / 浏览器 / Jina 路径执行。",
         step3Title: "干净输出",
-        step3Desc: "返回格式化 Markdown，可渲染预览，也可通过 API 获取原始文本。",
+        step3Desc: "返回渲染预览、原始 Markdown、JSON，或通过 SSE / 批量 / 提取 / 任务 / 深爬 API 继续处理。",
         apiTitle: "API 参考",
         apiGetDesc: "将单个 URL 转为 Markdown",
         queryParams: "查询参数：",
@@ -47,15 +47,28 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         forceBrowserDesc: "强制使用无头浏览器渲染",
         engineDesc: "使用 Jina Reader API 转换",
         noCacheDesc: "绕过缓存，抓取最新内容",
+        tokenDesc: "若启用 PUBLIC_API_TOKEN，使用查询 token 访问受保护的公开转换接口",
+        routeSummary: "主要路由：",
+        streamDesc: "单 URL SSE 转换进度（step / done / fail）",
+        extractDesc: "结构化提取（css / xpath / regex，可附带 markdown）",
+        jobsDesc: "任务创建、查询、状态流与执行（支持 Idempotency-Key）",
+        deepcrawlDesc: "BFS / BestFirst 深爬，支持过滤、打分、checkpoint",
+        healthDesc: "健康检查、运行态与运营指标",
+        ogDesc: "分享图生成端点",
+        authTitle: "鉴权：",
+        publicAuthDesc: "单 URL 转换与 <code>/api/stream</code> 可使用 Bearer 或 <code>?token=...</code>",
+        privateAuthDesc: "<code>/api/batch</code>、<code>/api/extract</code>、<code>/api/jobs*</code>、<code>/api/deepcrawl</code> 需要 <code>API_TOKEN</code>",
         responseHeaders: "响应头：",
         sourceUrlDesc: "原始目标 URL",
-        batchDesc: "最多转换 10 个 URL（需要 <code>Authorization: Bearer &lt;token&gt;</code>）",
+        batchDesc: "最多转换 10 个 URL（需要 <code>API_TOKEN</code>）",
         bodyLabel: "请求体",
         returnsLabel: "返回",
         curlExamples: "curl 示例：",
         curlRaw: "# 获取原始 markdown",
         curlJson: "# 获取 JSON 输出",
         curlBatch: "# 批量转换",
+        curlExtract: "# 结构化提取",
+        curlCrawl: "# Deep Crawl",
         exampleLabel: "试一个示例",
         footerLead: "基于 Cloudflare Workers 构建",
         mobilePlaceholder: "https://example.com/article",
@@ -82,16 +95,16 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         feature2Label: "02 &mdash; API-first",
         feature2Title: "Multiple Formats",
         feature2Desc: "Output as <code>markdown</code>, <code>html</code>, <code>text</code>, or <code>json</code>. Specify CSS selectors for targeted extraction.",
-        feature3Label: "03 &mdash; Cached",
-        feature3Title: "Fast Responses",
-        feature3Desc: "Results are cached in KV for instant repeat access. Images stored in R2 for reliable delivery.",
+        feature3Label: "03 &mdash; Workflows",
+        feature3Title: "Batch, Extract, Crawl",
+        feature3Desc: "Use <code>/api/batch</code>, <code>/api/extract</code>, <code>/api/jobs</code>, and <code>/api/deepcrawl</code> for larger conversion and structured collection workflows.",
         howTitle: "How it works",
         step1Title: "Prepend URL",
         step1Desc: `Add <strong>${h}/</strong> before any web address.`,
         step2Title: "Edge Fetch",
-        step2Desc: "Request sent with <code>Accept: text/markdown</code> via Cloudflare edge network.",
+        step2Desc: "Requests are validated, optionally authenticated, and fetched at the edge through the native / Readability / browser / Jina pipeline.",
         step3Title: "Clean Output",
-        step3Desc: "Receive formatted Markdown &mdash; rendered preview or raw text via API.",
+        step3Desc: "Receive rendered preview, raw Markdown, JSON, or continue with SSE, batch, extraction, jobs, and deep crawl APIs.",
         apiTitle: "API Reference",
         apiGetDesc: "Convert a single URL to Markdown",
         queryParams: "Query Parameters:",
@@ -101,15 +114,28 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         forceBrowserDesc: "Force headless browser rendering",
         engineDesc: "Convert via Jina Reader API",
         noCacheDesc: "Bypass cache, fetch fresh content",
+        tokenDesc: "Query token for protected public convert routes when PUBLIC_API_TOKEN is enabled",
+        routeSummary: "Key Routes:",
+        streamDesc: "SSE progress for single-URL conversion (step / done / fail)",
+        extractDesc: "Structured extraction (css / xpath / regex, optional markdown)",
+        jobsDesc: "Create, query, stream, and run jobs (supports Idempotency-Key)",
+        deepcrawlDesc: "BFS / BestFirst deep crawl with filters, scoring, and checkpoints",
+        healthDesc: "Health check, runtime state, and operational metrics",
+        ogDesc: "Share-image generator endpoint",
+        authTitle: "Auth:",
+        publicAuthDesc: "Single-URL convert and <code>/api/stream</code> accept Bearer or <code>?token=...</code>",
+        privateAuthDesc: "<code>/api/batch</code>, <code>/api/extract</code>, <code>/api/jobs*</code>, and <code>/api/deepcrawl</code> require <code>API_TOKEN</code>",
         responseHeaders: "Response Headers:",
         sourceUrlDesc: "The original target URL",
-        batchDesc: "Convert up to 10 URLs (requires <code>Authorization: Bearer &lt;token&gt;</code>)",
+        batchDesc: "Convert up to 10 URLs (requires <code>API_TOKEN</code>)",
         bodyLabel: "Body",
         returnsLabel: "Returns",
         curlExamples: "curl Examples:",
         curlRaw: "# Get raw markdown",
         curlJson: "# Get JSON output",
         curlBatch: "# Batch conversion",
+        curlExtract: "# Structured extraction",
+        curlCrawl: "# Deep crawl",
         exampleLabel: "Try an example",
         footerLead: "Built on Cloudflare Workers",
         mobilePlaceholder: "https://example.com/article",
@@ -382,7 +408,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         <button type="submit">${t.convertButton}</button>
       </form>
     </div>
-    <p class="input-hint">${t.inputHintLead} &mdash; <code>?format=json|html|text</code> &middot; <code>?selector=.css</code> &middot; <code>?raw=true</code> &middot; <code>?force_browser=true</code> &middot; <code>?engine=jina</code> &middot; <code>?no_cache=true</code></p>
+    <p class="input-hint">${t.inputHintLead} &mdash; <code>?format=json|html|text</code> &middot; <code>?selector=.css</code> &middot; <code>?raw=true</code> &middot; <code>?force_browser=true</code> &middot; <code>?engine=jina</code> &middot; <code>?no_cache=true</code> &middot; <code>?token=PUBLIC_API_TOKEN</code></p>
 
     <div class="features">
       <div class="feature">
@@ -434,7 +460,23 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <code>?selector=.article</code> &mdash; ${t.selectorDesc}<br>
           <code>?force_browser=true</code> &mdash; ${t.forceBrowserDesc}<br>
           <code>?engine=jina</code> &mdash; ${t.engineDesc}<br>
-          <code>?no_cache=true</code> &mdash; ${t.noCacheDesc}
+          <code>?no_cache=true</code> &mdash; ${t.noCacheDesc}<br>
+          <code>?token=PUBLIC_API_TOKEN</code> &mdash; ${t.tokenDesc}
+        </div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.routeSummary}</strong></div>
+        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
+          <code>GET /api/stream</code> &mdash; ${t.streamDesc}<br>
+          <code>POST /api/batch</code> &mdash; ${t.batchDesc}<br>
+          <code>POST /api/extract</code> &mdash; ${t.extractDesc}<br>
+          <code>POST /api/jobs</code> / <code>GET /api/jobs/:id</code> / <code>GET /api/jobs/:id/stream</code> / <code>POST /api/jobs/:id/run</code> &mdash; ${t.jobsDesc}<br>
+          <code>POST /api/deepcrawl</code> &mdash; ${t.deepcrawlDesc}<br>
+          <code>GET /api/health</code> &mdash; ${t.healthDesc}<br>
+          <code>GET /api/og</code> &mdash; ${t.ogDesc}
+        </div>
+        <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.authTitle}</strong></div>
+        <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
+          <code>PUBLIC_API_TOKEN</code> &mdash; ${t.publicAuthDesc}<br>
+          <code>API_TOKEN</code> &mdash; ${t.privateAuthDesc}
         </div>
         <div style="margin-bottom:0.5rem"><strong style="color:var(--accent)">${t.responseHeaders}</strong></div>
         <div style="padding-left:1rem;font-family:var(--font-mono);font-size:0.75rem;margin-bottom:1rem">
@@ -454,7 +496,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <code style="display:block;margin-bottom:0.4rem">${t.curlJson}</code>
           <code style="display:block;margin-bottom:0.75rem">curl "${h}/https://example.com?raw=true&amp;format=json"</code>
           <code style="display:block;margin-bottom:0.4rem">${t.curlBatch}</code>
-          <code style="display:block">curl -X POST ${h}/api/batch -H "Authorization: Bearer TOKEN" -H "Content-Type: application/json" -d '{"urls":["https://example.com"]}'</code>
+          <code style="display:block;margin-bottom:0.75rem">curl -X POST ${h}/api/batch -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"urls":["https://example.com"]}'</code>
+          <code style="display:block;margin-bottom:0.4rem">${t.curlExtract}</code>
+          <code style="display:block;margin-bottom:0.75rem">curl -X POST ${h}/api/extract -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"strategy":"css","url":"https://example.com","schema":{"fields":[{"name":"title","selector":"h1","type":"text","required":true}]}}'</code>
+          <code style="display:block;margin-bottom:0.4rem">${t.curlCrawl}</code>
+          <code style="display:block">curl -X POST ${h}/api/deepcrawl -H "Authorization: Bearer API_TOKEN" -H "Content-Type: application/json" -d '{"seed":"https://example.com/docs","stream":true}'</code>
         </div>
       </div>
     </div>

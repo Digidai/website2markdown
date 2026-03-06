@@ -4,7 +4,7 @@
 
 A Cloudflare Worker that converts **any** web page to clean Markdown. Supports four conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages, and [Jina Reader](https://r.jina.ai) as an optional engine or last-resort fallback.
 
-Prepend your domain before any URL and get instant Markdown output. No signup required, and API auth is optional/configurable.
+Prepend your domain before any URL and get instant Markdown output. Beyond single-page conversion, the Worker also exposes SSE progress streaming, batch conversion, structured extraction, queued crawl/extract jobs, deep crawl, image proxying, OG image generation, and operational health metrics.
 
 ## How It Works
 
@@ -34,6 +34,7 @@ Fetch target with Accept: text/markdown
 | **Native** | Target site supports Markdown for Agents | Cloudflare edge converts via `Accept: text/markdown` content negotiation | `native` |
 | **Fallback** | Normal HTML pages | Readability extracts main content → Turndown converts to Markdown | `readability+turndown` |
 | **Browser** | Anti-bot pages, JS-rendered content | Headless Chrome renders the page → Readability + Turndown | `browser+readability+turndown` |
+| **Jina** | Explicit `engine=jina` or last-resort fallback | Convert via Jina Reader API while preserving the same output/query surface | `jina` |
 
 ## API Usage
 
@@ -66,6 +67,9 @@ If `PUBLIC_API_TOKEN` is configured, API-style requests require a token:
 # Header token
 curl "https://md.genedai.me/https://example.com/page?raw=true" \
   -H "Authorization: Bearer <public-token>"
+
+# Query token on single-URL convert
+curl "https://md.genedai.me/https://example.com/page?raw=true&token=<public-token>"
 
 # Query token (useful for /api/stream EventSource)
 curl "https://md.genedai.me/api/stream?url=https%3A%2F%2Fexample.com%2Fpage&token=<public-token>"
@@ -131,7 +135,7 @@ Convert multiple URLs in a single request:
 
 ```bash
 curl -X POST https://md.genedai.me/api/batch \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "urls": [
@@ -200,9 +204,16 @@ curl -X POST https://md.genedai.me/api/extract \
 
 Batch extraction (`items`) is also supported (max 10 items).
 
+Additional extraction capabilities:
+
+- Use either top-level `url` / `html` or nested `input.url` / `input.html`.
+- `schema.fields[*].required` fails extraction when a required field is missing.
+- `options` supports `dedupe`, `includeEmpty`, and `regexFlags`.
+- `include_markdown: true` attaches converted markdown alongside extracted data.
+
 ### Job API (create / query / stream / run)
 
-Submit crawl/extract tasks as queued jobs, then run and monitor:
+Submit crawl/extract tasks as queued jobs, then run and monitor. Jobs are persisted as queued records in KV; execution begins when you call `/run`:
 
 ```bash
 # 1) Create job
@@ -232,6 +243,15 @@ curl -N -H "Authorization: Bearer <api-token>" \
 curl -X POST -H "Authorization: Bearer <api-token>" \
   https://md.genedai.me/api/jobs/<job-id>/run
 ```
+
+Job API notes:
+
+- Supports both `type: "crawl"` and `type: "extract"`.
+- `type: "crawl"` accepts string URLs or object tasks with `format`, `selector`, `force_browser`, and `no_cache`.
+- `type: "extract"` reuses the same task shape as `/api/extract`.
+- `Idempotency-Key` returns the existing job when the same request is replayed.
+- `priority` is normalized to `1..100` (default `10`), `maxRetries` to `0..10` (default `2`).
+- Up to `100` tasks are allowed per job.
 
 ### Deep Crawl API
 
@@ -270,6 +290,15 @@ curl -N -X POST https://md.genedai.me/api/deepcrawl \
     "stream": true
   }'
 ```
+
+Deep crawl request supports:
+
+- `include_external` to traverse off-domain links.
+- `filters.url_patterns`, `filters.allow_domains`, `filters.block_domains`, `filters.content_types`.
+- `scorer.keywords`, `scorer.weight`, `scorer.score_threshold`.
+- `output.include_markdown` to attach per-page markdown.
+- `fetch.selector`, `fetch.force_browser`, `fetch.no_cache` to control page conversion.
+- `checkpoint.crawl_id`, `checkpoint.resume`, `checkpoint.snapshot_interval`, `checkpoint.ttl_seconds`.
 
 ### Supported Sites
 
@@ -322,20 +351,21 @@ print(data["title"], data["method"])
 | `/<url>` | GET | Convert URL and render Markdown as HTML page |
 | `/<url>?raw=true` | GET | Return raw Markdown as plain text |
 | `/<url>?format=json` | GET | Return structured JSON (url, title, markdown, method) |
-| `/<url>?format=html` | GET | Return cleaned HTML |
+| `/<url>?format=html` | GET | Return HTML output for preview/basic rendering |
 | `/<url>?format=text` | GET | Return plain text (no formatting) |
 | `/<url>?selector=.class` | GET | Extract specific CSS selector |
 | `/<url>?force_browser=true` | GET | Force browser rendering |
-| `/<url>?engine=jina` | GET | Convert via Jina Reader API |
+| `/<url>?engine=jina` | GET | Convert via Jina Reader API using the same output formats |
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
-| `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) |
+| `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) with `selector` / `force_browser` / `no_cache` / `engine` / `token` support |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |
 | `/api/extract` | POST | Structured extraction API (`css` / `xpath` / `regex`) |
-| `/api/jobs` | POST | Create queued crawl/extract job |
+| `/api/jobs` | POST | Create queued crawl/extract job record |
 | `/api/jobs/:id` | GET | Query job status |
 | `/api/jobs/:id/stream` | GET | SSE job status stream |
 | `/api/jobs/:id/run` | POST | Execute queued/failed tasks in job |
 | `/api/deepcrawl` | POST | Deep crawl API (BFS/BestFirst, stream/non-stream, checkpoint) |
+| `/api/og` | GET | Dynamic Open Graph image for landing/rendered pages |
 | `/img/<encoded-url>` | GET | Image proxy (bypasses hotlink protection) |
 | `/r2img/<key>` | GET | Serve image from R2 storage |
 | `/api/health` | GET | Health + runtime + operational metrics |
@@ -344,8 +374,8 @@ print(data["title"], data["method"])
 
 | Route Group | Token Requirement | Notes |
 |---|---|---|
-| `/<url>` and format/query variants | No token by default | If `PUBLIC_API_TOKEN` is configured, API-style requests require bearer/query token |
-| `/api/stream` | No token by default | If `PUBLIC_API_TOKEN` is configured, token is required |
+| `/<url>` and format/query variants | No token by default | If `PUBLIC_API_TOKEN` is configured, use `Authorization: Bearer ...` or `?token=...` |
+| `/api/stream` | No token by default | If `PUBLIC_API_TOKEN` is configured, use `Authorization: Bearer ...` or `?token=...` |
 | `/api/batch` | `Authorization: Bearer <API_TOKEN>` | If `API_TOKEN` is not configured, API returns `503` (`API_TOKEN not set`) |
 | `/api/extract` | `Authorization: Bearer <API_TOKEN>` | If `API_TOKEN` is not configured, API returns `503` |
 | `/api/jobs*` | `Authorization: Bearer <API_TOKEN>` | Includes create/query/stream/run |
@@ -360,7 +390,7 @@ print(data["title"], data["method"])
 | `X-Source-URL` | The original target URL |
 | `X-Markdown-Tokens` | Token count (native Markdown for Agents only) |
 | `X-Markdown-Native` | `"true"` when native, `"false"` otherwise |
-| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, or `"browser+readability+turndown"` |
+| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, `"browser+readability+turndown"`, or `"jina"` |
 | `X-Cache-Status` | `"HIT"` or `"MISS"` |
 | `X-Markdown-Fallbacks` | Comma-separated fallback list (when used) |
 | `X-Browser-Rendered` | `"true"` when browser rendering path was used |

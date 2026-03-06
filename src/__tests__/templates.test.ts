@@ -18,6 +18,10 @@ describe("templates", () => {
     expect(html).toContain("任意 URL 转");
     expect(html).toContain("转换");
     expect(html).toContain('lang="zh-CN"');
+    expect(html).toContain("/api/extract");
+    expect(html).toContain("/api/jobs");
+    expect(html).toContain("/api/deepcrawl");
+    expect(html).toContain("PUBLIC_API_TOKEN");
   });
 
   it("escapes title and message in error page", () => {
@@ -38,6 +42,7 @@ describe("templates", () => {
     expect(html).toContain('/https%3A%2F%2Fexample.com%2Fpath%3Fq%3D%3Cx%3E?raw=true&selector=.main&engine=jina');
     expect(html).toContain("\\u003c");
     expect(html).toContain("selector=.main");
+    expect(html).toContain("C.rawRequestPath");
   });
 
   it("escapes rendered content and metadata", () => {

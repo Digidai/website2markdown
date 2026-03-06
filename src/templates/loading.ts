@@ -306,7 +306,7 @@ export function loadingPageHTML(
 
     // Fallback for environments without EventSource support
     if (typeof EventSource === 'undefined') {
-      window.location.href = '/'+ encodeURIComponent(C.targetUrl) + '?raw=true';
+      window.location.href = C.rawRequestPath || ('/' + encodeURIComponent(C.targetUrl) + '?raw=true');
       throw new Error('redirect');
     }
 

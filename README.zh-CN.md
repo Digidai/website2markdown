@@ -5,7 +5,7 @@
 一个 Cloudflare Worker，可以把**任意网页**转换为干净、可读的 Markdown。
 支持四条转换路径：[Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/)（原生）、[Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown)（兜底）、[Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/)（用于反爬/重 JS 页面）、以及 [Jina Reader](https://r.jina.ai)（可选引擎或最终兜底）。
 
-把你的域名前缀加在目标 URL 前即可直接获得 Markdown 输出。无需注册，API 鉴权可选。
+把你的域名前缀加在目标 URL 前即可直接获得 Markdown 输出。除了单页转换，还内置了 SSE 进度流、批量转换、结构化提取、排队任务、Deep Crawl、图片代理、OG 图生成和运行健康指标。
 
 ## 工作原理
 
@@ -35,6 +35,7 @@ Fetch target with Accept: text/markdown
 | **Native** | 目标站点支持 Markdown for Agents | 通过 `Accept: text/markdown` 在 Cloudflare 边缘协商原生 Markdown | `native` |
 | **Fallback** | 普通 HTML 页面 | Readability 提取正文 → Turndown 转 Markdown | `readability+turndown` |
 | **Browser** | 反爬或重 JS 页面 | 无头浏览器渲染后再走 Readability + Turndown | `browser+readability+turndown` |
+| **Jina** | 显式指定 `engine=jina` 或最终兜底 | 通过 Jina Reader API 转换，同时保留相同的输出格式接口 | `jina` |
 
 ## API 使用
 
@@ -67,6 +68,9 @@ curl https://md.genedai.me/https://example.com/page \
 # Header token
 curl "https://md.genedai.me/https://example.com/page?raw=true" \
   -H "Authorization: Bearer <public-token>"
+
+# 单 URL 转换也支持 query token
+curl "https://md.genedai.me/https://example.com/page?raw=true&token=<public-token>"
 
 # Query token（适用于 /api/stream EventSource）
 curl "https://md.genedai.me/api/stream?url=https%3A%2F%2Fexample.com%2Fpage&token=<public-token>"
@@ -128,7 +132,7 @@ curl "https://md.genedai.me/https://example.com?raw=true&no_cache=true"
 
 ```bash
 curl -X POST https://md.genedai.me/api/batch \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "urls": [
@@ -169,7 +173,16 @@ curl -X POST https://md.genedai.me/api/extract \
 
 同样支持批量提取（`items`，最多 10 条）。
 
+补充说明：
+
+- 顶层可直接传 `url` / `html`，也支持嵌套的 `input.url` / `input.html`。
+- `schema.fields[*].required` 会在必填字段缺失时直接报错。
+- `options` 支持 `dedupe`、`includeEmpty`、`regexFlags`。
+- `include_markdown: true` 会把转换后的 markdown 一并返回。
+
 ### Job API（创建 / 查询 / 流式 / 执行）
+
+任务会先以 KV 记录形式排队；只有调用 `/run` 时才会真正执行：
 
 ```bash
 # 1) 创建任务
@@ -199,6 +212,15 @@ curl -N -H "Authorization: Bearer <api-token>" \
 curl -X POST -H "Authorization: Bearer <api-token>" \
   https://md.genedai.me/api/jobs/<job-id>/run
 ```
+
+Job API 补充：
+
+- 同时支持 `type: "crawl"` 和 `type: "extract"`。
+- `type: "crawl"` 支持字符串 URL，也支持带 `format`、`selector`、`force_browser`、`no_cache` 的对象任务。
+- `type: "extract"` 直接复用 `/api/extract` 的单条任务结构。
+- 带相同 `Idempotency-Key` 的重放请求会直接返回已有任务。
+- `priority` 会被规范到 `1..100`（默认 `10`），`maxRetries` 会被规范到 `0..10`（默认 `2`）。
+- 单个 job 最多支持 `100` 个任务。
 
 ### Deep Crawl API
 
@@ -235,6 +257,15 @@ curl -N -X POST https://md.genedai.me/api/deepcrawl \
     "stream": true
   }'
 ```
+
+Deep Crawl 还支持：
+
+- `include_external` 控制是否抓取站外链接。
+- `filters.url_patterns`、`filters.allow_domains`、`filters.block_domains`、`filters.content_types`。
+- `scorer.keywords`、`scorer.weight`、`scorer.score_threshold`。
+- `output.include_markdown` 为每个结果附带 markdown。
+- `fetch.selector`、`fetch.force_browser`、`fetch.no_cache` 控制页面转换方式。
+- `checkpoint.crawl_id`、`checkpoint.resume`、`checkpoint.snapshot_interval`、`checkpoint.ttl_seconds`。
 
 ### 支持站点
 
@@ -285,20 +316,21 @@ print(data["title"], data["method"])
 | `/<url>` | GET | 转换 URL 并渲染 Markdown HTML 页面 |
 | `/<url>?raw=true` | GET | 返回原始 Markdown 纯文本 |
 | `/<url>?format=json` | GET | 返回结构化 JSON（url/title/markdown/method） |
-| `/<url>?format=html` | GET | 返回清洗后的 HTML |
+| `/<url>?format=html` | GET | 返回用于预览/基础渲染的 HTML 输出 |
 | `/<url>?format=text` | GET | 返回纯文本（无格式） |
 | `/<url>?selector=.class` | GET | 提取指定 CSS 选择器 |
 | `/<url>?force_browser=true` | GET | 强制浏览器渲染 |
-| `/<url>?engine=jina` | GET | 通过 Jina Reader API 转换 |
+| `/<url>?engine=jina` | GET | 使用 Jina Reader API，并保留相同的输出格式接口 |
 | `/<url>?no_cache=true` | GET | 跳过 KV 缓存 |
-| `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`） |
+| `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`），支持 `selector` / `force_browser` / `no_cache` / `engine` / `token` |
 | `/api/batch` | POST | 批量转换（最多 10 条） |
 | `/api/extract` | POST | 结构化提取 API（`css` / `xpath` / `regex`） |
-| `/api/jobs` | POST | 创建排队爬取/提取任务 |
+| `/api/jobs` | POST | 创建排队的 crawl/extract 任务记录 |
 | `/api/jobs/:id` | GET | 查询任务状态 |
 | `/api/jobs/:id/stream` | GET | SSE 任务状态流 |
 | `/api/jobs/:id/run` | POST | 执行该任务中队列/失败项 |
 | `/api/deepcrawl` | POST | Deep Crawl（BFS/BestFirst，流式/非流式，断点续跑） |
+| `/api/og` | GET | landing/rendered 页面使用的动态分享图 |
 | `/img/<encoded-url>` | GET | 图片代理（绕过防盗链） |
 | `/r2img/<key>` | GET | 从 R2 返回图片 |
 | `/api/health` | GET | 健康检查 + 运行态 + 运营指标 |
@@ -307,8 +339,8 @@ print(data["title"], data["method"])
 
 | 路由组 | Token 要求 | 说明 |
 |---|---|---|
-| `/<url>` 及其查询变体 | 默认不需要 | 若配置 `PUBLIC_API_TOKEN`，API 风格请求需 token |
-| `/api/stream` | 默认不需要 | 若配置 `PUBLIC_API_TOKEN`，需 token |
+| `/<url>` 及其查询变体 | 默认不需要 | 若配置 `PUBLIC_API_TOKEN`，可用 `Authorization: Bearer ...` 或 `?token=...` |
+| `/api/stream` | 默认不需要 | 若配置 `PUBLIC_API_TOKEN`，可用 `Authorization: Bearer ...` 或 `?token=...` |
 | `/api/batch` | `Authorization: Bearer <API_TOKEN>` | 若未配置 `API_TOKEN`，返回 `503`（`API_TOKEN not set`） |
 | `/api/extract` | `Authorization: Bearer <API_TOKEN>` | 若未配置 `API_TOKEN`，返回 `503` |
 | `/api/jobs*` | `Authorization: Bearer <API_TOKEN>` | 包含 create/query/stream/run |
@@ -323,7 +355,7 @@ print(data["title"], data["method"])
 | `X-Source-URL` | 原始目标 URL |
 | `X-Markdown-Tokens` | Token 数（仅原生 Markdown for Agents） |
 | `X-Markdown-Native` | 原生路径为 `"true"`，否则 `"false"` |
-| `X-Markdown-Method` | `"native"`、`"readability+turndown"`、`"browser+readability+turndown"` |
+| `X-Markdown-Method` | `"native"`、`"readability+turndown"`、`"browser+readability+turndown"`、`"jina"` |
 | `X-Cache-Status` | `"HIT"` 或 `"MISS"` |
 | `X-Markdown-Fallbacks` | 逗号分隔的兜底链路（如有） |
 | `X-Browser-Rendered` | 使用浏览器渲染时为 `"true"` |
