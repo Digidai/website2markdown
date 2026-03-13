@@ -11,13 +11,18 @@ export interface Env {
   PROXY_URL?: string;
   /** Optional proxy pool. Accepts comma/newline separated proxy URLs. */
   PROXY_POOL?: string;
+  /** Cloudflare Account ID for REST API calls */
+  CF_ACCOUNT_ID?: string;
+  /** Cloudflare API Token with Browser Rendering - Edit permission */
+  CF_API_TOKEN?: string;
 }
 
 export type ConvertMethod =
   | "native"
   | "readability+turndown"
   | "browser+readability+turndown"
-  | "jina";
+  | "jina"
+  | "cf";
 
 export type OutputFormat = "markdown" | "html" | "text" | "json";
 

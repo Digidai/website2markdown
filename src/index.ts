@@ -24,6 +24,7 @@ import {
   RATE_LIMIT_STREAM_PER_WINDOW,
   RATE_LIMIT_BATCH_PER_WINDOW,
   RATE_LIMIT_DEGRADED_FACTOR,
+  CF_BLOCKED_DOMAINS_TTL,
 } from "./config";
 import {
   isSafeUrl,
@@ -74,7 +75,9 @@ import {
   alwaysNeedsBrowser,
   getAdapter,
   getBrowserCapacityStats,
+  genericAdapter,
 } from "./browser";
+import { fetchViaCfMarkdown, fetchViaCfContent, type CfRestConfig } from "./cf-rest";
 import {
   consumeProxyRetryCookies,
   extractLegacyProxyRetryCookies,
@@ -753,6 +756,40 @@ interface ConvertResult {
   diagnostics: ConvertDiagnostics;
 }
 
+// ---------------------------------------------------------------------------
+// CF REST API helpers
+// ---------------------------------------------------------------------------
+
+function getCfRestConfig(env: Env): CfRestConfig | null {
+  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return null;
+  return { accountId: env.CF_ACCOUNT_ID, apiToken: env.CF_API_TOKEN };
+}
+
+function extractTitleFromCfMarkdown(markdown: string): string {
+  const match = markdown.match(/^#\s+(.+)$/m);
+  return match ? match[1].trim() : "";
+}
+
+async function isCfEligible(url: string, env: Env): Promise<boolean> {
+  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return false;
+
+  const adapter = getAdapter(url);
+  if (adapter !== genericAdapter) return false;
+
+  if (getPaywallRule(url)) return false;
+
+  // Check negative cache: was this domain previously blocked by CF?
+  try {
+    const domain = new URL(url).hostname;
+    const blocked = await env.CACHE_KV.get(`cf_blocked:${domain}`);
+    if (blocked) return false;
+  } catch {
+    // KV failure — treat as cache miss, allow CF attempt
+  }
+
+  return true;
+}
+
 async function convertUrl(
   targetUrl: string,
   env: Env,
@@ -853,6 +890,84 @@ async function convertUrl(
         fallbacks: [],
       },
     };
+  }
+
+  // 2b. CF Markdown fast path
+  if (engine === "cf" || ((!engine || engine === "auto") && await isCfEligible(targetUrl, env))) {
+    const cfConfig = getCfRestConfig(env);
+    if (cfConfig) {
+      await progress("fetch", "Converting via Cloudflare");
+      try {
+        const needsRender = forceBrowser || alwaysNeedsBrowser(targetUrl);
+        const cfResult = await fetchViaCfMarkdown(targetUrl, cfConfig, {
+          render: needsRender,
+          signal: abortSignal,
+        });
+
+        if (cfResult.markdown && cfResult.markdown.length > 200) {
+          if (new TextEncoder().encode(cfResult.markdown).byteLength > MAX_RESPONSE_BYTES) {
+            throw new ConvertError("Content Too Large", "The CF response exceeds the 5 MB size limit.", 413);
+          }
+          const cfTitle = extractTitleFromCfMarkdown(cfResult.markdown);
+          sourceContentType = "text/markdown";
+
+          let output: string;
+          switch (format) {
+            case "html":
+              output = markdownToBasicHtml(cfResult.markdown);
+              break;
+            case "text":
+              output = markdownToPlainText(cfResult.markdown);
+              break;
+            case "json":
+              output = JSON.stringify({
+                url: targetUrl, title: cfTitle, markdown: cfResult.markdown,
+                method: "cf", timestamp: new Date().toISOString(),
+              });
+              break;
+            default:
+              output = cfResult.markdown;
+          }
+
+          if (!noCache) {
+            await setCache(env, targetUrl, format, {
+              content: output, method: "cf", title: cfTitle, sourceContentType,
+            }, selector, undefined, engine);
+          }
+
+          return {
+            content: output,
+            title: cfTitle,
+            method: "cf" as ConvertMethod,
+            tokenCount: "",
+            sourceContentType,
+            cached: false,
+            diagnostics: {
+              cacheHit: false,
+              browserRendered: needsRender,
+              paywallDetected: false,
+              fallbacks: [],
+            },
+          };
+        }
+        // CF returned empty/short content — fall through to subsequent paths
+        fallbacks.add("cf_empty_fallthrough");
+      } catch (e) {
+        const errMsg = errorMessage(e);
+        console.warn("CF REST API failed, falling through:", errMsg);
+        fallbacks.add("cf_error_fallthrough");
+        // Write negative domain cache only for domain-level blocks (403/robots.txt),
+        // not for transient errors (429/5xx/timeout/abort) which may resolve.
+        const isDomainBlock = /returned HTTP 403/.test(errMsg);
+        if (isDomainBlock) {
+          const domain = new URL(targetUrl).hostname;
+          await env.CACHE_KV.put(
+            `cf_blocked:${domain}`, "1",
+            { expirationTtl: CF_BLOCKED_DOMAINS_TTL }
+          ).catch(() => {});
+        }
+      }
+    }
   }
 
   // 2. Fetch & parse
@@ -2116,14 +2231,15 @@ function buildResponse(
   diagnostics?: ConvertDiagnostics,
   rawRequestPath?: string,
 ): Response {
-  const methodLabel =
-    method === "browser+readability+turndown"
-      ? "browser"
-      : method === "native"
-        ? "native"
-        : method === "jina"
-          ? "jina"
-          : "fallback";
+  type MethodLabel = "native" | "fallback" | "browser" | "jina" | "cloudflare";
+  const methodLabelMap: Record<ConvertMethod, MethodLabel> = {
+    "browser+readability+turndown": "browser",
+    "native": "native",
+    "jina": "jina",
+    "cf": "cloudflare",
+    "readability+turndown": "fallback",
+  };
+  const methodLabel = methodLabelMap[method];
 
   if (wantsRaw || format === "json" || format === "text" || format === "html") {
     const contentType =
@@ -3311,6 +3427,33 @@ async function executeDeepCrawl(
       throw new Error("Invalid or blocked URL.");
     }
 
+    // Try CF /content first (returns HTML for link extraction)
+    // Skip CF when page needs JS rendering — render:false would return empty shell
+    let cfAttempted = false;
+    const needsRender = payload.forceBrowser || alwaysNeedsBrowser(url);
+    const cfConfig = getCfRestConfig(env);
+    if (!needsRender && cfConfig && await isCfEligible(url, env)) {
+      cfAttempted = true;
+      try {
+        const cfHtml = await fetchViaCfContent(url, cfConfig, {
+          render: false,
+          signal: context.signal,
+        });
+        if (cfHtml && cfHtml.length > 200
+            && new TextEncoder().encode(cfHtml).byteLength <= MAX_RESPONSE_BYTES) {
+          const parsed = htmlToMarkdown(cfHtml, url, payload.selector);
+          return {
+            url,
+            html: cfHtml,
+            markdown: payload.includeMarkdown ? parsed.markdown : undefined,
+            title: parsed.title,
+            method: "cf" as string,
+          };
+        }
+      } catch { /* fall through to convertUrl */ }
+    }
+
+    // Fallback: pass engine="local" to skip CF only if we already attempted it
     const converted = await convertUrlWithMetrics(
       url,
       env,
@@ -3321,6 +3464,7 @@ async function executeDeepCrawl(
       payload.noCache,
       undefined,
       context.signal,
+      cfAttempted ? "local" : undefined,
     );
 
     let markdown: string | undefined;

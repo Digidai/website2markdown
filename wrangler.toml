@@ -34,6 +34,8 @@ enabled = true
 # Secrets (set via wrangler secret):
 # API_TOKEN — Bearer token for POST /api/batch authentication
 # PUBLIC_API_TOKEN — optional token for raw API + /api/stream
+# CF_ACCOUNT_ID — Cloudflare account ID for Browser Rendering REST API
+# CF_API_TOKEN — API token with Browser Rendering - Edit permission
 # PAYWALL_RULES_JSON — optional JSON array of runtime paywall rules
 # Optional var:
 # PAYWALL_RULES_KV_KEY — KV key name containing JSON paywall rules (overrides PAYWALL_RULES_JSON)

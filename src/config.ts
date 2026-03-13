@@ -52,6 +52,12 @@ export const DESKTOP_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
 
+/** CF Browser Rendering REST API settings. */
+export const CF_REST_TIMEOUT_MS = 30_000;
+export const CF_CRAWL_POLL_INTERVAL_MS = 3_000;
+export const CF_CRAWL_MAX_POLL_ATTEMPTS = 360;
+export const CF_BLOCKED_DOMAINS_TTL = 2 * 60 * 60;
+
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",

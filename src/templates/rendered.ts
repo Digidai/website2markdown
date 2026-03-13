@@ -22,7 +22,7 @@ export function renderedPageHTML(
   content: string,
   sourceUrl: string,
   tokenCount: string,
-  method: "native" | "fallback" | "browser" | "jina",
+  method: "native" | "fallback" | "browser" | "jina" | "cloudflare",
   cached: boolean = false,
   articleTitle: string = "",
   rawRequestPath: string = buildRawRequestPath(sourceUrl),
@@ -36,6 +36,7 @@ export function renderedPageHTML(
     fallback: { label: "Readability + Turndown", cls: "st-fallback" },
     browser: { label: "Browser Rendered", cls: "st-browser" },
     jina: { label: "Jina Reader", cls: "st-jina" },
+    cloudflare: { label: "Cloudflare REST", cls: "st-native" },
   };
   const status = statusConfig[method];
   const cacheLabel = cached ? '<span class="cache-pill">CACHED</span>' : '';

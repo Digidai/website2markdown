@@ -42,6 +42,7 @@ import { weiboAdapter } from "./adapters/weibo";
 import { redditAdapter } from "./adapters/reddit";
 import { twitterAdapter } from "./adapters/twitter";
 import { genericAdapter } from "./adapters/generic";
+export { genericAdapter } from "./adapters/generic";
 // Feishu has its own dedicated function (not adapter-based)
 import { feishuAdapter } from "./adapters/feishu";
 
