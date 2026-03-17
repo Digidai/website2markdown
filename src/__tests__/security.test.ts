@@ -249,6 +249,16 @@ describe("extractTargetUrl", () => {
     const result = extractTargetUrl("/https://example.com/page?id=123", "?raw=true&format=json");
     expect(result).toBe("https://example.com/page?id=123");
   });
+
+  it("fixes missing colon in protocol (https// → https://)", () => {
+    expect(extractTargetUrl("/https//x.com/user/status/123", "")).toBe("https://x.com/user/status/123");
+    expect(extractTargetUrl("/http//example.com/page", "")).toBe("http://example.com/page");
+  });
+
+  it("preserves query params when fixing missing colon", () => {
+    const result = extractTargetUrl("/https//x.com/user/status/123", "?s=46&t=abc");
+    expect(result).toBe("https://x.com/user/status/123?s=46&t=abc");
+  });
 });
 
 describe("buildRawRequestPath", () => {

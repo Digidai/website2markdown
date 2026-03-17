@@ -508,6 +508,9 @@ export function extractTargetUrl(
     // Keep raw as-is if decoding fails
   }
 
+  // Fix missing colon in protocol (e.g., "https//example.com" → "https://example.com")
+  raw = raw.replace(/^(https?)\/\//, "$1://");
+
   // Auto-prepend https:// for bare domains
   if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
     if (raw.includes(".") && !raw.startsWith(".")) {

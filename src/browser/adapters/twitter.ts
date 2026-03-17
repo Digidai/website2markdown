@@ -14,6 +14,12 @@ interface FxRichText {
 interface FxArticleBlock {
   type?: string;
   text?: string;
+  entityRanges?: { key: number; length: number; offset: number }[];
+}
+
+interface FxEntityValue {
+  type?: string;
+  data?: { markdown?: string; url?: string; src?: string };
 }
 
 interface FxArticle {
@@ -27,6 +33,7 @@ interface FxArticle {
   };
   content?: {
     blocks?: FxArticleBlock[];
+    entityMap?: { key: string; value: FxEntityValue }[];
   };
 }
 
@@ -188,12 +195,45 @@ function renderArticleContent(article: FxArticle): string {
     html += `<figure><img src="${coverSrc}" /></figure>`;
   }
 
+  // Build entity lookup: entityRange key → entity value
+  const entityMap = new Map<string, FxEntityValue>();
+  for (const entry of article.content?.entityMap ?? []) {
+    entityMap.set(String(entry.key), entry.value);
+  }
+
   const blocks = article.content?.blocks ?? [];
   let renderedBlocks = 0;
   let orderedIndex = 1;
 
   for (const block of blocks) {
     const blockType = block.type || "unstyled";
+
+    // Handle atomic blocks (code snippets, dividers, images via entityMap)
+    if (blockType === "atomic") {
+      const entityKey = block.entityRanges?.[0]?.key;
+      if (entityKey == null) continue;
+      const entity = entityMap.get(String(entityKey));
+      if (!entity) continue;
+      renderedBlocks++;
+      if (entity.type === "MARKDOWN" && entity.data?.markdown) {
+        // Markdown code blocks → render as <pre><code>
+        const md = entity.data.markdown;
+        const codeMatch = md.match(/^```(\w*)\n([\s\S]*?)```\s*$/);
+        if (codeMatch) {
+          const lang = escapeHtml(codeMatch[1]);
+          const code = escapeHtml(codeMatch[2].replace(/\n$/, ""));
+          html += `<pre><code${lang ? ` class="language-${lang}"` : ""}>${code}</code></pre>`;
+        } else {
+          html += `<pre><code>${escapeHtml(md)}</code></pre>`;
+        }
+      } else if (entity.type === "DIVIDER") {
+        html += `<hr>`;
+      } else if (entity.type === "IMAGE" && entity.data?.src) {
+        html += `<figure><img src="${escapeHtml(entity.data.src)}" /></figure>`;
+      }
+      continue;
+    }
+
     const rawText = (block.text || "").trim();
     if (!rawText) continue;
 
