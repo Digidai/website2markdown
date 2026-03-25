@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("cloudflare:sockets", () => ({
+  connect: vi.fn(),
+}));
 
 describe("Module import chain", () => {
   it("all handler modules import without error", async () => {
@@ -11,6 +15,7 @@ describe("Module import chain", () => {
       import("../handlers/deepcrawl"),
       import("../handlers/jobs"),
       import("../handlers/og-image"),
+      import("../handlers/llms-txt"),
       import("../helpers/format"),
       import("../helpers/response"),
       import("../helpers/crypto"),
@@ -18,7 +23,7 @@ describe("Module import chain", () => {
       import("../middleware/rate-limit"),
       import("../runtime-state"),
     ]);
-    expect(modules.length).toBe(14);
+    expect(modules.length).toBe(15);
     modules.forEach((mod) => expect(mod).toBeDefined());
   });
 

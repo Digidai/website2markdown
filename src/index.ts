@@ -59,6 +59,7 @@ import {
   handleJobs,
 } from "./handlers/jobs";
 import { handleOgImage } from "./handlers/og-image";
+import { handleLlmsTxt } from "./handlers/llms-txt";
 
 // 重新导出 JobCoordinator 供 wrangler Durable Object 绑定使用
 export { JobCoordinator } from "./handlers/jobs";
@@ -208,6 +209,15 @@ export default {
       if (path === "/favicon.ico") {
         return new Response(null, { status: 204 });
       }
+      if (path === "/llms.txt" || path === "/.well-known/llms.txt") {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            ...CORS_HEADERS,
+          },
+        });
+      }
       if (path === "/api/health") {
         return new Response(null, {
           status: 200,
@@ -223,6 +233,11 @@ export default {
     // Favicon
     if (path === "/favicon.ico") {
       return new Response(null, { status: 204 });
+    }
+
+    // llms.txt — AI discoverability
+    if (path === "/llms.txt" || path === "/.well-known/llms.txt") {
+      return handleLlmsTxt(host);
     }
 
     // Health check
