@@ -73,17 +73,19 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerLead: "基于 Cloudflare Workers 构建",
         mobilePlaceholder: "https://example.com/article",
         integrationTitle: "AI Agent 集成",
-        integrationSubtitle: "三种集成方式 — 选择适合你的 Agent",
+        integrationSubtitle: "有终端的 Agent 用 Skills，无终端的用 MCP，所有 AI 都能发现 llms.txt",
         skillTitle: "Agent Skills",
-        skillDesc: "Claude Code、OpenClaw、Claw 零安装集成。复制一个 Markdown 文件，获得完整 API 访问和丰富的使用模式。",
-        skillInstall: "安装：",
-        skillCmd: "git clone https://github.com/Digidai/website2markdown-skills.git",
+        skillDesc: "一条命令安装，Agent 自动发现。包含完整使用模式、错误处理和 21 个平台适配器指南。",
+        skillClaudeCode: "Claude Code",
+        skillClaudeCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown",
+        skillOpenClaw: "OpenClaw",
+        skillOpenClawCmd: "npx clawhub@latest install website2markdown",
+        skillNote: "安装后在新会话中自动可用，无需额外配置",
         mcpTitle: "MCP Server",
-        mcpDesc: "标准 MCP 协议，适用于 Claude Desktop、Cursor IDE 等 MCP 客户端。提供 convert_url 工具。",
-        mcpInstall: "安装：",
+        mcpDesc: "适用于没有终端访问的客户端：Claude Desktop、Cursor IDE、Windsurf。标准 MCP 协议，提供 <code>convert_url</code> 工具。",
         mcpCmd: "npm install -g @digidai/mcp-website2markdown",
         llmsTxtTitle: "llms.txt",
-        llmsTxtDesc: "遵循 llms.txt 标准的机器可读 API 描述。AI 系统可自动发现此端点。",
+        llmsTxtDesc: "遵循 <a href='https://llmstxt.org' target='_blank' style='color:var(--accent)'>llms.txt 标准</a>的机器可读 API 描述。AI 系统访问此端点即可了解所有能力。",
         llmsTxtUrl: "/llms.txt",
         llmsTxtRouteDesc: "AI 可读的 API 描述（llms.txt 标准）",
       }
@@ -154,17 +156,19 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerLead: "Built on Cloudflare Workers",
         mobilePlaceholder: "https://example.com/article",
         integrationTitle: "AI Agent Integration",
-        integrationSubtitle: "Three ways to integrate — choose what fits your agent",
+        integrationSubtitle: "Agents with a terminal use Skills. Agents without use MCP. All AI can discover llms.txt.",
         skillTitle: "Agent Skills",
-        skillDesc: "Zero-install integration for Claude Code, OpenClaw, and Claw. Copy a markdown file, get full API access with rich usage patterns.",
-        skillInstall: "Install:",
-        skillCmd: "git clone https://github.com/Digidai/website2markdown-skills.git",
+        skillDesc: "One command to install, auto-discovered by your agent. Includes full usage patterns, error handling, and guides for all 21 platform adapters.",
+        skillClaudeCode: "Claude Code",
+        skillClaudeCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown",
+        skillOpenClaw: "OpenClaw",
+        skillOpenClawCmd: "npx clawhub@latest install website2markdown",
+        skillNote: "Auto-available in new sessions — no extra configuration needed",
         mcpTitle: "MCP Server",
-        mcpDesc: "Standard MCP protocol for Claude Desktop, Cursor IDE, and other MCP clients. Provides convert_url tool.",
-        mcpInstall: "Install:",
+        mcpDesc: "For clients without terminal access: Claude Desktop, Cursor IDE, Windsurf. Standard MCP protocol with <code>convert_url</code> tool.",
         mcpCmd: "npm install -g @digidai/mcp-website2markdown",
         llmsTxtTitle: "llms.txt",
-        llmsTxtDesc: "Machine-readable API description following the llms.txt standard. AI systems can auto-discover this endpoint.",
+        llmsTxtDesc: "Machine-readable API description following the <a href='https://llmstxt.org' target='_blank' style='color:var(--accent)'>llms.txt standard</a>. Any AI system can discover all capabilities from this endpoint.",
         llmsTxtUrl: "/llms.txt",
         llmsTxtRouteDesc: "AI-readable API description (llms.txt standard)",
       };
@@ -485,22 +489,29 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <div class="feature-label">01 &mdash; Skills</div>
           <h3>${t.skillTitle}</h3>
           <p>${t.skillDesc}</p>
-          <div style="margin-top:1rem;font-size:0.7rem;color:var(--text-muted)">${t.skillInstall}</div>
-          <code style="font-family:var(--font-mono);font-size:0.68rem;display:block;margin-top:0.3rem;padding:0.6rem 0.8rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);word-break:break-all">${t.skillCmd}</code>
+          <div style="margin-top:1.2rem">
+            <div style="font-size:0.68rem;color:var(--text-muted);margin-bottom:0.25rem;font-family:var(--font-mono)">${t.skillClaudeCode}</div>
+            <code style="font-family:var(--font-mono);font-size:0.64rem;display:block;padding:0.5rem 0.7rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);word-break:break-all;line-height:1.5">${t.skillClaudeCmd}</code>
+            <div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.6rem;margin-bottom:0.25rem;font-family:var(--font-mono)">${t.skillOpenClaw}</div>
+            <code style="font-family:var(--font-mono);font-size:0.64rem;display:block;padding:0.5rem 0.7rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);word-break:break-all;line-height:1.5">${t.skillOpenClawCmd}</code>
+          </div>
+          <p style="margin-top:0.75rem;font-size:0.72rem;color:var(--text-muted);font-style:italic">${t.skillNote}</p>
         </div>
         <div class="feature">
           <div class="feature-label">02 &mdash; MCP</div>
           <h3>${t.mcpTitle}</h3>
           <p>${t.mcpDesc}</p>
-          <div style="margin-top:1rem;font-size:0.7rem;color:var(--text-muted)">${t.mcpInstall}</div>
-          <code style="font-family:var(--font-mono);font-size:0.68rem;display:block;margin-top:0.3rem;padding:0.6rem 0.8rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);word-break:break-all">${t.mcpCmd}</code>
+          <div style="margin-top:1.2rem">
+            <code style="font-family:var(--font-mono);font-size:0.64rem;display:block;padding:0.5rem 0.7rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);word-break:break-all;line-height:1.5">${t.mcpCmd}</code>
+          </div>
         </div>
         <div class="feature">
           <div class="feature-label">03 &mdash; Discovery</div>
           <h3>${t.llmsTxtTitle}</h3>
           <p>${t.llmsTxtDesc}</p>
-          <div style="margin-top:1rem;font-size:0.7rem;color:var(--text-muted)">URL:</div>
-          <a href="${t.llmsTxtUrl}" style="font-family:var(--font-mono);font-size:0.68rem;display:block;margin-top:0.3rem;padding:0.6rem 0.8rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);text-decoration:none;word-break:break-all">${h}${t.llmsTxtUrl}</a>
+          <div style="margin-top:1.2rem">
+            <a href="${t.llmsTxtUrl}" style="font-family:var(--font-mono);font-size:0.72rem;display:inline-flex;align-items:center;gap:0.4rem;padding:0.5rem 0.8rem;background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.15);border-radius:6px;color:var(--accent);text-decoration:none;transition:all 0.2s">${h}${t.llmsTxtUrl} &rarr;</a>
+          </div>
         </div>
       </div>
     </div>
