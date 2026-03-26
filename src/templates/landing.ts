@@ -919,7 +919,9 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       border-radius: 10px; overflow: hidden;
       background: var(--bg-surface);
       box-shadow: rgba(0,0,0,0.14) 0px 28px 70px 0px, rgba(0,0,0,0.1) 0px 14px 32px 0px, rgba(0,0,0,0.1) 0px 4px 12px 0px;
+      transition: transform 0.3s ease;
     }
+    .mockup-window:hover { transform: translateY(-2px); }
     .mockup-titlebar {
       height: 28px; display: flex; align-items: center; padding: 0 12px;
       border-bottom: 1px solid var(--border);
@@ -928,11 +930,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .mockup-dots { display: flex; gap: 6px; }
     .mockup-dot {
       width: 9px; height: 9px; border-radius: 50%;
-      background: var(--text-muted);
+      background: var(--text-muted); opacity: 0.5;
     }
     .mockup-title-text {
       flex: 1; text-align: center; font-size: 10px;
-      color: var(--text-muted); font-family: var(--font-body);
+      color: var(--text-muted); font-family: var(--font-body); font-weight: 500;
     }
     .mockup-body {
       padding: 16px; font-family: var(--font-mono); font-size: 12px;
@@ -945,38 +947,69 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .mockup-success { color: #22c55e; }
     .mockup-warn { color: #f59e0b; }
 
+    /* Realistic IDE Components */
+    .ide-container { display: flex; height: 100%; }
+    .ide-sidebar {
+      width: 180px; border-right: 1px solid var(--border);
+      background: var(--bg-surface); padding: 12px;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .ide-main { flex: 1; background: var(--bg); display: flex; flex-direction: column; }
+    .ide-content { padding: 16px; flex: 1; overflow: hidden; }
+    .ide-tab-bar {
+      height: 32px; background: var(--bg-elevated);
+      display: flex; align-items: center; padding: 0 12px; gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .ide-tab {
+      font-size: 10px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;
+    }
+    .ide-tab.active { color: var(--text-primary); font-weight: 500; }
+
     /* ---- Feature Sections (alternating text + mockup) ---- */
-    .feature-section { padding: 32px 0; }
+    .feature-section { padding: 48px 0; }
     .feature-grid {
-      display: grid; grid-template-columns: 1fr 1.4fr; gap: 48px; align-items: center;
+      display: grid; grid-template-columns: 1fr 1.4fr; gap: 64px; align-items: center;
     }
     .feature-grid.reverse { grid-template-columns: 1.4fr 1fr; }
     .feature-text {}
     .feature-text .card-title {
-      font-family: var(--font-display); font-size: 22px; font-weight: 400;
-      margin-bottom: 12px; color: var(--text-primary);
+      font-family: var(--font-display); font-size: 28px; font-weight: 400;
+      margin-bottom: 16px; color: var(--text-primary); letter-spacing: -0.4px;
     }
     .feature-text .card-desc {
-      font-size: 15px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 0;
+      font-size: 16px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 0;
     }
 
     /* Mockup split panes */
-    .mockup-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .mockup-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .mockup-pane {
-      border-radius: 6px; padding: 12px; font-size: 11px; line-height: 1.6;
-      font-family: var(--font-mono);
+      border-radius: 8px; padding: 16px; font-size: 11px; line-height: 1.6;
+      font-family: var(--font-mono); box-shadow: inset 0 0 0 1px var(--border);
     }
     .mockup-pane-blocked {
-      background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15);
+      background: color-mix(in srgb, #f59e0b 5%, var(--bg));
       color: var(--text-muted);
     }
     .mockup-pane-clean {
-      background: rgba(34,211,238,0.04); border: 1px solid rgba(34,211,238,0.12);
+      background: color-mix(in srgb, var(--accent) 5%, var(--bg));
       color: var(--text-secondary);
     }
     .mockup-pane-label {
       font-family: var(--font-body); font-size: 10px; text-align: center;
-      color: var(--text-muted); margin-top: 6px;
+      color: var(--text-muted); margin-top: 8px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+
+    /* Wallpaper/Hero effect */
+    .hero-wallpaper {
+      position: relative; border-radius: 12px; overflow: hidden;
+      background: linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-elevated) 100%);
+      height: 480px; margin-top: 56px;
+      box-shadow: 0 0 0 1px var(--border);
+    }
+    .hero-wallpaper::before {
+      content: ""; position: absolute; inset: 0;
+      background: radial-gradient(circle at 50% 50%, rgba(34,211,238,0.05) 0%, transparent 70%);
     }
 
     /* Mockup divider */
@@ -1040,28 +1073,42 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       <!-- Hero -->
       <section class="hero">
         <div class="container">
-          <h1>${t.heroTitleHtml}</h1>
-          <p class="hero-subtitle">${t.heroSubtitle}</p>
-          <div class="input-wrapper">
+          <h1 class="reveal">${t.heroTitleHtml}</h1>
+          <p class="hero-subtitle reveal">${t.heroSubtitle}</p>
+          <div class="input-wrapper reveal">
             <form class="input-group" id="urlForm" onsubmit="return handleSubmit(event)">
               <div class="input-prefix">${h}/</div>
               <input type="text" id="urlInput" placeholder="${t.inputPlaceholder}" autocomplete="off" autofocus />
               <button type="submit" class="convert-btn">${t.convertButton}</button>
             </form>
           </div>
-          <p class="input-hint">${t.hintKeys}</p>
+          <p class="input-hint reveal">${t.hintKeys}</p>
 
-          <!-- Hero Terminal Mockup (desktop only) -->
-          <div class="hero-mockup-desktop" style="display:block;max-width:640px;margin:40px auto 0">
-            <div class="mockup-window">
+          <!-- Hero Wallpaper + Mockup -->
+          <div class="hero-wallpaper reveal">
+            <div class="mockup-window" style="position:absolute; top:40px; left:50%; transform:translateX(-50%); width:90%; max-width:900px; height:500px;">
               <div class="mockup-titlebar">
                 <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
                 <div class="mockup-title-text">${t.heroTerminalTitle}</div>
               </div>
-              <div class="mockup-body" style="min-height:220px">
-<span class="mockup-prompt">${t.heroTerminalPrompt}</span> curl -s "https://${h}/
-  https://mp.weixin.qq.com/s/abc123"
-
+              <div class="ide-container">
+                <div class="ide-sidebar hidden md:flex">
+                  <div style="font-size:9px; font-weight:bold; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">History</div>
+                  <div class="ide-tab active" style="font-size:11px; margin-left:-4px; padding:4px 8px; border-radius:4px; background:var(--bg-elevated);">
+                    <span style="color:#22c55e">●</span> WeChat Article...
+                  </div>
+                  <div class="ide-tab" style="font-size:11px; padding:4px 8px;">Zhihu Column...</div>
+                  <div class="ide-tab" style="font-size:11px; padding:4px 8px;">GitHub README...</div>
+                  <div class="ide-tab" style="font-size:11px; padding:4px 8px;">Juejin Post...</div>
+                </div>
+                <div class="ide-main">
+                  <div class="ide-tab-bar">
+                    <div class="ide-tab active">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      article.md
+                    </div>
+                  </div>
+                  <div class="ide-content mockup-body" style="font-size:11px; text-align: left;">
 <span class="mockup-heading">${t.heroTerminalArticleTitle}</span>
 
 <span class="mockup-accent">${t.heroTerminalAuthor}</span>
@@ -1072,8 +1119,12 @@ ${t.heroTerminalLi1}
 ${t.heroTerminalLi2}
 ${t.heroTerminalLi3}
 
-<span class="mockup-muted">X-Markdown-Method: browser+readability</span>
-<span class="mockup-muted">X-Cache-Status: MISS</span>
+<span class="mockup-muted" style="margin-top:24px; display:block;">---
+X-Markdown-Method: browser+readability
+X-Cache-Status: MISS
+X-Response-Time: 1.4s</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1094,26 +1145,23 @@ ${t.heroTerminalLi3}
                   <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
                   <div class="mockup-title-text">${t.mockupBeforeAfterTitle}</div>
                 </div>
-                <div class="mockup-body" style="padding:12px">
+                <div class="mockup-body" style="padding:16px">
                   <div class="mockup-split">
-                    <div>
-                      <div class="mockup-pane mockup-pane-blocked">
-<span class="mockup-warn">&#9888; ${t.mockupAntiBot}</span>
-${t.mockupVerify}
-${t.mockupCheckbox}
-
-${t.mockupLoginWall}
+                    <div style="text-align: left;">
+                      <div class="mockup-pane mockup-pane-blocked" style="height:200px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;">
+                        <span class="mockup-warn" style="font-size:24px; margin-bottom:12px;">&#9888;</span>
+                        <div style="font-weight:600; margin-bottom:4px; font-family:var(--font-body);">${t.mockupAntiBot}</div>
+                        <div style="font-size:10px; opacity:0.6; font-family:var(--font-body);">${t.mockupVerify}</div>
+                        <div style="margin-top:12px; padding:6px 12px; background:var(--bg-elevated); border-radius:4px; font-size:10px; font-family:var(--font-body); border:1px solid var(--border);">${t.mockupCheckbox}</div>
                       </div>
                       <div class="mockup-pane-label">${t.mockupBeforeLabel}</div>
                     </div>
-                    <div>
-                      <div class="mockup-pane mockup-pane-clean">
-<span class="mockup-heading">${t.mockupCleanTitle}</span>
-
-${t.mockupCleanBody}
-
-<span class="mockup-heading">${t.mockupCleanH2}</span>
-${t.mockupCleanPara}
+                    <div style="text-align: left;">
+                      <div class="mockup-pane mockup-pane-clean" style="height:200px; overflow:hidden;">
+                        <span class="mockup-heading" style="color:var(--accent-text); font-size: 13px;">${t.mockupCleanTitle}</span>
+                        <div style="margin-top:8px; font-size:10px; line-height:1.5;">${t.mockupCleanBody}</div>
+                        <div class="mockup-heading" style="margin-top:12px; font-size:11px;">${t.mockupCleanH2}</div>
+                        <div style="font-size:10px; opacity:0.7;">${t.mockupCleanPara}</div>
                       </div>
                       <div class="mockup-pane-label">${t.mockupAfterLabel}</div>
                     </div>
@@ -1135,20 +1183,27 @@ ${t.mockupCleanPara}
                   <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
                   <div class="mockup-title-text">${t.mockupConfigTitle}</div>
                 </div>
-                <div class="mockup-body">
-{
-  <span class="mockup-accent">"mcpServers"</span>: {
-    <span class="mockup-accent">"website2markdown"</span>: {
-      <span class="mockup-accent">"command"</span>: <span style="color:var(--text-primary)">"mcp-website2markdown"</span>
-    }
-  }
-}
-                </div>
-                <hr class="mockup-divider">
-                <div class="mockup-body" style="padding-top:8px">
-<span class="mockup-prompt">$</span> git clone ...skills
-  ~/.claude/skills/website2markdown
-<span class="mockup-success">&#10003; ${t.mockupInstalled}</span>
+                <div class="mockup-body" style="padding:0; text-align: left;">
+                  <div style="padding:20px; background:var(--bg); border-bottom:1px solid var(--border);">
+<span style="color:var(--text-muted)">{</span>
+  <span class="mockup-accent">"mcpServers"</span>: <span style="color:var(--text-muted)">{</span>
+    <span class="mockup-accent">"website2markdown"</span>: <span style="color:var(--text-muted)">{</span>
+      <span class="mockup-accent">"command"</span>: <span style="color:var(--accent-hover)">"mcp-website2markdown"</span>,
+      <span class="mockup-accent">"env"</span>: <span style="color:var(--text-muted)">{</span> <span class="mockup-accent">"URL"</span>: <span style="color:var(--accent-hover)">"https://${h}"</span> <span style="color:var(--text-muted)">}</span>
+    <span style="color:var(--text-muted)">}</span>
+  <span style="color:var(--text-muted)">}</span>
+<span style="color:var(--text-muted)">}</span>
+                  </div>
+                  <div style="padding:16px; background:var(--bg-elevated); font-size:11px;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                      <span class="mockup-prompt">$</span>
+                      <span style="color:var(--text-secondary)">npx clawhub install website2markdown</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span class="mockup-success">✔</span>
+                      <span style="font-weight:600; color:var(--text-primary);">${t.mockupInstalled}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1169,26 +1224,26 @@ ${t.mockupCleanPara}
               <div class="card-desc">${t.why3Desc}</div>
             </div>
             <div class="feature-mockup">
-              <div class="mockup-window">
-                <div class="mockup-titlebar">
+              <div class="mockup-window" style="background: #0d0d0d;">
+                <div class="mockup-titlebar" style="background: #1a1a1a; border-bottom: 1px solid #333;">
                   <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
-                  <div class="mockup-title-text">${t.mockupTestTitle}</div>
+                  <div class="mockup-title-text" style="color: #666;">${t.mockupTestTitle}</div>
                 </div>
-                <div class="mockup-body">
-<span class="mockup-prompt">$</span> npm test
-
- <span class="mockup-success">${t.mockupTestFiles}</span>
- <span class="mockup-success">${t.mockupTestCases}</span>
-
-<span class="mockup-prompt">$</span> curl ${h}/api/health
-{
-  <span class="mockup-accent">"status"</span>: <span style="color:var(--text-primary)">"ok"</span>,
-  <span class="mockup-accent">"browser"</span>: {<span class="mockup-accent">"active"</span>: 0, <span class="mockup-accent">"maxConcurrent"</span>: 2},
-  <span class="mockup-accent">"metrics"</span>: {
-    <span class="mockup-accent">"success_rate"</span>: 0.99,
-    <span class="mockup-accent">"convert_p95_ms"</span>: 2400
-  }
-}
+                <div class="mockup-body" style="background:#0d0d0d; color:#e5e7eb; padding:20px; font-size:11px; text-align: left;">
+<div style="margin-bottom:12px;"><span class="mockup-prompt" style="color:#3b82f6">$</span> <span style="color:#fff">vitest run</span></div>
+<div style="color:#22c55e; margin-bottom:2px;">✓ src/__tests__/adapters.test.ts (21)</div>
+<div style="color:#22c55e; margin-bottom:2px;">✓ src/__tests__/security.test.ts (15)</div>
+<div style="color:#22c55e; margin-bottom:2px;">✓ src/__tests__/deepcrawl.test.ts (8)</div>
+<div style="margin:16px 0; padding:12px 0; border-top:1px solid #262626;">
+ <div class="mockup-success" style="font-weight:600; display:flex; justify-content:space-between;"><span>${t.mockupTestFiles}</span> <span style="opacity:0.5;">45.2s</span></div>
+ <div class="mockup-success" style="font-weight:600; margin-top:4px;">${t.mockupTestCases}</div>
+</div>
+<div style="margin-top:20px;"><span class="mockup-prompt" style="color:#3b82f6">$</span> <span style="color:#fff">curl ${h}/api/health</span></div>
+<div style="color:#22d3ee; margin-top:8px; line-height:1.5;">{
+  <span style="color:#818cf8">"status"</span>: <span style="color:#fbbf24">"ok"</span>,
+  <span style="color:#818cf8">"uptime"</span>: <span style="color:#fbbf24">"14d 6h"</span>,
+  <span style="color:#818cf8">"metrics"</span>: { <span style="color:#818cf8">"p95"</span>: <span style="color:#fbbf24">"180ms"</span>, <span style="color:#818cf8">"err"</span>: <span style="color:#fbbf24">"0.01%"</span> }
+}</div>
                 </div>
               </div>
             </div>
