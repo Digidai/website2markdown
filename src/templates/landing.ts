@@ -510,7 +510,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       --bg-elevated: #eae9e4;
       --text-primary: #26251e;
       --text-secondary: rgba(38,37,30,0.6);
-      --text-muted: rgba(38,37,30,0.3);
+      --text-muted: rgba(38,37,30,0.45);
       --accent: #22d3ee;
       --accent-hover: #06b6d4;
       --accent-text: #0e7490;
@@ -956,13 +956,13 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       background: var(--bg); border-radius: 999px;
     }
     .theme-btn {
-      background: none; border: none; cursor: pointer; font-size: 11px;
-      font-family: var(--font-body); color: var(--text-muted);
-      padding: 4px 10px; border-radius: 999px; transition: all 0.2s;
-      min-height: 28px;
+      background: none; border: none; cursor: pointer; font-size: 12px;
+      font-family: var(--font-body); color: var(--text-secondary);
+      padding: 5px 12px; border-radius: 999px; transition: all 0.2s;
+      min-height: 30px;
     }
-    .theme-btn:hover { color: var(--text-secondary); background: var(--bg-elevated); }
-    .theme-btn.active { color: var(--text-primary); background: var(--bg-surface); }
+    .theme-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+    .theme-btn.active { color: var(--text-primary); background: var(--bg-surface); font-weight: 600; border: 1px solid var(--border); }
 
     /* ---- Example link ---- */
     .example-link {
