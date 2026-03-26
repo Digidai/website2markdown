@@ -154,6 +154,47 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerThemeSystem: "跟随系统",
         mobilePlaceholder: "https://example.com/article",
         exampleLabel: "试一个示例",
+        // Mockup: Hero WeChat
+        mockupWechatBadge: "微信公众号",
+        mockupFollow: "关注公众号",
+        mockupArticleTitle: "深度解析：大模型在企业的落地实践",
+        mockupAuthorDate: "张三 | 2026-03-25",
+        mockupWechatBlock: "此内容需要在微信客户端中打开",
+        mockupQrHint: "长按识别二维码",
+        mockupOpenWechat: "在微信中打开",
+        mockupRecommended: "推荐阅读",
+        mockupH2KeyPoints: "核心观点",
+        mockupH2Background: "背景",
+        mockupBullet1: "大模型的应用场景正在从实验室走向生产环境",
+        mockupBullet2: "RAG 架构成为企业级应用的首选方案",
+        mockupBullet3: "Agent 工作流将重新定义软件开发流程",
+        mockupBgParagraph: "随着 GPT-4、Claude 等模型的发布，企业开始认真考虑将大语言模型集成到核心业务流程中...",
+        // Mockup: Feature 1 Zhihu
+        mockupZhihuSlogan: "知乎 - 有问题，就会有答案",
+        mockupZhihuTitle: "如何评价大模型在企业中的落地？",
+        mockupZhihuContent: "近年来，随着大语言模型技术的突破性进展，越来越多的企业开始探索将 AI 融入核心业务...",
+        mockupLoginRequired: "登录后查看完整内容",
+        mockupLoginRequiredSub: "Login to view full content",
+        mockupLogin: "登录",
+        mockupRegister: "注册",
+        mockupZhihuAnswer: "如何评价大模型在企业中的落地？",
+        mockupZhihuParagraph: "近年来，随着大语言模型技术的突破性进展，越来越多的企业开始探索将 AI 融入核心业务流程。",
+        mockupZhihuH3: "三大趋势",
+        mockupZhihuBullet1: "多模态能力成为标配",
+        mockupZhihuBullet2: "私有化部署需求增长",
+        mockupZhihuBullet3: "Agent 框架百花齐放",
+        mockupExtractedBadge: "通过浏览器渲染提取",
+        mockupLabelBlocked: "BLOCKED PAGE",
+        mockupLabelClean: "CLEAN MARKDOWN",
+        // Mockup: Feature 2 Chat
+        mockupChatUserMsg: "读一下这篇文章，总结核心观点",
+        mockupChatSummaryIntro: "这篇文章的核心观点：",
+        mockupChatPoint1: "大模型正在从实验走向生产",
+        mockupChatPoint2: "RAG 是当前最实用的架构",
+        mockupChatPoint3: "Agent 将改变软件开发方式",
+        mockupChatEnding: "文章还提到了一个有趣的案例...",
+        // Mockup: Feature 3 Pipeline
+        mockupPipelineResult: "结果：干净 Markdown · 99.2% 成功率",
       }
     : {
         htmlLang: "en",
@@ -303,6 +344,47 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerThemeSystem: "System",
         mobilePlaceholder: "https://example.com/article",
         exampleLabel: "Try an example",
+        // Mockup: Hero WeChat
+        mockupWechatBadge: "WeChat Official",
+        mockupFollow: "Follow",
+        mockupArticleTitle: "Deep Dive: LLMs in Enterprise Production",
+        mockupAuthorDate: "John Zhang | 2026-03-25",
+        mockupWechatBlock: "This content requires the WeChat app",
+        mockupQrHint: "Scan QR code",
+        mockupOpenWechat: "Open in WeChat",
+        mockupRecommended: "Recommended",
+        mockupH2KeyPoints: "Key Takeaways",
+        mockupH2Background: "Background",
+        mockupBullet1: "LLMs are moving from lab experiments to production environments",
+        mockupBullet2: "RAG architecture is the preferred approach for enterprise apps",
+        mockupBullet3: "Agent workflows will redefine software development",
+        mockupBgParagraph: "With the release of GPT-4, Claude, and other models, enterprises are seriously considering integrating LLMs into their core business workflows...",
+        // Mockup: Feature 1 Zhihu
+        mockupZhihuSlogan: "Zhihu - Q&amp;A Platform",
+        mockupZhihuTitle: "How do you evaluate LLM adoption in enterprises?",
+        mockupZhihuContent: "In recent years, with breakthroughs in large language model technology, more and more enterprises are exploring integrating AI into core business...",
+        mockupLoginRequired: "Login to view full content",
+        mockupLoginRequiredSub: "Login to view full content",
+        mockupLogin: "Login",
+        mockupRegister: "Sign up",
+        mockupZhihuAnswer: "How do you evaluate LLM adoption in enterprises?",
+        mockupZhihuParagraph: "In recent years, with breakthroughs in large language model technology, more and more enterprises are exploring integrating AI into core business workflows.",
+        mockupZhihuH3: "Three Key Trends",
+        mockupZhihuBullet1: "Multimodal capabilities becoming standard",
+        mockupZhihuBullet2: "Growing demand for private deployment",
+        mockupZhihuBullet3: "Agent frameworks flourishing",
+        mockupExtractedBadge: "Extracted via browser rendering",
+        mockupLabelBlocked: "BLOCKED PAGE",
+        mockupLabelClean: "CLEAN MARKDOWN",
+        // Mockup: Feature 2 Chat
+        mockupChatUserMsg: "Read this article and summarize the key points",
+        mockupChatSummaryIntro: "Here are the key takeaways from the article:",
+        mockupChatPoint1: "LLMs are moving from experiments to production",
+        mockupChatPoint2: "RAG is the most practical architecture currently",
+        mockupChatPoint3: "Agents will transform software development",
+        mockupChatEnding: "The article also mentions an interesting case study...",
+        // Mockup: Feature 3 Pipeline
+        mockupPipelineResult: "Result: Clean Markdown · 99.2% success rate",
       };
 
   /* ---- Schema.org @graph (4 types) ---- */
@@ -530,10 +612,10 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       background: none; border: none; cursor: pointer;
       font-family: var(--font-body); font-size: 13px; font-weight: 500;
       color: var(--text-secondary); padding: 6px 14px; border-radius: 999px;
-      transition: all 0.2s ease;
+      transition: all 0.2s ease; min-height: 36px;
     }
     .tab-btn:hover { color: var(--text-primary); background: var(--bg-surface); }
-    .tab-btn.active { color: var(--text-primary); background: var(--bg-surface); }
+    .tab-btn.active { color: #0e3a4a; background: var(--accent); font-weight: 600; }
     .header-right { display: flex; align-items: center; gap: 8px; }
     .lang-switch {
       display: inline-flex; gap: 2px; padding: 3px;
@@ -542,9 +624,10 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .lang-link {
       color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500;
       padding: 5px 14px; border-radius: 999px; transition: all 0.2s ease; letter-spacing: 0.02em;
+      min-height: 36px; display: inline-flex; align-items: center; cursor: pointer;
     }
-    .lang-link:hover { color: var(--text-primary); background: rgba(0,0,0,0.04); }
-    .lang-link.active { color: #fff; background: var(--accent); font-weight: 600; }
+    .lang-link:hover { color: var(--text-primary); background: var(--bg-elevated); }
+    .lang-link.active { color: #0e3a4a; background: var(--accent); font-weight: 600; }
     .github-link {
       display: flex; align-items: center; color: var(--text-secondary);
       transition: color 0.2s; padding: 4px;
@@ -607,16 +690,18 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     }
     .input-group input::placeholder { color: var(--text-muted); }
     .convert-btn {
-      padding: 0 24px; background: var(--text-primary); border: none;
-      color: var(--bg); font-weight: 600; font-size: 13px;
+      padding: 0 24px; background: var(--accent); border: none;
+      color: #0e3a4a; font-weight: 600; font-size: 13px;
       font-family: var(--font-body); cursor: pointer; border-radius: 999px;
-      margin: 6px; transition: opacity 0.2s; white-space: nowrap;
+      margin: 6px; transition: background 0.2s, transform 0.1s; white-space: nowrap;
+      min-height: 36px;
     }
-    .convert-btn:hover { opacity: 0.85; }
+    .convert-btn:hover { background: var(--accent-hover); }
+    .convert-btn:active { transform: scale(0.97); }
     .convert-btn:disabled { opacity: 0.5; cursor: wait; }
     .btn-spinner {
       display: inline-block; width: 12px; height: 12px;
-      border: 2px solid rgba(255,255,255,0.3); border-top-color: var(--bg);
+      border: 2px solid rgba(0,0,0,0.2); border-top-color: #0e3a4a;
       border-radius: 50%; animation: spin 0.6s linear infinite;
       vertical-align: middle; margin-right: 4px;
     }
@@ -689,7 +774,9 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       display: flex; align-items: center; justify-content: space-between;
       padding: 20px 0; cursor: pointer; font-size: 15px; font-weight: 500;
       color: var(--text-primary); list-style: none;
+      transition: color 0.2s;
     }
+    .faq-item summary:hover { color: var(--accent-text); }
     .faq-item summary::-webkit-details-marker { display: none; }
     .faq-item summary::after {
       content: '+'; font-size: 20px; font-weight: 300; color: var(--text-muted);
@@ -847,8 +934,9 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       background: none; border: none; cursor: pointer; font-size: 11px;
       font-family: var(--font-body); color: var(--text-muted);
       padding: 4px 10px; border-radius: 999px; transition: all 0.2s;
+      min-height: 28px;
     }
-    .theme-btn:hover { color: var(--text-secondary); }
+    .theme-btn:hover { color: var(--text-secondary); background: var(--bg-elevated); }
     .theme-btn.active { color: var(--text-primary); background: var(--bg-surface); }
 
     /* ---- Example link ---- */
@@ -856,10 +944,12 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       display: inline-flex; align-items: center; gap: 8px;
       font-family: var(--font-mono); font-size: 13px;
       color: var(--text-secondary); text-decoration: none;
-      padding: 12px 20px; background: var(--bg-surface);
-      border-radius: var(--radius); transition: all 0.2s;
+      padding: 14px 28px; background: var(--bg-surface);
+      border-radius: 999px; transition: all 0.2s;
+      border: 1px solid var(--border); cursor: pointer;
+      min-height: 44px;
     }
-    .example-link:hover { background: var(--bg-elevated); color: var(--text-primary); }
+    .example-link:hover { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
     .example-link .hl { color: var(--accent-text); }
 
     /* ---- Browser Mockup Window ---- */
@@ -1125,27 +1215,27 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
               <div class="mockup-body" style="padding:0; text-align:left; font-family:var(--font-body); background:var(--bg);">
                 <!-- WeChat header bar -->
                 <div style="padding:10px 16px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border);">
-                  <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">&#128241; 微信公众号</span>
-                  <span style="font-size:9px; padding:3px 10px; border-radius:999px; background:rgba(34,197,94,0.12); color:#16a34a;">关注公众号</span>
+                  <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">&#128241; ${t.mockupWechatBadge}</span>
+                  <span style="font-size:9px; padding:3px 10px; border-radius:999px; background:rgba(34,197,94,0.12); color:#16a34a;">${t.mockupFollow}</span>
                 </div>
                 <!-- Article title -->
                 <div style="padding:14px 16px 8px;">
-                  <div style="font-size:14px; font-weight:700; color:var(--text-primary); line-height:1.4;">深度解析：大模型在企业的落地实践</div>
-                  <div style="font-size:9px; color:var(--text-muted); margin-top:6px;">张三 | 2026-03-25</div>
+                  <div style="font-size:14px; font-weight:700; color:var(--text-primary); line-height:1.4;">${t.mockupArticleTitle}</div>
+                  <div style="font-size:9px; color:var(--text-muted); margin-top:6px;">${t.mockupAuthorDate}</div>
                 </div>
                 <!-- Blocking modal overlay -->
                 <div style="margin:8px 16px; padding:20px; background:var(--bg-elevated); border-radius:8px; text-align:center; border:1px solid var(--border);">
                   <div style="font-size:16px; margin-bottom:8px;">&#9888;&#65039;</div>
-                  <div style="font-size:11px; font-weight:600; color:var(--text-primary); margin-bottom:4px;">此内容需要在微信客户端中打开</div>
-                  <div style="font-size:9px; color:var(--text-muted); margin-bottom:10px;">长按识别二维码</div>
+                  <div style="font-size:11px; font-weight:600; color:var(--text-primary); margin-bottom:4px;">${t.mockupWechatBlock}</div>
+                  <div style="font-size:9px; color:var(--text-muted); margin-bottom:10px;">${t.mockupQrHint}</div>
                   <div style="width:48px; height:48px; margin:0 auto 10px; background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; display:flex; align-items:center; justify-content:center;">
                     <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="color:var(--text-muted);opacity:0.4"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="4" height="4" rx="0.5"/><rect x="18" y="18" width="4" height="4" rx="0.5"/></svg>
                   </div>
-                  <div style="display:inline-block; font-size:10px; padding:5px 14px; background:#07c160; color:#fff; border-radius:4px;">在微信中打开</div>
+                  <div style="display:inline-block; font-size:10px; padding:5px 14px; background:#07c160; color:#fff; border-radius:4px;">${t.mockupOpenWechat}</div>
                 </div>
                 <!-- Recommended / Ads -->
                 <div style="padding:8px 16px 12px;">
-                  <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">推荐阅读 &#9660;</div>
+                  <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">${t.mockupRecommended} &#9660;</div>
                   <div style="display:flex; gap:6px;">
                     <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
                     <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
@@ -1162,12 +1252,12 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
                 <div class="mockup-addressbar"><span class="hl">${h}/</span>mp.weixin.qq.com/s/abc123def</div>
               </div>
               <div class="mockup-body" style="padding:20px; text-align:left; font-size:12px; background:var(--bg);">
-<div style="font-size:16px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:10px;"># 深度解析：大模型在企业的落地实践</div>
-<div style="font-size:11px; color:var(--accent-text); margin-bottom:14px; font-style:italic;">&gt; 作者：张三 | 发布于 2026-03-25</div>
-<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;">## 核心观点</div>
-<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">1. 大模型的应用场景正在从实验室走向生产环境<br>2. RAG 架构成为企业级应用的首选方案<br>3. Agent 工作流将重新定义软件开发流程</div>
-<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## 背景</div>
-<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">随着 GPT-4、Claude 等模型的发布，企业开始认真考虑将大语言模型集成到核心业务流程中...</div>
+<div style="font-size:16px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:10px;"># ${t.mockupArticleTitle}</div>
+<div style="font-size:11px; color:var(--accent-text); margin-bottom:14px; font-style:italic;">&gt; ${t.mockupAuthorDate}</div>
+<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;">## ${t.mockupH2KeyPoints}</div>
+<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">1. ${t.mockupBullet1}<br>2. ${t.mockupBullet2}<br>3. ${t.mockupBullet3}</div>
+<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## ${t.mockupH2Background}</div>
+<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">${t.mockupBgParagraph}</div>
 <div style="background:var(--bg-elevated); border-radius:4px; padding:10px 12px; font-family:var(--font-mono); font-size:10px; color:var(--accent-text); margin-bottom:14px; line-height:1.6;"><span style="color:var(--text-muted);">\`\`\`python</span><br>from langchain import ChatOpenAI<br>llm = ChatOpenAI(model=<span style="color:#f59e0b;">"gpt-4"</span>)<br><span style="color:var(--text-muted);">\`\`\`</span></div>
 <div style="font-size:9px; color:var(--text-muted); border-top:1px solid var(--border); padding-top:8px; text-align:center; font-family:var(--font-mono);">
   <span class="mockup-success">&#10003;</span> X-Method: browser+readability &middot; 2.1s &middot; cached
@@ -1196,37 +1286,39 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
                   <!-- Left: blocked Zhihu page -->
                   <div class="browser-split-left" style="font-family:var(--font-body); text-align:left;">
                     <div class="split-divider-arrow">&rarr;</div>
+                    <div style="font-size:8px; font-family:var(--font-mono); color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; opacity:0.7;">${t.mockupLabelBlocked}</div>
                     <!-- Zhihu nav -->
                     <div style="display:flex; align-items:center; gap:6px; margin-bottom:12px;">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--accent-text)" style="opacity:0.5;"><circle cx="12" cy="12" r="10"/><text x="6" y="17" font-size="12" fill="#fff" font-weight="bold">Z</text></svg>
-                      <span style="font-size:10px; color:var(--text-muted);">知乎 - 有问题，就会有答案</span>
+                      <span style="font-size:10px; color:var(--text-muted);">${t.mockupZhihuSlogan}</span>
                     </div>
                     <!-- Content behind blur -->
                     <div style="filter:blur(3px); opacity:0.5; font-size:10px; color:var(--text-secondary); line-height:1.6; margin-bottom:12px;">
-                      <div style="font-size:13px; font-weight:600; margin-bottom:4px;">如何评价大模型在企业中的落地？</div>
-                      近年来，随着大语言模型技术的突破性进展，越来越多的企业开始探索将 AI 融入核心业务...
+                      <div style="font-size:13px; font-weight:600; margin-bottom:4px;">${t.mockupZhihuTitle}</div>
+                      ${t.mockupZhihuContent}
                     </div>
                     <!-- Login modal overlay -->
                     <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,0.08);">
-                      <div style="font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:6px;">登录后查看完整内容</div>
-                      <div style="font-size:10px; color:var(--text-muted); margin-bottom:10px;">Login to view full content</div>
+                      <div style="font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:6px;">${t.mockupLoginRequired}</div>
+                      <div style="font-size:10px; color:var(--text-muted); margin-bottom:10px;">${t.mockupLoginRequiredSub}</div>
                       <div style="display:flex; gap:8px; justify-content:center;">
-                        <span style="font-size:9px; padding:4px 12px; background:#0066ff; color:#fff; border-radius:4px;">登录</span>
-                        <span style="font-size:9px; padding:4px 12px; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary);">注册</span>
+                        <span style="font-size:9px; padding:4px 12px; background:#0066ff; color:#fff; border-radius:4px;">${t.mockupLogin}</span>
+                        <span style="font-size:9px; padding:4px 12px; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary);">${t.mockupRegister}</span>
                       </div>
                     </div>
                   </div>
                   <!-- Right: clean Markdown output -->
                   <div class="browser-split-right" style="font-family:var(--font-mono); text-align:left; font-size:11px; line-height:1.7;">
-                    <div style="font-size:14px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;"># 如何评价大模型在企业中的落地？</div>
-                    <div style="font-size:11px; color:var(--text-secondary); margin-bottom:10px;">近年来，随着大语言模型技术的突破性进展，越来越多的企业开始探索将 AI 融入核心业务流程。</div>
-                    <div style="font-size:12px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## 三大趋势</div>
+                    <div style="font-size:8px; font-family:var(--font-mono); color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; opacity:0.7;">${t.mockupLabelClean}</div>
+                    <div style="font-size:14px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;"># ${t.mockupZhihuAnswer}</div>
+                    <div style="font-size:11px; color:var(--text-secondary); margin-bottom:10px;">${t.mockupZhihuParagraph}</div>
+                    <div style="font-size:12px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## ${t.mockupZhihuH3}</div>
                     <div style="font-size:11px; color:var(--text-secondary); line-height:1.8;">
-                      - 多模态能力成为标配<br>
-                      - 私有化部署需求增长<br>
-                      - Agent 框架百花齐放
+                      - ${t.mockupZhihuBullet1}<br>
+                      - ${t.mockupZhihuBullet2}<br>
+                      - ${t.mockupZhihuBullet3}
                     </div>
-                    <div class="split-badge"><span class="mockup-success">&#10003;</span> Extracted via browser rendering</div>
+                    <div class="split-badge"><span class="mockup-success">&#10003;</span> ${t.mockupExtractedBadge}</div>
                   </div>
                 </div>
               </div>
@@ -1250,7 +1342,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
                   <div class="chat-msg chat-msg-user">
                     <div class="chat-sender">User</div>
                     <div style="color:var(--text-primary); font-size:12px; line-height:1.6;">
-                      读一下这篇文章，总结核心观点<br>
+                      ${t.mockupChatUserMsg}<br>
                       <span style="color:var(--accent-text); font-family:var(--font-mono); font-size:11px;">https://mp.weixin.qq.com/s/abc123</span>
                     </div>
                   </div>
@@ -1265,15 +1357,15 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
                       <div style="font-size:10px; margin-top:4px;"><span class="mockup-success">&#10003;</span> <span style="color:var(--text-muted);">3,421 chars &middot; 2.1s</span></div>
                     </div>
                     <div style="color:var(--text-primary); font-size:12px; line-height:1.7; margin-top:10px;">
-                      这篇文章的核心观点：
+                      ${t.mockupChatSummaryIntro}
                     </div>
                     <div style="color:var(--text-secondary); font-size:12px; line-height:1.8; margin-top:6px; padding-left:4px;">
-                      1. 大模型正在从实验走向生产<br>
-                      2. RAG 是当前最实用的架构<br>
-                      3. Agent 将改变软件开发方式
+                      1. ${t.mockupChatPoint1}<br>
+                      2. ${t.mockupChatPoint2}<br>
+                      3. ${t.mockupChatPoint3}
                     </div>
                     <div style="color:var(--text-secondary); font-size:12px; line-height:1.7; margin-top:8px;">
-                      文章还提到了一个有趣的案例...
+                      ${t.mockupChatEnding}
                     </div>
                   </div>
                 </div>
@@ -1339,7 +1431,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
                   </div>
 
                   <div class="pipeline-result">
-                    Result: Clean Markdown &middot; <span class="mockup-success">99.2% success rate</span>
+                    ${t.mockupPipelineResult.replace('99.2%', '<span class="mockup-success">99.2%</span>')}
                   </div>
                 </div>
               </div>
