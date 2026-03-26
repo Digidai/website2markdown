@@ -72,6 +72,20 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         exampleLabel: "试一个示例",
         footerLead: "基于 Cloudflare Workers 构建",
         mobilePlaceholder: "https://example.com/article",
+        integrationTitle: "AI Agent 集成",
+        integrationSubtitle: "三种集成方式 — 选择适合你的 Agent",
+        skillTitle: "Agent Skills",
+        skillDesc: "Claude Code、OpenClaw、Claw 零安装集成。复制一个 Markdown 文件，获得完整 API 访问和丰富的使用模式。",
+        skillInstall: "安装：",
+        skillCmd: "git clone https://github.com/Digidai/website2markdown-skills.git",
+        mcpTitle: "MCP Server",
+        mcpDesc: "标准 MCP 协议，适用于 Claude Desktop、Cursor IDE 等 MCP 客户端。提供 convert_url 工具。",
+        mcpInstall: "安装：",
+        mcpCmd: "npm install -g @digidai/mcp-website2markdown",
+        llmsTxtTitle: "llms.txt",
+        llmsTxtDesc: "遵循 llms.txt 标准的机器可读 API 描述。AI 系统可自动发现此端点。",
+        llmsTxtUrl: "/llms.txt",
+        llmsTxtRouteDesc: "AI 可读的 API 描述（llms.txt 标准）",
       }
     : {
         htmlLang: "en",
@@ -139,6 +153,20 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         exampleLabel: "Try an example",
         footerLead: "Built on Cloudflare Workers",
         mobilePlaceholder: "https://example.com/article",
+        integrationTitle: "AI Agent Integration",
+        integrationSubtitle: "Three ways to integrate — choose what fits your agent",
+        skillTitle: "Agent Skills",
+        skillDesc: "Zero-install integration for Claude Code, OpenClaw, and Claw. Copy a markdown file, get full API access with rich usage patterns.",
+        skillInstall: "Install:",
+        skillCmd: "git clone https://github.com/Digidai/website2markdown-skills.git",
+        mcpTitle: "MCP Server",
+        mcpDesc: "Standard MCP protocol for Claude Desktop, Cursor IDE, and other MCP clients. Provides convert_url tool.",
+        mcpInstall: "Install:",
+        mcpCmd: "npm install -g @digidai/mcp-website2markdown",
+        llmsTxtTitle: "llms.txt",
+        llmsTxtDesc: "Machine-readable API description following the llms.txt standard. AI systems can auto-discover this endpoint.",
+        llmsTxtUrl: "/llms.txt",
+        llmsTxtRouteDesc: "AI-readable API description (llms.txt standard)",
       };
   const schemaJson = JSON.stringify({
     "@context": "https://schema.org",
@@ -450,6 +478,34 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     </div>
 
     <div class="how-section" style="margin-top:3.5rem">
+      <h2>${t.integrationTitle}</h2>
+      <p style="text-align:center;color:var(--text-secondary);font-size:0.85rem;margin-bottom:2rem;font-weight:300">${t.integrationSubtitle}</p>
+      <div class="features">
+        <div class="feature">
+          <div class="feature-label">01 &mdash; Skills</div>
+          <h3>${t.skillTitle}</h3>
+          <p>${t.skillDesc}</p>
+          <div style="margin-top:1rem;font-size:0.7rem;color:var(--text-muted)">${t.skillInstall}</div>
+          <code style="font-family:var(--font-mono);font-size:0.68rem;display:block;margin-top:0.3rem;padding:0.6rem 0.8rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);word-break:break-all">${t.skillCmd}</code>
+        </div>
+        <div class="feature">
+          <div class="feature-label">02 &mdash; MCP</div>
+          <h3>${t.mcpTitle}</h3>
+          <p>${t.mcpDesc}</p>
+          <div style="margin-top:1rem;font-size:0.7rem;color:var(--text-muted)">${t.mcpInstall}</div>
+          <code style="font-family:var(--font-mono);font-size:0.68rem;display:block;margin-top:0.3rem;padding:0.6rem 0.8rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);word-break:break-all">${t.mcpCmd}</code>
+        </div>
+        <div class="feature">
+          <div class="feature-label">03 &mdash; Discovery</div>
+          <h3>${t.llmsTxtTitle}</h3>
+          <p>${t.llmsTxtDesc}</p>
+          <div style="margin-top:1rem;font-size:0.7rem;color:var(--text-muted)">URL:</div>
+          <a href="${t.llmsTxtUrl}" style="font-family:var(--font-mono);font-size:0.68rem;display:block;margin-top:0.3rem;padding:0.6rem 0.8rem;background:rgba(34,211,238,0.06);border-radius:6px;color:var(--accent);text-decoration:none;word-break:break-all">${h}${t.llmsTxtUrl}</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="how-section" style="margin-top:3.5rem">
       <h2>${t.apiTitle}</h2>
       <div style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:16px;padding:2rem 1.75rem;font-size:0.82rem;line-height:1.8;color:var(--text-secondary)">
         <div style="margin-bottom:1rem"><strong style="color:var(--text-primary)">GET /{url}</strong> &mdash; ${t.apiGetDesc}</div>
@@ -470,6 +526,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <code>POST /api/extract</code> &mdash; ${t.extractDesc}<br>
           <code>POST /api/jobs</code> / <code>GET /api/jobs/:id</code> / <code>GET /api/jobs/:id/stream</code> / <code>POST /api/jobs/:id/run</code> &mdash; ${t.jobsDesc}<br>
           <code>POST /api/deepcrawl</code> &mdash; ${t.deepcrawlDesc}<br>
+          <code>GET /llms.txt</code> &mdash; ${t.llmsTxtRouteDesc}<br>
           <code>GET /api/health</code> &mdash; ${t.healthDesc}<br>
           <code>GET /api/og</code> &mdash; ${t.ogDesc}
         </div>
@@ -514,7 +571,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
   </div>
 
   <footer>
-    ${t.footerLead} &mdash; <a href="https://blog.cloudflare.com/markdown-for-agents/" target="_blank">Markdown for Agents</a>
+    ${t.footerLead} &mdash;
+    <a href="https://github.com/Digidai/website2markdown" target="_blank">GitHub</a> &middot;
+    <a href="https://www.npmjs.com/package/@digidai/mcp-website2markdown" target="_blank">npm</a> &middot;
+    <a href="https://github.com/Digidai/website2markdown-skills" target="_blank">Skills</a> &middot;
+    <a href="/llms.txt">llms.txt</a>
   </footer>
 
   <script type="application/ld+json">${schemaJson}</script>
