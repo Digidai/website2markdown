@@ -1,6 +1,6 @@
 # @digidai/mcp-website2markdown
 
-MCP (Model Context Protocol) Server for [website2markdown](https://github.com/nicholasgriffintn/website2markdown) -- convert any web page URL to clean Markdown, optimized for AI agents and LLMs.
+MCP (Model Context Protocol) Server for [website2markdown](https://github.com/Digidai/website2markdown) -- convert any web page URL to clean Markdown, optimized for AI agents and LLMs.
 
 ## Installation
 
