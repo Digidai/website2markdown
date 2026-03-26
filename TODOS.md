@@ -2,16 +2,6 @@
 
 Deferred work from CEO Review (2026-03-25).
 
-## P1 — Blocking
-
-### MCP Monorepo Tooling (npm workspaces)
-**What:** Configure npm workspaces so packages/mcp/ can build and publish independently to npm.
-**Why:** Outside voice identified that monorepo tooling was completely unspecified. Without this, MCP Server cannot be published as an npm package.
-**Effort:** S (CC 15 min). Add `"workspaces": ["packages/*"]` to root package.json, create packages/mcp/package.json with build/publish scripts.
-**Priority:** P1 — blocks PR2 (MCP Server).
-**Depends on:** PR1 complete.
-**Source:** Eng Review 2026-03-25, outside voice finding #5.
-
 ## P2 — High Value, After Launch
 
 ### Public Success Rate Dashboard
@@ -39,3 +29,9 @@ Deferred work from CEO Review (2026-03-25).
 **Priority:** P3 — only pursue when there's clear demand signal (GitHub issues requesting it, users asking in discussions).
 **Depends on:** Modularization of index.ts complete (Phase 1).
 **Source:** CEO Review 2026-03-25, cherry-pick #4 (deferred).
+
+## Completed
+
+### MCP Monorepo Tooling (npm workspaces)
+**Completed:** v1.0.0 (2026-03-26)
+npm workspaces configured, packages/mcp/ with build/publish scripts, GitHub Actions publish-mcp.yml workflow. Tag `mcp-v*` triggers npm publish.
