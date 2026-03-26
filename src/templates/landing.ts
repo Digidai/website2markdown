@@ -523,7 +523,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       color-scheme: light dark;
     }
 
-    [data-theme="dark"], .dark {
+    :root[data-theme="dark"], .dark {
       --bg: #14120b;
       --bg-surface: #1c1a14;
       --bg-elevated: #191b22;
