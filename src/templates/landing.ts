@@ -801,7 +801,18 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       background: var(--bg-surface); border-radius: var(--radius);
       padding: 16px 20px; font-family: var(--font-mono); font-size: 12px;
       line-height: 1.8; color: var(--text-secondary); overflow-x: auto;
-      margin-bottom: 12px;
+      margin-bottom: 12px; white-space: pre-wrap; word-break: break-all;
+    }
+    [data-theme="dark"] .code-block,
+    .dark .code-block {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .code-block {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+      }
     }
     .code-block code { font-family: inherit; font-size: inherit; }
     .code-comment { color: var(--text-muted); }
@@ -889,6 +900,20 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       color: var(--text-secondary); white-space: pre; overflow-x: auto;
       line-height: 1.7; margin-top: 8px;
     }
+    [data-theme="dark"] .cmd-block,
+    .dark .cmd-block,
+    [data-theme="dark"] .config-block,
+    .dark .config-block {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .cmd-block,
+      :root:not([data-theme="light"]) .config-block {
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+      }
+    }
     .comp-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
     .comp-table th {
       text-align: left; padding: 10px 14px; font-weight: 600; font-size: 12px;
@@ -958,6 +983,17 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       background: var(--bg-surface);
       box-shadow: rgba(0,0,0,0.14) 0px 28px 70px 0px, rgba(0,0,0,0.1) 0px 14px 32px 0px, rgba(0,0,0,0.1) 0px 4px 12px 0px;
       transition: transform 0.3s ease;
+    }
+    [data-theme="dark"] .mockup-window,
+    .dark .mockup-window {
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: rgba(0,0,0,0.4) 0px 28px 70px, rgba(0,0,0,0.3) 0px 14px 32px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .mockup-window {
+        border: 1px solid rgba(255,255,255,0.08);
+        box-shadow: rgba(0,0,0,0.4) 0px 28px 70px, rgba(0,0,0,0.3) 0px 14px 32px;
+      }
     }
     .mockup-window:hover { transform: translateY(-2px); }
     .mockup-titlebar {
@@ -1546,7 +1582,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <h2 class="cta-title reveal">${t.ctaTitle}</h2>
           <div class="reveal" style="text-align:center">
             <a href="/https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/" class="example-link">
-              <span class="hl">${h}/</span>https://developers.cloudflare.com/... <span>&rarr;</span>
+              <span>${isZh ? "试试转换 Cloudflare 文档页面" : "Try converting a Cloudflare docs page"}</span> <span>&rarr;</span>
             </a>
           </div>
         </div>
@@ -1562,13 +1598,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <!-- Quick Start -->
           <div class="doc-card">
             <h3>${t.quickStartTitle}</h3>
-            <div class="code-block"><code><span class="code-comment">${t.curlRawComment}</span>
-curl -H "Accept: text/markdown" https://${h}/https://example.com
-
-<span class="code-comment">${t.curlJsonComment}</span>
-curl "https://${h}/https://example.com?raw=true&amp;format=json"
-
-<span class="code-comment">${t.curlBatchComment}</span>
+            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlRawComment}</span>
+curl -H "Accept: text/markdown" https://${h}/https://example.com</code></div>
+            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlJsonComment}</span>
+curl "https://${h}/https://example.com?raw=true&amp;format=json"</code></div>
+            <div class="code-block"><code><span class="code-comment">${t.curlBatchComment}</span>
 curl -X POST https://${h}/api/batch \\
   -H "Authorization: Bearer API_TOKEN" \\
   -H "Content-Type: application/json" \\
@@ -1620,25 +1654,21 @@ curl -X POST https://${h}/api/batch \\
           <!-- curl Examples -->
           <div class="doc-card">
             <h3>${t.curlExamplesTitle}</h3>
-            <div class="code-block"><code><span class="code-comment">${t.curlRaw}</span>
-curl -H "Accept: text/markdown" https://${h}/https://example.com
-
-<span class="code-comment">${t.curlJson}</span>
-curl "https://${h}/https://example.com?raw=true&amp;format=json"
-
-<span class="code-comment">${t.curlBatch}</span>
+            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlRaw}</span>
+curl -H "Accept: text/markdown" https://${h}/https://example.com</code></div>
+            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlJson}</span>
+curl "https://${h}/https://example.com?raw=true&amp;format=json"</code></div>
+            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlBatch}</span>
 curl -X POST https://${h}/api/batch \\
   -H "Authorization: Bearer API_TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d '{"urls":["https://example.com"]}'
-
-<span class="code-comment">${t.curlExtract}</span>
+  -d '{"urls":["https://example.com"]}'</code></div>
+            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlExtract}</span>
 curl -X POST https://${h}/api/extract \\
   -H "Authorization: Bearer API_TOKEN" \\
   -H "Content-Type: application/json" \\
-  -d '{"strategy":"css","url":"https://example.com","schema":{"fields":[{"name":"title","selector":"h1","type":"text","required":true}]}}'
-
-<span class="code-comment">${t.curlCrawl}</span>
+  -d '{"strategy":"css","url":"https://example.com","schema":{"fields":[{"name":"title","selector":"h1","type":"text","required":true}]}}'</code></div>
+            <div class="code-block"><code><span class="code-comment">${t.curlCrawl}</span>
 curl -X POST https://${h}/api/deepcrawl \\
   -H "Authorization: Bearer API_TOKEN" \\
   -H "Content-Type: application/json" \\
@@ -1695,11 +1725,11 @@ curl -X POST https://${h}/api/deepcrawl \\
             <code class="cmd-block">${t.mcpCmd}</code>
             <div class="cmd-label">${t.mcpConfigTitle} (~/.claude/claude_desktop_config.json)</div>
             <code class="config-block">{
-  "mcpServers": {
-    "website2markdown": {
-      "command": "mcp-website2markdown",
-      "env": {
-        "WEBSITE2MARKDOWN_API_URL": "https://${h}"
+  <span class="code-hl">"mcpServers"</span>: {
+    <span class="code-hl">"website2markdown"</span>: {
+      <span class="code-hl">"command"</span>: <span style="color:#22c55e">"mcp-website2markdown"</span>,
+      <span class="code-hl">"env"</span>: {
+        <span class="code-hl">"WEBSITE2MARKDOWN_API_URL"</span>: <span style="color:#22c55e">"https://${h}"</span>
       }
     }
   }
@@ -1840,7 +1870,16 @@ curl -X POST https://${h}/api/deepcrawl \\
 
     (function() {
       var saved = localStorage.getItem('theme');
-      if (saved) setTheme(saved);
+      if (saved === 'light' || saved === 'dark') {
+        setTheme(saved);
+      } else {
+        // No valid stored preference — ensure "System" is highlighted
+        localStorage.removeItem('theme');
+        document.documentElement.removeAttribute('data-theme');
+        document.querySelectorAll('.theme-btn').forEach(function(b) { b.classList.remove('active'); });
+        var sysBtn = document.querySelector('.theme-btn[data-theme="system"]');
+        if (sysBtn) sysBtn.classList.add('active');
+      }
     })();
 
     /* ---- Scroll reveal (IntersectionObserver) ---- */
