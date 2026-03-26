@@ -392,7 +392,19 @@ export default {
 
     // No target URL → landing page
     if (!targetUrl) {
-      const landingLang = url.searchParams.get("lang") === "zh" ? "zh" : "en";
+      const langParam = url.searchParams.get("lang");
+      let landingLang: "en" | "zh" = "en";
+      if (langParam === "zh") {
+        landingLang = "zh";
+      } else if (langParam === "en") {
+        landingLang = "en";
+      } else {
+        // Auto-detect from Accept-Language header
+        const acceptLang = request.headers.get("Accept-Language") || "";
+        if (acceptLang.match(/^zh\b/i) || acceptLang.includes("zh-CN") || acceptLang.includes("zh-TW")) {
+          landingLang = "zh";
+        }
+      }
       return new Response(landingPageHTML(host, landingLang), {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
