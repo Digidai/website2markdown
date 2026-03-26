@@ -154,6 +154,32 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerThemeSystem: "跟随系统",
         mobilePlaceholder: "https://example.com/article",
         exampleLabel: "试一个示例",
+        // Hero terminal mockup
+        heroTerminalTitle: "终端",
+        heroTerminalPrompt: "$",
+        heroTerminalArticleTitle: "# 深度解析：大模型在企业的落地实践",
+        heroTerminalAuthor: "> 作者：张三 | 2026-03-25",
+        heroTerminalH2: "## 核心观点",
+        heroTerminalLi1: "1. 大模型的应用场景正在从实验...",
+        heroTerminalLi2: "2. RAG 架构成为企业级应用的首选...",
+        heroTerminalLi3: "3. Agent 工作流将重新定义...",
+        // Feature mockup labels
+        mockupBeforeAfterTitle: "转换前 / 转换后",
+        mockupBeforeLabel: "被屏蔽的页面",
+        mockupAfterLabel: "干净的 Markdown",
+        mockupAntiBot: "反爬检测...",
+        mockupVerify: "请验证你是人类",
+        mockupCheckbox: "[复选框]",
+        mockupLoginWall: "需要登录才能查看",
+        mockupCleanTitle: "# 文章标题",
+        mockupCleanBody: "由 Website2Markdown 提取的干净 Markdown 内容",
+        mockupCleanH2: "## 第一节",
+        mockupCleanPara: "段落正文...",
+        mockupConfigTitle: "claude_desktop_config.json",
+        mockupInstalled: "已安装，新会话自动可用。",
+        mockupTestTitle: "终端",
+        mockupTestFiles: "测试文件  45 通过 (45)",
+        mockupTestCases: "     测试  568 通过 (568)",
       }
     : {
         htmlLang: "en",
@@ -303,6 +329,32 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerThemeSystem: "System",
         mobilePlaceholder: "https://example.com/article",
         exampleLabel: "Try an example",
+        // Hero terminal mockup
+        heroTerminalTitle: "Terminal",
+        heroTerminalPrompt: "$",
+        heroTerminalArticleTitle: "# Deep Dive: LLMs in Enterprise",
+        heroTerminalAuthor: "> Author: John Doe | 2026-03-25",
+        heroTerminalH2: "## Key Takeaways",
+        heroTerminalLi1: "1. LLM use cases are moving from experiments...",
+        heroTerminalLi2: "2. RAG architecture is the go-to for enterprise...",
+        heroTerminalLi3: "3. Agent workflows will redefine...",
+        // Feature mockup labels
+        mockupBeforeAfterTitle: "Before / After",
+        mockupBeforeLabel: "Blocked page",
+        mockupAfterLabel: "Clean Markdown",
+        mockupAntiBot: "Anti-bot detection...",
+        mockupVerify: "Please verify you are human",
+        mockupCheckbox: "[checkbox]",
+        mockupLoginWall: "Login required to view",
+        mockupCleanTitle: "# Article Title",
+        mockupCleanBody: "Clean markdown content extracted by Website2Markdown",
+        mockupCleanH2: "## Section 1",
+        mockupCleanPara: "Paragraph text...",
+        mockupConfigTitle: "claude_desktop_config.json",
+        mockupInstalled: "Installed. Auto-available in new sessions.",
+        mockupTestTitle: "Terminal",
+        mockupTestFiles: "Test Files  45 passed (45)",
+        mockupTestCases: "     Tests  568 passed (568)",
       };
 
   /* ---- Schema.org @graph (4 types) ---- */
@@ -862,9 +914,83 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .example-link:hover { background: var(--bg-elevated); color: var(--text-primary); }
     .example-link .hl { color: var(--accent-text); }
 
+    /* ---- Mockup Window Shell ---- */
+    .mockup-window {
+      border-radius: 10px; overflow: hidden;
+      background: var(--bg-surface);
+      box-shadow: rgba(0,0,0,0.14) 0px 28px 70px 0px, rgba(0,0,0,0.1) 0px 14px 32px 0px, rgba(0,0,0,0.1) 0px 4px 12px 0px;
+    }
+    .mockup-titlebar {
+      height: 28px; display: flex; align-items: center; padding: 0 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-elevated);
+    }
+    .mockup-dots { display: flex; gap: 6px; }
+    .mockup-dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .mockup-title-text {
+      flex: 1; text-align: center; font-size: 10px;
+      color: var(--text-muted); font-family: var(--font-body);
+    }
+    .mockup-body {
+      padding: 16px; font-family: var(--font-mono); font-size: 12px;
+      line-height: 1.7; color: var(--text-secondary); overflow: hidden;
+    }
+    .mockup-prompt { color: var(--accent); font-weight: 500; }
+    .mockup-muted { color: var(--text-muted); font-size: 11px; }
+    .mockup-heading { color: var(--text-primary); font-weight: 600; }
+    .mockup-accent { color: var(--accent-text); }
+    .mockup-success { color: #22c55e; }
+    .mockup-warn { color: #f59e0b; }
+
+    /* ---- Feature Sections (alternating text + mockup) ---- */
+    .feature-section { padding: 32px 0; }
+    .feature-grid {
+      display: grid; grid-template-columns: 1fr 1.4fr; gap: 48px; align-items: center;
+    }
+    .feature-grid.reverse { grid-template-columns: 1.4fr 1fr; }
+    .feature-text {}
+    .feature-text .card-title {
+      font-family: var(--font-display); font-size: 22px; font-weight: 400;
+      margin-bottom: 12px; color: var(--text-primary);
+    }
+    .feature-text .card-desc {
+      font-size: 15px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 0;
+    }
+
+    /* Mockup split panes */
+    .mockup-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .mockup-pane {
+      border-radius: 6px; padding: 12px; font-size: 11px; line-height: 1.6;
+      font-family: var(--font-mono);
+    }
+    .mockup-pane-blocked {
+      background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.15);
+      color: var(--text-muted);
+    }
+    .mockup-pane-clean {
+      background: rgba(34,211,238,0.04); border: 1px solid rgba(34,211,238,0.12);
+      color: var(--text-secondary);
+    }
+    .mockup-pane-label {
+      font-family: var(--font-body); font-size: 10px; text-align: center;
+      color: var(--text-muted); margin-top: 6px;
+    }
+
+    /* Mockup divider */
+    .mockup-divider {
+      border: none; border-top: 1px solid var(--border); margin: 8px 0;
+    }
+
     /* ---- Responsive ---- */
     @media (max-width: 768px) {
       .why-grid, .uc-grid, .steps-grid { grid-template-columns: 1fr; }
+      .feature-grid, .feature-grid.reverse { grid-template-columns: 1fr; gap: 24px; }
+      .feature-grid.reverse .feature-mockup { order: 2; }
+      .feature-grid.reverse .feature-text { order: 1; }
+      .hero-mockup-desktop { display: none !important; }
       .footer-grid { grid-template-columns: 1fr; gap: 24px; }
       .header-nav { display: none; }
       .header-nav.open {
@@ -924,24 +1050,147 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
             </form>
           </div>
           <p class="input-hint">${t.hintKeys}</p>
+
+          <!-- Hero Terminal Mockup (desktop only) -->
+          <div class="hero-mockup-desktop" style="display:block;max-width:640px;margin:40px auto 0">
+            <div class="mockup-window">
+              <div class="mockup-titlebar">
+                <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
+                <div class="mockup-title-text">${t.heroTerminalTitle}</div>
+              </div>
+              <div class="mockup-body" style="min-height:220px">
+<span class="mockup-prompt">${t.heroTerminalPrompt}</span> curl -s "https://${h}/
+  https://mp.weixin.qq.com/s/abc123"
+
+<span class="mockup-heading">${t.heroTerminalArticleTitle}</span>
+
+<span class="mockup-accent">${t.heroTerminalAuthor}</span>
+
+<span class="mockup-heading">${t.heroTerminalH2}</span>
+
+${t.heroTerminalLi1}
+${t.heroTerminalLi2}
+${t.heroTerminalLi3}
+
+<span class="mockup-muted">X-Markdown-Method: browser+readability</span>
+<span class="mockup-muted">X-Cache-Status: MISS</span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <!-- Why -->
-      <section class="section">
+      <!-- Why — Feature 1: Works where others fail (left text, right mockup) -->
+      <section class="feature-section">
         <div class="container">
-          <div class="why-grid reveal-stagger" id="whyGrid">
-            <div class="card">
+          <div class="feature-grid reveal">
+            <div class="feature-text">
               <div class="card-title">${t.why1Title}</div>
               <div class="card-desc">${t.why1Desc}</div>
             </div>
-            <div class="card">
+            <div class="feature-mockup">
+              <div class="mockup-window">
+                <div class="mockup-titlebar">
+                  <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
+                  <div class="mockup-title-text">${t.mockupBeforeAfterTitle}</div>
+                </div>
+                <div class="mockup-body" style="padding:12px">
+                  <div class="mockup-split">
+                    <div>
+                      <div class="mockup-pane mockup-pane-blocked">
+<span class="mockup-warn">&#9888; ${t.mockupAntiBot}</span>
+${t.mockupVerify}
+${t.mockupCheckbox}
+
+${t.mockupLoginWall}
+                      </div>
+                      <div class="mockup-pane-label">${t.mockupBeforeLabel}</div>
+                    </div>
+                    <div>
+                      <div class="mockup-pane mockup-pane-clean">
+<span class="mockup-heading">${t.mockupCleanTitle}</span>
+
+${t.mockupCleanBody}
+
+<span class="mockup-heading">${t.mockupCleanH2}</span>
+${t.mockupCleanPara}
+                      </div>
+                      <div class="mockup-pane-label">${t.mockupAfterLabel}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Why — Feature 2: AI-native (right text, left mockup) -->
+      <section class="feature-section">
+        <div class="container">
+          <div class="feature-grid reverse reveal">
+            <div class="feature-mockup">
+              <div class="mockup-window">
+                <div class="mockup-titlebar">
+                  <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
+                  <div class="mockup-title-text">${t.mockupConfigTitle}</div>
+                </div>
+                <div class="mockup-body">
+{
+  <span class="mockup-accent">"mcpServers"</span>: {
+    <span class="mockup-accent">"website2markdown"</span>: {
+      <span class="mockup-accent">"command"</span>: <span style="color:var(--text-primary)">"mcp-website2markdown"</span>
+    }
+  }
+}
+                </div>
+                <hr class="mockup-divider">
+                <div class="mockup-body" style="padding-top:8px">
+<span class="mockup-prompt">$</span> git clone ...skills
+  ~/.claude/skills/website2markdown
+<span class="mockup-success">&#10003; ${t.mockupInstalled}</span>
+                </div>
+              </div>
+            </div>
+            <div class="feature-text">
               <div class="card-title">${t.why2Title}</div>
               <div class="card-desc">${t.why2Desc}</div>
             </div>
-            <div class="card">
+          </div>
+        </div>
+      </section>
+
+      <!-- Why — Feature 3: Production ready (left text, right mockup) -->
+      <section class="feature-section">
+        <div class="container">
+          <div class="feature-grid reveal">
+            <div class="feature-text">
               <div class="card-title">${t.why3Title}</div>
               <div class="card-desc">${t.why3Desc}</div>
+            </div>
+            <div class="feature-mockup">
+              <div class="mockup-window">
+                <div class="mockup-titlebar">
+                  <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
+                  <div class="mockup-title-text">${t.mockupTestTitle}</div>
+                </div>
+                <div class="mockup-body">
+<span class="mockup-prompt">$</span> npm test
+
+ <span class="mockup-success">${t.mockupTestFiles}</span>
+ <span class="mockup-success">${t.mockupTestCases}</span>
+
+<span class="mockup-prompt">$</span> curl ${h}/api/health
+{
+  <span class="mockup-accent">"status"</span>: <span style="color:var(--text-primary)">"ok"</span>,
+  <span class="mockup-accent">"browser"</span>: {<span class="mockup-accent">"active"</span>: 0, <span class="mockup-accent">"maxConcurrent"</span>: 2},
+  <span class="mockup-accent">"metrics"</span>: {
+    <span class="mockup-accent">"success_rate"</span>: 0.99,
+    <span class="mockup-accent">"convert_p95_ms"</span>: 2400
+  }
+}
+                </div>
+              </div>
             </div>
           </div>
         </div>
