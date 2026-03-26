@@ -954,6 +954,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .theme-toggle {
       display: inline-flex; gap: 2px; padding: 3px;
       background: var(--bg); border-radius: 999px;
+      border: 1px solid var(--border);
     }
     .theme-btn {
       background: none; border: none; cursor: pointer; font-size: 12px;
