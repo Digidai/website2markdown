@@ -13,6 +13,7 @@ export interface ConvertOptions {
 }
 
 export interface ConvertResult {
+  [key: string]: unknown;
   isError?: boolean;
   content: Array<{ type: "text"; text: string }>;
 }

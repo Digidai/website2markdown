@@ -13,21 +13,23 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
+const paramsSchema = {
+  url: z.string().describe("The URL to convert to Markdown"),
+  format: z.enum(["markdown", "html", "text", "json"]).optional().default("markdown").describe("Output format"),
+  selector: z.string().optional().describe("CSS selector to extract specific content"),
+  force_browser: z.boolean().optional().default(false).describe("Force browser rendering for JS-heavy pages"),
+};
+
 server.tool(
   "convert_url",
   "Convert a web page URL to clean Markdown. Supports any public URL including Chinese platforms (WeChat, Zhihu, CSDN, etc.)",
-  {
-    url: z.string().url().describe("The URL to convert to Markdown"),
-    format: z.enum(["markdown", "html", "text", "json"]).optional().default("markdown").describe("Output format"),
-    selector: z.string().optional().describe("CSS selector to extract specific content"),
-    force_browser: z.boolean().optional().default(false).describe("Force browser rendering for JS-heavy pages"),
-  },
-  async ({ url, format, selector, force_browser }) => {
+  paramsSchema,
+  async (args: { url: string; format?: string; selector?: string; force_browser?: boolean }) => {
     return convertUrl({
-      url,
-      format: format ?? "markdown",
-      selector,
-      force_browser: force_browser ?? false,
+      url: args.url,
+      format: (args.format ?? "markdown") as "markdown" | "html" | "text" | "json",
+      selector: args.selector,
+      force_browser: args.force_browser ?? false,
       apiUrl: API_URL,
       apiToken: API_TOKEN,
     });
