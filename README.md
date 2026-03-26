@@ -2,6 +2,12 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+[![Live API](https://img.shields.io/badge/API-md.genedai.me-22d3ee)](https://md.genedai.me)
+[![npm](https://img.shields.io/npm/v/@digidai/mcp-website2markdown?label=MCP%20Server)](https://www.npmjs.com/package/@digidai/mcp-website2markdown)
+[![Agent Skills](https://img.shields.io/badge/Skills-website2markdown--skills-blue?logo=github)](https://github.com/Digidai/website2markdown-skills)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-568%20passed-brightgreen)](https://github.com/Digidai/website2markdown/actions)
+
 A Cloudflare Worker that converts **any** web page to clean Markdown. Supports four conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages, and [Jina Reader](https://r.jina.ai) as an optional engine or last-resort fallback.
 
 Prepend your domain before any URL and get instant Markdown output. Beyond single-page conversion, the Worker also exposes SSE progress streaming, batch conversion, structured extraction, queued crawl/extract jobs, deep crawl, image proxying, OG image generation, and operational health metrics.
@@ -438,6 +444,64 @@ print(data["title"], data["method"])
 | [@cloudflare/puppeteer](https://github.com/nichochar/puppeteer) | Puppeteer API for Browser Rendering |
 | [LinkeDOM](https://github.com/WebReflection/linkedom) | Lightweight DOM for Workers |
 | [Vitest](https://vitest.dev/) | Unit testing framework |
+
+## AI Agent Integration
+
+Three ways to use Website2Markdown from AI agents:
+
+### Agent Skills (Claude Code, OpenClaw, Claw)
+
+One command install, auto-discovered by your agent. Includes usage patterns, error handling, and guides for all 21 adapters.
+
+```bash
+# Claude Code
+git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown
+
+# OpenClaw
+npx clawhub@latest install website2markdown
+```
+
+See the [website2markdown-skills](https://github.com/Digidai/website2markdown-skills) repo for full documentation.
+
+### MCP Server (Claude Desktop, Cursor IDE, Windsurf)
+
+Standard MCP protocol with `convert_url` tool.
+
+```bash
+npm install -g @digidai/mcp-website2markdown
+```
+
+Claude Desktop config (`~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "website2markdown": {
+      "command": "mcp-website2markdown",
+      "env": {
+        "WEBSITE2MARKDOWN_API_URL": "https://md.genedai.me"
+      }
+    }
+  }
+}
+```
+
+### llms.txt
+
+Machine-readable API description for AI system auto-discovery:
+
+```
+https://md.genedai.me/llms.txt
+```
+
+### Which to choose?
+
+| | Skills | MCP Server | llms.txt |
+|---|---|---|---|
+| **Best for** | CLI-based agents (Claude Code, OpenClaw) | IDE-based agents (Claude Desktop, Cursor) | Any AI with web access |
+| **Latency** | Direct HTTP (fastest) | MCP protocol overhead | Direct HTTP |
+| **Context** | Rich (patterns, error handling, adapters) | Tool schema only | API description |
+| **Install** | `git clone` (one command) | `npm install -g` | None |
 
 ## Project Structure
 

@@ -2,6 +2,12 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
+[![Live API](https://img.shields.io/badge/API-md.genedai.me-22d3ee)](https://md.genedai.me)
+[![npm](https://img.shields.io/npm/v/@digidai/mcp-website2markdown?label=MCP%20Server)](https://www.npmjs.com/package/@digidai/mcp-website2markdown)
+[![Agent Skills](https://img.shields.io/badge/Skills-website2markdown--skills-blue?logo=github)](https://github.com/Digidai/website2markdown-skills)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-568%20passed-brightgreen)](https://github.com/Digidai/website2markdown/actions)
+
 一个 Cloudflare Worker，可以把**任意网页**转换为干净、可读的 Markdown。
 支持四条转换路径：[Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/)（原生）、[Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown)（兜底）、[Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/)（用于反爬/重 JS 页面）、以及 [Jina Reader](https://r.jina.ai)（可选引擎或最终兜底）。
 
@@ -405,6 +411,64 @@ print(data["title"], data["method"])
 | [@cloudflare/puppeteer](https://github.com/nichochar/puppeteer) | Browser Rendering 的 Puppeteer API |
 | [LinkeDOM](https://github.com/WebReflection/linkedom) | Workers 轻量 DOM |
 | [Vitest](https://vitest.dev/) | 单元测试框架 |
+
+## AI Agent 集成
+
+三种方式将 Website2Markdown 接入 AI Agent：
+
+### Agent Skills（Claude Code、OpenClaw、Claw）
+
+一条命令安装，Agent 自动发现。包含完整使用模式、错误处理和 21 个平台适配器指南。
+
+```bash
+# Claude Code
+git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown
+
+# OpenClaw
+npx clawhub@latest install website2markdown
+```
+
+完整文档见 [website2markdown-skills](https://github.com/Digidai/website2markdown-skills) 仓库。
+
+### MCP Server（Claude Desktop、Cursor IDE、Windsurf）
+
+标准 MCP 协议，提供 `convert_url` 工具。
+
+```bash
+npm install -g @digidai/mcp-website2markdown
+```
+
+Claude Desktop 配置（`~/.claude/claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "website2markdown": {
+      "command": "mcp-website2markdown",
+      "env": {
+        "WEBSITE2MARKDOWN_API_URL": "https://md.genedai.me"
+      }
+    }
+  }
+}
+```
+
+### llms.txt
+
+遵循 llms.txt 标准的机器可读 API 描述，AI 系统可自动发现：
+
+```
+https://md.genedai.me/llms.txt
+```
+
+### 如何选择？
+
+| | Skills | MCP Server | llms.txt |
+|---|---|---|---|
+| **适用** | CLI 类 Agent（Claude Code、OpenClaw） | IDE 类 Agent（Claude Desktop、Cursor） | 任何有 Web 访问的 AI |
+| **延迟** | 直接 HTTP（最快） | MCP 协议开销 | 直接 HTTP |
+| **上下文** | 丰富（模式、错误处理、适配器） | 仅工具 schema | API 描述 |
+| **安装** | `git clone`（一条命令） | `npm install -g` | 无需 |
 
 ## 项目结构
 
