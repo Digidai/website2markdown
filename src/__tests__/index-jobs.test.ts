@@ -140,7 +140,7 @@ describe("POST /api/jobs", () => {
       "token",
       { "Idempotency-Key": idempotency },
     );
-    const firstRes = await worker.fetch(req, env);
+    const firstRes = await worker.fetch(req.clone(), env);
     const firstPayload = await firstRes.json() as { jobId?: string };
     const res = await worker.fetch(req, env);
     const payload = await res.json() as {
@@ -475,7 +475,7 @@ describe("POST /api/jobs", () => {
       type: "crawl",
       status: "failed",
       priority: 10,
-      maxRetries: 0,
+      maxRetries: 1,
       retryCount: 0,
       totalTasks: 1,
       succeededTasks: 0,

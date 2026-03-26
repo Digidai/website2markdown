@@ -129,8 +129,6 @@ interface DeepCrawlNormalizedPayload {
 }
 
 interface DeepCrawlCheckpointConfig {
-  maxDepth: number;
-  maxPages: number;
   includeExternal: boolean;
   urlPatterns: string[];
   allowDomains: string[];
@@ -273,8 +271,6 @@ export function normalizeDomainList(values: string[], field: string): string[] {
 export function buildDeepCrawlCheckpointConfig(
   payload: Pick<
     DeepCrawlNormalizedPayload,
-    | "maxDepth"
-    | "maxPages"
     | "includeExternal"
     | "urlPatterns"
     | "allowDomains"
@@ -290,8 +286,6 @@ export function buildDeepCrawlCheckpointConfig(
   >,
 ): DeepCrawlCheckpointConfig {
   return {
-    maxDepth: payload.maxDepth,
-    maxPages: payload.maxPages,
     includeExternal: payload.includeExternal,
     urlPatterns: [...payload.urlPatterns],
     allowDomains: [...payload.allowDomains],
@@ -515,8 +509,6 @@ export async function executeDeepCrawl(
         throw new DeepCrawlRequestError("checkpoint configuration does not match current request.", 409);
       }
     } else if (
-      checkpoint.maxDepth !== payload.maxDepth ||
-      checkpoint.maxPages !== payload.maxPages ||
       checkpoint.includeExternal !== payload.includeExternal
     ) {
       throw new DeepCrawlRequestError("checkpoint configuration does not match current request.", 409);

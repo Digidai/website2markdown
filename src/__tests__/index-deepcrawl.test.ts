@@ -208,7 +208,7 @@ describe("POST /api/deepcrawl", () => {
     const resumeReq = deepcrawlRequest({
       seed,
       max_depth: 2,
-      max_pages: 2,
+      max_pages: 5,
       checkpoint: {
         crawl_id: "crawl-resume",
         resume: true,
