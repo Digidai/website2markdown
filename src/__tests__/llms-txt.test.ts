@@ -116,7 +116,7 @@ describe("fetchTargetLlmsTxt", () => {
     expect(kvPut).toHaveBeenCalledWith(
       "llmstxt:example.com",
       "NONE",
-      { expirationTtl: 86400 },
+      { expirationTtl: 3600 },
     );
     // Should have tried both /llms.txt and /.well-known/llms.txt
     expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -154,7 +154,7 @@ describe("fetchTargetLlmsTxt", () => {
     expect(kvPut).toHaveBeenCalledWith(
       "llmstxt:slow-site.com",
       "NONE",
-      { expirationTtl: 86400 },
+      { expirationTtl: 3600 },
     );
   });
 });

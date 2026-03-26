@@ -90,6 +90,7 @@ export function generateAdapterContent(
   exportName: string,
   urlPattern: string,
 ): string {
+  const safePattern = JSON.stringify(urlPattern);
   return `import type { SiteAdapter, ExtractResult } from "../../types";
 import { applyStealthAndDesktop } from "../stealth";
 
@@ -97,7 +98,7 @@ const CONTENT_SELECTOR = "article, .article-content, .post-content, main";
 
 export const ${exportName}: SiteAdapter = {
   match(url: string): boolean {
-    return url.includes("${urlPattern}");
+    return url.includes(${safePattern});
   },
 
   alwaysBrowser: true,
@@ -129,12 +130,14 @@ export function generateTestContent(
   displayName: string,
   urlPattern: string,
 ): string {
+  const safePattern = JSON.stringify(urlPattern);
+  const safeTestUrl = JSON.stringify(`https://${urlPattern}some-post`);
   return `import { describe, it, expect } from "vitest";
 import { ${exportName} } from "../browser/adapters/${name}";
 
 describe("${displayName} adapter", () => {
   it("matches ${urlPattern} URLs", () => {
-    expect(${exportName}.match("https://${urlPattern}some-post")).toBe(true);
+    expect(${exportName}.match(${safeTestUrl})).toBe(true);
   });
 
   it("does not match unrelated URLs", () => {

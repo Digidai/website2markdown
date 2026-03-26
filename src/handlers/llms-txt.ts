@@ -74,6 +74,7 @@ Apache-2.0 licensed: https://github.com/Digidai/website2markdown
 }
 
 const LLMSTXT_CACHE_TTL = 86400; // 24 hours
+const LLMSTXT_NEGATIVE_CACHE_TTL = 3600; // 1 hour for negative/error results
 const LLMSTXT_FETCH_TIMEOUT = 5000; // 5 seconds
 
 /**
@@ -111,7 +112,7 @@ export async function fetchTargetLlmsTxt(
       const resp = await fetch(llmsUrl, {
         headers: { "User-Agent": "website2markdown/1.0 (llms.txt discovery)" },
         signal: AbortSignal.timeout(LLMSTXT_FETCH_TIMEOUT),
-        redirect: "follow",
+        redirect: "error",
       });
       if (resp.ok) {
         const contentType = resp.headers.get("Content-Type") || "";
@@ -129,7 +130,7 @@ export async function fetchTargetLlmsTxt(
     }
   }
 
-  // Cache negative result
-  await kv.put(cacheKey, "NONE", { expirationTtl: LLMSTXT_CACHE_TTL });
+  // Cache negative result with shorter TTL to recover from transient errors
+  await kv.put(cacheKey, "NONE", { expirationTtl: LLMSTXT_NEGATIVE_CACHE_TTL });
   return null;
 }

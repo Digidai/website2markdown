@@ -62,7 +62,20 @@ export async function convertUrl(options: ConvertOptions): Promise<ConvertResult
       };
     }
 
+    const contentLength = parseInt(response.headers?.get("Content-Length") || "0", 10);
+    if (contentLength > 10_000_000) {
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: "Response too large (>10MB)" }],
+      };
+    }
     const markdown = await response.text();
+    if (markdown.length > 10_000_000) {
+      return {
+        isError: true,
+        content: [{ type: "text" as const, text: "Response too large (>10MB)" }],
+      };
+    }
     return {
       content: [{ type: "text" as const, text: markdown }],
     };

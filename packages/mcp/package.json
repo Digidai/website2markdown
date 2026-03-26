@@ -12,7 +12,8 @@
   "keywords": ["mcp", "markdown", "ai", "agents", "website-to-markdown"],
   "license": "Apache-2.0",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "~1.0.0"
+    "@modelcontextprotocol/sdk": "~1.0.0",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0"
