@@ -32,7 +32,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         why2Title: "天生为 AI 而造",
         why2Desc: "MCP Server、Agent Skills、llms.txt 开箱即用。你的 AI Agent 直接就能用，不需要胶水代码。",
         why3Title: "生产环境就绪",
-        why3Desc: "566 项测试、5 层 fallback 管线、KV 缓存，部署在 Cloudflare Workers 边缘。",
+        why3Desc: "568 项测试、5 层 fallback 管线、KV 缓存，部署在 Cloudflare Workers 边缘。",
         // Use cases
         useCasesTitle: "覆盖每种工作流",
         uc1Title: "AI Agent",
@@ -181,7 +181,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         why2Title: "AI-native from day one",
         why2Desc: "MCP Server, Agent Skills, llms.txt built-in. Your AI agent just works -- no glue code needed.",
         why3Title: "Production ready",
-        why3Desc: "566 tests, 5-layer fallback pipeline, KV cache, edge-deployed on Cloudflare Workers.",
+        why3Desc: "568 tests, 5-layer fallback pipeline, KV cache, edge-deployed on Cloudflare Workers.",
         // Use cases
         useCasesTitle: "Built for every workflow",
         uc1Title: "AI Agents",
@@ -540,11 +540,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       background: var(--bg-surface); border-radius: 999px;
     }
     .lang-link {
-      color: var(--text-secondary); text-decoration: none; font-size: 12px; font-weight: 500;
-      padding: 4px 10px; border-radius: 999px; transition: all 0.2s ease;
+      color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500;
+      padding: 5px 14px; border-radius: 999px; transition: all 0.2s ease; letter-spacing: 0.02em;
     }
-    .lang-link:hover { color: var(--text-primary); }
-    .lang-link.active { color: var(--bg); background: var(--text-primary); }
+    .lang-link:hover { color: var(--text-primary); background: rgba(0,0,0,0.04); }
+    .lang-link.active { color: #fff; background: var(--accent); font-weight: 600; }
     .github-link {
       display: flex; align-items: center; color: var(--text-secondary);
       transition: color 0.2s; padding: 4px;
@@ -1027,7 +1027,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .pipeline-result .mockup-success { font-weight: 700; }
 
     /* ---- Feature Sections (alternating text + mockup) ---- */
-    .feature-section { padding: 48px 0; }
+    .feature-section { padding: 32px 0; }
     .feature-grid {
       display: grid; grid-template-columns: 1fr 1.4fr; gap: 64px; align-items: center;
     }
