@@ -154,32 +154,6 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerThemeSystem: "跟随系统",
         mobilePlaceholder: "https://example.com/article",
         exampleLabel: "试一个示例",
-        // Hero terminal mockup
-        heroTerminalTitle: "终端",
-        heroTerminalPrompt: "$",
-        heroTerminalArticleTitle: "# 深度解析：大模型在企业的落地实践",
-        heroTerminalAuthor: "> 作者：张三 | 2026-03-25",
-        heroTerminalH2: "## 核心观点",
-        heroTerminalLi1: "1. 大模型的应用场景正在从实验...",
-        heroTerminalLi2: "2. RAG 架构成为企业级应用的首选...",
-        heroTerminalLi3: "3. Agent 工作流将重新定义...",
-        // Feature mockup labels
-        mockupBeforeAfterTitle: "转换前 / 转换后",
-        mockupBeforeLabel: "被屏蔽的页面",
-        mockupAfterLabel: "干净的 Markdown",
-        mockupAntiBot: "反爬检测...",
-        mockupVerify: "请验证你是人类",
-        mockupCheckbox: "[复选框]",
-        mockupLoginWall: "需要登录才能查看",
-        mockupCleanTitle: "# 文章标题",
-        mockupCleanBody: "由 Website2Markdown 提取的干净 Markdown 内容",
-        mockupCleanH2: "## 第一节",
-        mockupCleanPara: "段落正文...",
-        mockupConfigTitle: "claude_desktop_config.json",
-        mockupInstalled: "已安装，新会话自动可用。",
-        mockupTestTitle: "终端",
-        mockupTestFiles: "测试文件  45 通过 (45)",
-        mockupTestCases: "     测试  568 通过 (568)",
       }
     : {
         htmlLang: "en",
@@ -329,32 +303,6 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerThemeSystem: "System",
         mobilePlaceholder: "https://example.com/article",
         exampleLabel: "Try an example",
-        // Hero terminal mockup
-        heroTerminalTitle: "Terminal",
-        heroTerminalPrompt: "$",
-        heroTerminalArticleTitle: "# Deep Dive: LLMs in Enterprise",
-        heroTerminalAuthor: "> Author: John Doe | 2026-03-25",
-        heroTerminalH2: "## Key Takeaways",
-        heroTerminalLi1: "1. LLM use cases are moving from experiments...",
-        heroTerminalLi2: "2. RAG architecture is the go-to for enterprise...",
-        heroTerminalLi3: "3. Agent workflows will redefine...",
-        // Feature mockup labels
-        mockupBeforeAfterTitle: "Before / After",
-        mockupBeforeLabel: "Blocked page",
-        mockupAfterLabel: "Clean Markdown",
-        mockupAntiBot: "Anti-bot detection...",
-        mockupVerify: "Please verify you are human",
-        mockupCheckbox: "[checkbox]",
-        mockupLoginWall: "Login required to view",
-        mockupCleanTitle: "# Article Title",
-        mockupCleanBody: "Clean markdown content extracted by Website2Markdown",
-        mockupCleanH2: "## Section 1",
-        mockupCleanPara: "Paragraph text...",
-        mockupConfigTitle: "claude_desktop_config.json",
-        mockupInstalled: "Installed. Auto-available in new sessions.",
-        mockupTestTitle: "Terminal",
-        mockupTestFiles: "Test Files  45 passed (45)",
-        mockupTestCases: "     Tests  568 passed (568)",
       };
 
   /* ---- Schema.org @graph (4 types) ---- */
@@ -914,7 +862,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .example-link:hover { background: var(--bg-elevated); color: var(--text-primary); }
     .example-link .hl { color: var(--accent-text); }
 
-    /* ---- Mockup Window Shell ---- */
+    /* ---- Browser Mockup Window ---- */
     .mockup-window {
       border-radius: 10px; overflow: hidden;
       background: var(--bg-surface);
@@ -928,14 +876,23 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       background: var(--bg-elevated);
     }
     .mockup-dots { display: flex; gap: 6px; }
-    .mockup-dot {
-      width: 9px; height: 9px; border-radius: 50%;
-      background: var(--text-muted); opacity: 0.5;
+    .mockup-dot { width: 9px; height: 9px; border-radius: 50%; }
+    .mockup-dot-red { background: #ff5f57; }
+    .mockup-dot-yellow { background: #febc2e; }
+    .mockup-dot-green { background: #28c840; }
+    .mockup-addressbar {
+      flex: 1; margin: 0 12px; height: 20px; border-radius: 4px;
+      background: rgba(0,0,0,0.04); padding: 0 8px; font-size: 11px;
+      font-family: var(--font-body); color: var(--text-secondary);
+      display: flex; align-items: center; overflow: hidden;
+      white-space: nowrap; text-overflow: ellipsis;
     }
-    .mockup-title-text {
-      flex: 1; text-align: center; font-size: 10px;
-      color: var(--text-muted); font-family: var(--font-body); font-weight: 500;
+    [data-theme="dark"] .mockup-addressbar,
+    .dark .mockup-addressbar { background: rgba(255,255,255,0.06); }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .mockup-addressbar { background: rgba(255,255,255,0.06); }
     }
+    .mockup-addressbar .hl { color: var(--accent-text); font-weight: 500; }
     .mockup-body {
       padding: 16px; font-family: var(--font-mono); font-size: 12px;
       line-height: 1.7; color: var(--text-secondary); overflow: hidden;
@@ -947,24 +904,127 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .mockup-success { color: #22c55e; }
     .mockup-warn { color: #f59e0b; }
 
-    /* Realistic IDE Components */
-    .ide-container { display: flex; height: 100%; }
-    .ide-sidebar {
-      width: 180px; border-right: 1px solid var(--border);
-      background: var(--bg-surface); padding: 12px;
-      display: flex; flex-direction: column; gap: 12px;
+    /* ---- Hero Stage: overlapping browser windows ---- */
+    .hero-stage {
+      position: relative; border-radius: 12px; overflow: hidden;
+      background: linear-gradient(135deg, #f0eeea 0%, #e6e4df 50%, #dbd8d2 100%);
+      height: clamp(400px, 48vw, 560px); margin-top: 56px;
+      box-shadow: 0 0 0 1px var(--border);
     }
-    .ide-main { flex: 1; background: var(--bg); display: flex; flex-direction: column; }
-    .ide-content { padding: 16px; flex: 1; overflow: hidden; }
-    .ide-tab-bar {
-      height: 32px; background: var(--bg-elevated);
-      display: flex; align-items: center; padding: 0 12px; gap: 12px;
+    [data-theme="dark"] .hero-stage,
+    .dark .hero-stage {
+      background: linear-gradient(135deg, #1a1812 0%, #15130c 50%, #1e1c15 100%);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .hero-stage {
+        background: linear-gradient(135deg, #1a1812 0%, #15130c 50%, #1e1c15 100%);
+      }
+    }
+    .hero-stage::before {
+      content: ""; position: absolute; inset: 0;
+      background: radial-gradient(circle at 40% 50%, rgba(34,211,238,0.04) 0%, transparent 60%);
+    }
+    .hero-back-window {
+      position: absolute; top: 28px; left: 5%; width: 56%; max-width: 520px;
+      border-radius: 10px; overflow: hidden;
+      background: var(--bg-surface); opacity: 0.88;
+      box-shadow: rgba(0,0,0,0.1) 0px 20px 60px;
+      z-index: 1;
+    }
+    .hero-front-window {
+      position: absolute; top: 48px; right: 5%; width: 56%; max-width: 520px;
+      border-radius: 10px; overflow: hidden;
+      background: var(--bg-surface);
+      box-shadow: rgba(0,0,0,0.18) 0px 28px 70px, rgba(0,0,0,0.12) 0px 14px 32px, rgba(34,211,238,0.15) 0px 0px 30px;
+      z-index: 2;
+    }
+    .hero-back-window .mockup-body { filter: saturate(0.7); }
+
+    /* ---- Feature split browser ---- */
+    .browser-split {
+      display: grid; grid-template-columns: 1fr 1fr; min-height: 280px;
+    }
+    .browser-split-left {
+      background: color-mix(in srgb, #ef4444 6%, var(--bg));
+      border-right: 1px solid var(--border);
+      padding: 20px; position: relative; overflow: hidden;
+    }
+    .browser-split-right {
+      background: color-mix(in srgb, #22c55e 5%, var(--bg));
+      padding: 20px; position: relative;
+    }
+    .split-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 9px; font-family: var(--font-mono);
+      background: rgba(34,197,94,0.1); color: #16a34a;
+      padding: 3px 8px; border-radius: 999px;
+      margin-top: 12px;
+    }
+    .split-divider-arrow {
+      position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
+      z-index: 2; width: 24px; height: 24px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; box-shadow: 0 2px 8px rgba(34,211,238,0.3);
+    }
+
+    /* ---- AI Chat mockup ---- */
+    .chat-body { padding: 0; }
+    .chat-msg {
+      padding: 14px 20px; font-size: 12px; line-height: 1.7;
+      font-family: var(--font-body);
+    }
+    .chat-msg-user {
+      background: var(--bg-elevated);
       border-bottom: 1px solid var(--border);
     }
-    .ide-tab {
-      font-size: 10px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;
+    .chat-msg-ai {
+      background: var(--bg);
     }
-    .ide-tab.active { color: var(--text-primary); font-weight: 500; }
+    .chat-sender {
+      font-size: 10px; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;
+    }
+    .chat-tool-call {
+      margin: 10px 0; padding: 10px 14px;
+      background: var(--bg-elevated); border-radius: 6px;
+      font-family: var(--font-mono); font-size: 11px;
+      border-left: 3px solid var(--accent);
+    }
+
+    /* ---- Pipeline visualization ---- */
+    .pipeline-body {
+      padding: 24px; background: var(--bg); font-family: var(--font-mono); font-size: 11px;
+    }
+    .pipeline-request {
+      text-align: center; padding: 8px 16px; margin-bottom: 16px;
+      font-size: 11px; color: var(--text-secondary);
+    }
+    .pipeline-request code { color: var(--accent-text); font-family: var(--font-mono); }
+    .pipeline-layer {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px; border-radius: 6px;
+      margin-bottom: 4px; transition: all 0.2s;
+    }
+    .pipeline-layer-fast { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.15); }
+    .pipeline-layer-medium { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.15); }
+    .pipeline-layer-slow { background: rgba(156,163,175,0.08); border: 1px solid rgba(156,163,175,0.15); }
+    .pipeline-layer-active {
+      box-shadow: 0 0 0 2px var(--accent), 0 0 12px rgba(34,211,238,0.15);
+      border-color: var(--accent);
+    }
+    .pipeline-layer-name { font-weight: 600; color: var(--text-primary); flex: 1; }
+    .pipeline-layer-detail { font-size: 10px; color: var(--text-secondary); }
+    .pipeline-layer-speed { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+    .pipeline-connector {
+      display: flex; justify-content: center; padding: 2px 0;
+      color: var(--text-muted); font-size: 10px;
+    }
+    .pipeline-result {
+      text-align: center; margin-top: 16px; padding: 10px;
+      font-size: 12px; color: var(--text-primary); font-weight: 500;
+    }
+    .pipeline-result .mockup-success { font-weight: 700; }
 
     /* ---- Feature Sections (alternating text + mockup) ---- */
     .feature-section { padding: 48px 0; }
@@ -981,37 +1041,6 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       font-size: 16px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 0;
     }
 
-    /* Mockup split panes */
-    .mockup-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .mockup-pane {
-      border-radius: 8px; padding: 16px; font-size: 11px; line-height: 1.6;
-      font-family: var(--font-mono); box-shadow: inset 0 0 0 1px var(--border);
-    }
-    .mockup-pane-blocked {
-      background: color-mix(in srgb, #f59e0b 5%, var(--bg));
-      color: var(--text-muted);
-    }
-    .mockup-pane-clean {
-      background: color-mix(in srgb, var(--accent) 5%, var(--bg));
-      color: var(--text-secondary);
-    }
-    .mockup-pane-label {
-      font-family: var(--font-body); font-size: 10px; text-align: center;
-      color: var(--text-muted); margin-top: 8px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em;
-    }
-
-    /* Wallpaper/Hero effect */
-    .hero-wallpaper {
-      position: relative; border-radius: 12px; overflow: hidden;
-      background: linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-elevated) 100%);
-      height: 480px; margin-top: 56px;
-      box-shadow: 0 0 0 1px var(--border);
-    }
-    .hero-wallpaper::before {
-      content: ""; position: absolute; inset: 0;
-      background: radial-gradient(circle at 50% 50%, rgba(34,211,238,0.05) 0%, transparent 70%);
-    }
-
     /* Mockup divider */
     .mockup-divider {
       border: none; border-top: 1px solid var(--border); margin: 8px 0;
@@ -1023,7 +1052,8 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       .feature-grid, .feature-grid.reverse { grid-template-columns: 1fr; gap: 24px; }
       .feature-grid.reverse .feature-mockup { order: 2; }
       .feature-grid.reverse .feature-text { order: 1; }
-      .hero-mockup-desktop { display: none !important; }
+      .hero-stage { display: none !important; }
+      .feature-mockup { display: none !important; }
       .footer-grid { grid-template-columns: 1fr; gap: 24px; }
       .header-nav { display: none; }
       .header-nav.open {
@@ -1084,47 +1114,64 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           </div>
           <p class="input-hint reveal">${t.hintKeys}</p>
 
-          <!-- Hero Wallpaper + Mockup -->
-          <div class="hero-wallpaper reveal">
-            <div class="mockup-window" style="position:absolute; top:40px; left:50%; transform:translateX(-50%); width:90%; max-width:900px; height:500px;">
+          <!-- Hero: Overlapping browser windows -->
+          <div class="hero-stage reveal">
+            <!-- Back window: "Before" — messy WeChat page -->
+            <div class="hero-back-window">
               <div class="mockup-titlebar">
-                <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
-                <div class="mockup-title-text">${t.heroTerminalTitle}</div>
+                <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
+                <div class="mockup-addressbar">mp.weixin.qq.com/s/abc123def</div>
               </div>
-              <div class="ide-container">
-                <div class="ide-sidebar hidden md:flex">
-                  <div style="font-size:9px; font-weight:bold; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px;">History</div>
-                  <div class="ide-tab active" style="font-size:11px; margin-left:-4px; padding:4px 8px; border-radius:4px; background:var(--bg-elevated);">
-                    <span style="color:#22c55e">●</span> WeChat Article...
-                  </div>
-                  <div class="ide-tab" style="font-size:11px; padding:4px 8px;">Zhihu Column...</div>
-                  <div class="ide-tab" style="font-size:11px; padding:4px 8px;">GitHub README...</div>
-                  <div class="ide-tab" style="font-size:11px; padding:4px 8px;">Juejin Post...</div>
+              <div class="mockup-body" style="padding:0; text-align:left; font-family:var(--font-body); background:var(--bg);">
+                <!-- WeChat header bar -->
+                <div style="padding:10px 16px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border);">
+                  <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">&#128241; 微信公众号</span>
+                  <span style="font-size:9px; padding:3px 10px; border-radius:999px; background:rgba(34,197,94,0.12); color:#16a34a;">关注公众号</span>
                 </div>
-                <div class="ide-main">
-                  <div class="ide-tab-bar">
-                    <div class="ide-tab active">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                      article.md
-                    </div>
+                <!-- Article title -->
+                <div style="padding:14px 16px 8px;">
+                  <div style="font-size:14px; font-weight:700; color:var(--text-primary); line-height:1.4;">深度解析：大模型在企业的落地实践</div>
+                  <div style="font-size:9px; color:var(--text-muted); margin-top:6px;">张三 | 2026-03-25</div>
+                </div>
+                <!-- Blocking modal overlay -->
+                <div style="margin:8px 16px; padding:20px; background:var(--bg-elevated); border-radius:8px; text-align:center; border:1px solid var(--border);">
+                  <div style="font-size:16px; margin-bottom:8px;">&#9888;&#65039;</div>
+                  <div style="font-size:11px; font-weight:600; color:var(--text-primary); margin-bottom:4px;">此内容需要在微信客户端中打开</div>
+                  <div style="font-size:9px; color:var(--text-muted); margin-bottom:10px;">长按识别二维码</div>
+                  <div style="width:48px; height:48px; margin:0 auto 10px; background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; display:flex; align-items:center; justify-content:center;">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="color:var(--text-muted);opacity:0.4"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="4" height="4" rx="0.5"/><rect x="18" y="18" width="4" height="4" rx="0.5"/></svg>
                   </div>
-                  <div class="ide-content mockup-body" style="font-size:11px; text-align: left;">
-<span class="mockup-heading">${t.heroTerminalArticleTitle}</span>
-
-<span class="mockup-accent">${t.heroTerminalAuthor}</span>
-
-<span class="mockup-heading">${t.heroTerminalH2}</span>
-
-${t.heroTerminalLi1}
-${t.heroTerminalLi2}
-${t.heroTerminalLi3}
-
-<span class="mockup-muted" style="margin-top:24px; display:block;">---
-X-Markdown-Method: browser+readability
-X-Cache-Status: MISS
-X-Response-Time: 1.4s</span>
+                  <div style="display:inline-block; font-size:10px; padding:5px 14px; background:#07c160; color:#fff; border-radius:4px;">在微信中打开</div>
+                </div>
+                <!-- Recommended / Ads -->
+                <div style="padding:8px 16px 12px;">
+                  <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">推荐阅读 &#9660;</div>
+                  <div style="display:flex; gap:6px;">
+                    <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
+                    <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
+                    <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <!-- Front window: "After" — clean Markdown output -->
+            <div class="hero-front-window">
+              <div class="mockup-titlebar">
+                <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
+                <div class="mockup-addressbar"><span class="hl">${h}/</span>mp.weixin.qq.com/s/abc123def</div>
+              </div>
+              <div class="mockup-body" style="padding:20px; text-align:left; font-size:12px; background:var(--bg);">
+<div style="font-size:16px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:10px;"># 深度解析：大模型在企业的落地实践</div>
+<div style="font-size:11px; color:var(--accent-text); margin-bottom:14px; font-style:italic;">&gt; 作者：张三 | 发布于 2026-03-25</div>
+<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;">## 核心观点</div>
+<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">1. 大模型的应用场景正在从实验室走向生产环境<br>2. RAG 架构成为企业级应用的首选方案<br>3. Agent 工作流将重新定义软件开发流程</div>
+<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## 背景</div>
+<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">随着 GPT-4、Claude 等模型的发布，企业开始认真考虑将大语言模型集成到核心业务流程中...</div>
+<div style="background:var(--bg-elevated); border-radius:4px; padding:10px 12px; font-family:var(--font-mono); font-size:10px; color:var(--accent-text); margin-bottom:14px; line-height:1.6;"><span style="color:var(--text-muted);">\`\`\`python</span><br>from langchain import ChatOpenAI<br>llm = ChatOpenAI(model=<span style="color:#f59e0b;">"gpt-4"</span>)<br><span style="color:var(--text-muted);">\`\`\`</span></div>
+<div style="font-size:9px; color:var(--text-muted); border-top:1px solid var(--border); padding-top:8px; text-align:center; font-family:var(--font-mono);">
+  <span class="mockup-success">&#10003;</span> X-Method: browser+readability &middot; 2.1s &middot; cached
+</div>
               </div>
             </div>
           </div>
@@ -1142,29 +1189,44 @@ X-Response-Time: 1.4s</span>
             <div class="feature-mockup">
               <div class="mockup-window">
                 <div class="mockup-titlebar">
-                  <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
-                  <div class="mockup-title-text">${t.mockupBeforeAfterTitle}</div>
+                  <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
+                  <div class="mockup-addressbar">zhihu.com/p/123456789</div>
                 </div>
-                <div class="mockup-body" style="padding:16px">
-                  <div class="mockup-split">
-                    <div style="text-align: left;">
-                      <div class="mockup-pane mockup-pane-blocked" style="height:200px; display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center;">
-                        <span class="mockup-warn" style="font-size:24px; margin-bottom:12px;">&#9888;</span>
-                        <div style="font-weight:600; margin-bottom:4px; font-family:var(--font-body);">${t.mockupAntiBot}</div>
-                        <div style="font-size:10px; opacity:0.6; font-family:var(--font-body);">${t.mockupVerify}</div>
-                        <div style="margin-top:12px; padding:6px 12px; background:var(--bg-elevated); border-radius:4px; font-size:10px; font-family:var(--font-body); border:1px solid var(--border);">${t.mockupCheckbox}</div>
-                      </div>
-                      <div class="mockup-pane-label">${t.mockupBeforeLabel}</div>
+                <div class="browser-split">
+                  <!-- Left: blocked Zhihu page -->
+                  <div class="browser-split-left" style="font-family:var(--font-body); text-align:left;">
+                    <div class="split-divider-arrow">&rarr;</div>
+                    <!-- Zhihu nav -->
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:12px;">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--accent-text)" style="opacity:0.5;"><circle cx="12" cy="12" r="10"/><text x="6" y="17" font-size="12" fill="#fff" font-weight="bold">Z</text></svg>
+                      <span style="font-size:10px; color:var(--text-muted);">知乎 - 有问题，就会有答案</span>
                     </div>
-                    <div style="text-align: left;">
-                      <div class="mockup-pane mockup-pane-clean" style="height:200px; overflow:hidden;">
-                        <span class="mockup-heading" style="color:var(--accent-text); font-size: 13px;">${t.mockupCleanTitle}</span>
-                        <div style="margin-top:8px; font-size:10px; line-height:1.5;">${t.mockupCleanBody}</div>
-                        <div class="mockup-heading" style="margin-top:12px; font-size:11px;">${t.mockupCleanH2}</div>
-                        <div style="font-size:10px; opacity:0.7;">${t.mockupCleanPara}</div>
-                      </div>
-                      <div class="mockup-pane-label">${t.mockupAfterLabel}</div>
+                    <!-- Content behind blur -->
+                    <div style="filter:blur(3px); opacity:0.5; font-size:10px; color:var(--text-secondary); line-height:1.6; margin-bottom:12px;">
+                      <div style="font-size:13px; font-weight:600; margin-bottom:4px;">如何评价大模型在企业中的落地？</div>
+                      近年来，随着大语言模型技术的突破性进展，越来越多的企业开始探索将 AI 融入核心业务...
                     </div>
+                    <!-- Login modal overlay -->
+                    <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,0.08);">
+                      <div style="font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:6px;">登录后查看完整内容</div>
+                      <div style="font-size:10px; color:var(--text-muted); margin-bottom:10px;">Login to view full content</div>
+                      <div style="display:flex; gap:8px; justify-content:center;">
+                        <span style="font-size:9px; padding:4px 12px; background:#0066ff; color:#fff; border-radius:4px;">登录</span>
+                        <span style="font-size:9px; padding:4px 12px; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary);">注册</span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Right: clean Markdown output -->
+                  <div class="browser-split-right" style="font-family:var(--font-mono); text-align:left; font-size:11px; line-height:1.7;">
+                    <div style="font-size:14px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;"># 如何评价大模型在企业中的落地？</div>
+                    <div style="font-size:11px; color:var(--text-secondary); margin-bottom:10px;">近年来，随着大语言模型技术的突破性进展，越来越多的企业开始探索将 AI 融入核心业务流程。</div>
+                    <div style="font-size:12px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## 三大趋势</div>
+                    <div style="font-size:11px; color:var(--text-secondary); line-height:1.8;">
+                      - 多模态能力成为标配<br>
+                      - 私有化部署需求增长<br>
+                      - Agent 框架百花齐放
+                    </div>
+                    <div class="split-badge"><span class="mockup-success">&#10003;</span> Extracted via browser rendering</div>
                   </div>
                 </div>
               </div>
@@ -1180,28 +1242,38 @@ X-Response-Time: 1.4s</span>
             <div class="feature-mockup">
               <div class="mockup-window">
                 <div class="mockup-titlebar">
-                  <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
-                  <div class="mockup-title-text">${t.mockupConfigTitle}</div>
+                  <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
+                  <div class="mockup-addressbar" style="justify-content:center;">Claude</div>
                 </div>
-                <div class="mockup-body" style="padding:0; text-align: left;">
-                  <div style="padding:20px; background:var(--bg); border-bottom:1px solid var(--border);">
-<span style="color:var(--text-muted)">{</span>
-  <span class="mockup-accent">"mcpServers"</span>: <span style="color:var(--text-muted)">{</span>
-    <span class="mockup-accent">"website2markdown"</span>: <span style="color:var(--text-muted)">{</span>
-      <span class="mockup-accent">"command"</span>: <span style="color:var(--accent-hover)">"mcp-website2markdown"</span>,
-      <span class="mockup-accent">"env"</span>: <span style="color:var(--text-muted)">{</span> <span class="mockup-accent">"URL"</span>: <span style="color:var(--accent-hover)">"https://${h}"</span> <span style="color:var(--text-muted)">}</span>
-    <span style="color:var(--text-muted)">}</span>
-  <span style="color:var(--text-muted)">}</span>
-<span style="color:var(--text-muted)">}</span>
-                  </div>
-                  <div style="padding:16px; background:var(--bg-elevated); font-size:11px;">
-                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                      <span class="mockup-prompt">$</span>
-                      <span style="color:var(--text-secondary)">npx clawhub install website2markdown</span>
+                <div class="chat-body" style="text-align:left;">
+                  <!-- User message -->
+                  <div class="chat-msg chat-msg-user">
+                    <div class="chat-sender">User</div>
+                    <div style="color:var(--text-primary); font-size:12px; line-height:1.6;">
+                      读一下这篇文章，总结核心观点<br>
+                      <span style="color:var(--accent-text); font-family:var(--font-mono); font-size:11px;">https://mp.weixin.qq.com/s/abc123</span>
                     </div>
-                    <div style="display:flex; align-items:center; gap:6px;">
-                      <span class="mockup-success">✔</span>
-                      <span style="font-weight:600; color:var(--text-primary);">${t.mockupInstalled}</span>
+                  </div>
+                  <!-- AI message -->
+                  <div class="chat-msg chat-msg-ai">
+                    <div class="chat-sender">Claude</div>
+                    <div class="chat-tool-call">
+                      <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                        <span style="font-size:10px; font-weight:600; color:var(--text-muted);">&#9881; convert_url</span>
+                      </div>
+                      <div style="font-size:10px; color:var(--text-secondary);">url: <span style="color:var(--accent-text);">"https://mp.weixin.qq.com/s/..."</span></div>
+                      <div style="font-size:10px; margin-top:4px;"><span class="mockup-success">&#10003;</span> <span style="color:var(--text-muted);">3,421 chars &middot; 2.1s</span></div>
+                    </div>
+                    <div style="color:var(--text-primary); font-size:12px; line-height:1.7; margin-top:10px;">
+                      这篇文章的核心观点：
+                    </div>
+                    <div style="color:var(--text-secondary); font-size:12px; line-height:1.8; margin-top:6px; padding-left:4px;">
+                      1. 大模型正在从实验走向生产<br>
+                      2. RAG 是当前最实用的架构<br>
+                      3. Agent 将改变软件开发方式
+                    </div>
+                    <div style="color:var(--text-secondary); font-size:12px; line-height:1.7; margin-top:8px;">
+                      文章还提到了一个有趣的案例...
                     </div>
                   </div>
                 </div>
@@ -1224,26 +1296,51 @@ X-Response-Time: 1.4s</span>
               <div class="card-desc">${t.why3Desc}</div>
             </div>
             <div class="feature-mockup">
-              <div class="mockup-window" style="background: #0d0d0d;">
-                <div class="mockup-titlebar" style="background: #1a1a1a; border-bottom: 1px solid #333;">
-                  <div class="mockup-dots"><div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div></div>
-                  <div class="mockup-title-text" style="color: #666;">${t.mockupTestTitle}</div>
+              <div class="mockup-window">
+                <div class="mockup-titlebar">
+                  <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
+                  <div class="mockup-addressbar" style="justify-content:center;">5-Layer Fallback Pipeline</div>
                 </div>
-                <div class="mockup-body" style="background:#0d0d0d; color:#e5e7eb; padding:20px; font-size:11px; text-align: left;">
-<div style="margin-bottom:12px;"><span class="mockup-prompt" style="color:#3b82f6">$</span> <span style="color:#fff">vitest run</span></div>
-<div style="color:#22c55e; margin-bottom:2px;">✓ src/__tests__/adapters.test.ts (21)</div>
-<div style="color:#22c55e; margin-bottom:2px;">✓ src/__tests__/security.test.ts (15)</div>
-<div style="color:#22c55e; margin-bottom:2px;">✓ src/__tests__/deepcrawl.test.ts (8)</div>
-<div style="margin:16px 0; padding:12px 0; border-top:1px solid #262626;">
- <div class="mockup-success" style="font-weight:600; display:flex; justify-content:space-between;"><span>${t.mockupTestFiles}</span> <span style="opacity:0.5;">45.2s</span></div>
- <div class="mockup-success" style="font-weight:600; margin-top:4px;">${t.mockupTestCases}</div>
-</div>
-<div style="margin-top:20px;"><span class="mockup-prompt" style="color:#3b82f6">$</span> <span style="color:#fff">curl ${h}/api/health</span></div>
-<div style="color:#22d3ee; margin-top:8px; line-height:1.5;">{
-  <span style="color:#818cf8">"status"</span>: <span style="color:#fbbf24">"ok"</span>,
-  <span style="color:#818cf8">"uptime"</span>: <span style="color:#fbbf24">"14d 6h"</span>,
-  <span style="color:#818cf8">"metrics"</span>: { <span style="color:#818cf8">"p95"</span>: <span style="color:#fbbf24">"180ms"</span>, <span style="color:#818cf8">"err"</span>: <span style="color:#fbbf24">"0.01%"</span> }
-}</div>
+                <div class="pipeline-body" style="text-align:left;">
+                  <div class="pipeline-request">Request: <code>https://example.com/article</code></div>
+
+                  <div class="pipeline-layer pipeline-layer-fast pipeline-layer-active">
+                    <span class="pipeline-layer-name">Layer 1 &mdash; Native Markdown</span>
+                    <span class="pipeline-layer-detail">Cloudflare edge</span>
+                    <span class="pipeline-layer-speed">&#9889; 0.1s &nbsp;<span class="mockup-success">&#10003;</span></span>
+                  </div>
+                  <div class="pipeline-connector">&#9474; fail?</div>
+
+                  <div class="pipeline-layer pipeline-layer-fast">
+                    <span class="pipeline-layer-name">Layer 2 &mdash; Readability + Turndown</span>
+                    <span class="pipeline-layer-detail">HTML parsing</span>
+                    <span class="pipeline-layer-speed">&#9889; 0.5s</span>
+                  </div>
+                  <div class="pipeline-connector">&#9474; fail?</div>
+
+                  <div class="pipeline-layer pipeline-layer-medium">
+                    <span class="pipeline-layer-name">Layer 3 &mdash; Browser Rendering</span>
+                    <span class="pipeline-layer-detail">Headless Chrome</span>
+                    <span class="pipeline-layer-speed">&#9889; 2-5s</span>
+                  </div>
+                  <div class="pipeline-connector">&#9474; fail?</div>
+
+                  <div class="pipeline-layer pipeline-layer-medium">
+                    <span class="pipeline-layer-name">Layer 4 &mdash; CF REST API</span>
+                    <span class="pipeline-layer-detail">Browser Rendering</span>
+                    <span class="pipeline-layer-speed">&#9889; 1-3s</span>
+                  </div>
+                  <div class="pipeline-connector">&#9474; fail?</div>
+
+                  <div class="pipeline-layer pipeline-layer-slow">
+                    <span class="pipeline-layer-name">Layer 5 &mdash; Jina Reader</span>
+                    <span class="pipeline-layer-detail">External fallback</span>
+                    <span class="pipeline-layer-speed">&#9889; 2-4s</span>
+                  </div>
+
+                  <div class="pipeline-result">
+                    Result: Clean Markdown &middot; <span class="mockup-success">99.2% success rate</span>
+                  </div>
                 </div>
               </div>
             </div>
