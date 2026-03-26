@@ -60,6 +60,7 @@ import {
 } from "./handlers/jobs";
 import { handleOgImage } from "./handlers/og-image";
 import { handleLlmsTxt } from "./handlers/llms-txt";
+import { handleRobotsTxt, handleSitemap } from "./handlers/seo";
 
 // 重新导出 JobCoordinator 供 wrangler Durable Object 绑定使用
 export { JobCoordinator } from "./handlers/jobs";
@@ -206,6 +207,15 @@ export default {
 
     // Avoid expensive side effects on HEAD requests.
     if (request.method === "HEAD") {
+      if (path === "/robots.txt" || path === "/sitemap.xml") {
+        return new Response(null, {
+          status: 200,
+          headers: {
+            "Content-Type": path === "/robots.txt" ? "text/plain; charset=utf-8" : "application/xml; charset=utf-8",
+            ...CORS_HEADERS,
+          },
+        });
+      }
       if (path === "/favicon.ico") {
         return new Response(null, { status: 204 });
       }
@@ -228,6 +238,14 @@ export default {
         });
       }
       return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
+    }
+
+    // SEO files
+    if (path === "/robots.txt") {
+      return handleRobotsTxt();
+    }
+    if (path === "/sitemap.xml") {
+      return handleSitemap(host);
     }
 
     // Favicon
