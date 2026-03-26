@@ -6,7 +6,7 @@
 [![npm](https://img.shields.io/npm/v/@digidai/mcp-website2markdown?label=MCP%20Server)](https://www.npmjs.com/package/@digidai/mcp-website2markdown)
 [![Agent Skills](https://img.shields.io/badge/Skills-website2markdown--skills-blue?logo=github)](https://github.com/Digidai/website2markdown-skills)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-568%20passed-brightgreen)](https://github.com/Digidai/website2markdown/actions)
+[![CI](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml/badge.svg)](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml)
 
 一个 Cloudflare Worker，可以把**任意网页**转换为干净、可读的 Markdown。
 支持四条转换路径：[Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/)（原生）、[Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown)（兜底）、[Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/)（用于反爬/重 JS 页面）、以及 [Jina Reader](https://r.jina.ai)（可选引擎或最终兜底）。

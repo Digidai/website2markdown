@@ -4,6 +4,14 @@
   "private": true,
   "workspaces": ["packages/*"],
   "description": "Convert any URL to Markdown via Cloudflare's Markdown for Agents",
+  "homepage": "https://md.genedai.me",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Digidai/website2markdown"
+  },
+  "license": "Apache-2.0",
+  "author": "Digidai <daiq@live.cn>",
+  "keywords": ["markdown", "url-to-markdown", "cloudflare-workers", "web-scraping", "mcp", "ai-agents"],
   "scripts": {
     "dev": "wrangler dev",
     "build": "node ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",

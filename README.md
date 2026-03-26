@@ -6,7 +6,7 @@
 [![npm](https://img.shields.io/npm/v/@digidai/mcp-website2markdown?label=MCP%20Server)](https://www.npmjs.com/package/@digidai/mcp-website2markdown)
 [![Agent Skills](https://img.shields.io/badge/Skills-website2markdown--skills-blue?logo=github)](https://github.com/Digidai/website2markdown-skills)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-568%20passed-brightgreen)](https://github.com/Digidai/website2markdown/actions)
+[![CI](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml/badge.svg)](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml)
 
 A Cloudflare Worker that converts **any** web page to clean Markdown. Supports four conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages, and [Jina Reader](https://r.jina.ai) as an optional engine or last-resort fallback.
 
