@@ -8,15 +8,27 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![CI](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml/badge.svg)](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml)
 
-一个 Cloudflare Worker，可以把**任意网页**转换为干净、可读的 Markdown。
-支持四条转换路径：[Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/)（原生）、[Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown)（兜底）、[Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/)（用于反爬/重 JS 页面）、以及 [Jina Reader](https://r.jina.ai)（可选引擎或最终兜底）。
+把**任意网页**转换为干净的 Markdown —— JS 驱动的 SPA、付费墙内容、中国平台（微信、知乎、飞书）都能搞定。基于 Cloudflare Workers，5 层 fallback 管线 + 14 个站点适配器。
 
-把你的域名前缀加在目标 URL 前即可直接获得 Markdown 输出。除了单页转换，还内置了 SSE 进度流、批量转换、结构化提取、排队任务、Deep Crawl、图片代理、OG 图生成和运行健康指标。
+### 快速开始
+
+```bash
+# 把任意 URL 转为 Markdown（立即试试！）
+curl -H "Accept: text/markdown" https://md.genedai.me/https://example.com
+
+# 微信公众号文章
+curl -H "Accept: text/markdown" "https://md.genedai.me/https://mp.weixin.qq.com/s/文章ID"
+
+# JSON 格式输出（含元数据）
+curl "https://md.genedai.me/https://example.com?format=json&raw=true"
+```
+
+或直接在浏览器打开：**[md.genedai.me/https://example.com](https://md.genedai.me/https://example.com)**
 
 ## 工作原理
 
 ```
-https://<your-worker-domain>/<target-url>
+https://md.genedai.me/<目标URL>
 ```
 
 ### 转换流程

@@ -8,14 +8,27 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
 [![CI](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml/badge.svg)](https://github.com/Digidai/website2markdown/actions/workflows/ci.yml)
 
-A Cloudflare Worker that converts **any** web page to clean Markdown. Supports four conversion paths — [Cloudflare Markdown for Agents](https://blog.cloudflare.com/markdown-for-agents/) (native), [Readability](https://github.com/mozilla/readability) + [Turndown](https://github.com/mixmark-io/turndown) (fallback), [Cloudflare Browser Rendering](https://developers.cloudflare.com/browser-rendering/) for anti-bot/JS-heavy pages, and [Jina Reader](https://r.jina.ai) as an optional engine or last-resort fallback.
+Convert **any** web page to clean Markdown — JS-heavy SPAs, paywalled content, Chinese platforms (WeChat, Zhihu, Feishu), and more. Powered by Cloudflare Workers with a 5-layer fallback pipeline and 14 site adapters.
 
-Prepend your domain before any URL and get instant Markdown output. Beyond single-page conversion, the Worker also exposes SSE progress streaming, batch conversion, structured extraction, queued crawl/extract jobs, deep crawl, image proxying, OG image generation, and operational health metrics.
+### Quick Start
+
+```bash
+# Convert any URL to Markdown (try it now!)
+curl -H "Accept: text/markdown" https://md.genedai.me/https://example.com
+
+# WeChat article
+curl -H "Accept: text/markdown" "https://md.genedai.me/https://mp.weixin.qq.com/s/YOUR_ARTICLE_ID"
+
+# JSON output with metadata
+curl "https://md.genedai.me/https://example.com?format=json&raw=true"
+```
+
+Or just open in your browser: **[md.genedai.me/https://example.com](https://md.genedai.me/https://example.com)**
 
 ## How It Works
 
 ```
-https://<your-worker-domain>/<target-url>
+https://md.genedai.me/<target-url>
 ```
 
 ### Conversion Flow
