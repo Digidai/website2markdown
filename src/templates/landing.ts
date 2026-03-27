@@ -118,12 +118,16 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         decisionAll: "所有 AI &rarr; llms.txt 自动发现",
         skillTitle: "Agent Skills",
         skillDesc: "一条命令安装，Agent 自动发现。包含完整使用模式、错误处理和 21 个平台适配器指南。",
-        skillFor: "适用：Claude Code、OpenClaw、Claw、Codex",
+        skillFor: "适用：Claude Code、Codex CLI、Gemini CLI、OpenClaw",
         skillClaudeCode: "Claude Code",
         skillClaudeCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown",
+        skillCodex: "Codex CLI",
+        skillCodexCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.codex/skills/website2markdown",
+        skillGemini: "Gemini CLI",
+        skillGeminiCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.gemini/skills/website2markdown",
         skillOpenClaw: "OpenClaw",
         skillOpenClawCmd: "npx clawhub@latest install website2markdown",
-        skillNote: "安装后在新会话中自动可用，无需额外配置",
+        skillNote: "一条命令安装，新会话自动发现，无需额外配置",
         mcpTitle: "MCP Server",
         mcpDesc: "标准 MCP 协议，提供 convert_url 工具。",
         mcpFor: "适用：Claude Desktop、Cursor IDE、Windsurf",
@@ -308,12 +312,16 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         decisionAll: "All AI &rarr; llms.txt auto-discovery",
         skillTitle: "Agent Skills",
         skillDesc: "One command to install, auto-discovered by your agent. Includes full usage patterns, error handling, and guides for all 21 platform adapters.",
-        skillFor: "For: Claude Code, OpenClaw, Claw, Codex",
+        skillFor: "For: Claude Code, Codex CLI, Gemini CLI, OpenClaw",
         skillClaudeCode: "Claude Code",
         skillClaudeCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown",
+        skillCodex: "Codex CLI",
+        skillCodexCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.codex/skills/website2markdown",
+        skillGemini: "Gemini CLI",
+        skillGeminiCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.gemini/skills/website2markdown",
         skillOpenClaw: "OpenClaw",
         skillOpenClawCmd: "npx clawhub@latest install website2markdown",
-        skillNote: "Auto-available in new sessions -- no extra configuration needed",
+        skillNote: "One command install, auto-discovered in new sessions",
         mcpTitle: "MCP Server",
         mcpDesc: "Standard MCP protocol with convert_url tool.",
         mcpFor: "For: Claude Desktop, Cursor IDE, Windsurf",
@@ -1713,6 +1721,10 @@ curl -X POST https://${h}/api/deepcrawl \\
             <p>${t.skillDesc}</p>
             <div class="cmd-label">${t.skillClaudeCode}</div>
             <code class="cmd-block">${t.skillClaudeCmd}</code>
+            <div class="cmd-label">${t.skillCodex}</div>
+            <code class="cmd-block">${t.skillCodexCmd}</code>
+            <div class="cmd-label">${t.skillGemini}</div>
+            <code class="cmd-block">${t.skillGeminiCmd}</code>
             <div class="cmd-label">${t.skillOpenClaw}</div>
             <code class="cmd-block">${t.skillOpenClawCmd}</code>
             <div class="int-note">${t.skillNote}</div>

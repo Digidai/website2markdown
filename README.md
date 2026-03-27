@@ -470,11 +470,17 @@ One command install, auto-discovered by your agent. Includes usage patterns, err
 # Claude Code
 git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown
 
+# Codex CLI
+git clone https://github.com/Digidai/website2markdown-skills ~/.codex/skills/website2markdown
+
+# Gemini CLI
+git clone https://github.com/Digidai/website2markdown-skills ~/.gemini/skills/website2markdown
+
 # OpenClaw
 npx clawhub@latest install website2markdown
 ```
 
-See the [website2markdown-skills](https://github.com/Digidai/website2markdown-skills) repo for full documentation.
+One command, auto-discovered in new sessions. See the [website2markdown-skills](https://github.com/Digidai/website2markdown-skills) repo for full documentation.
 
 ### MCP Server (Claude Desktop, Cursor IDE, Windsurf)
 

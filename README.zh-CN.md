@@ -436,11 +436,17 @@ print(data["title"], data["method"])
 # Claude Code
 git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown
 
+# Codex CLI
+git clone https://github.com/Digidai/website2markdown-skills ~/.codex/skills/website2markdown
+
+# Gemini CLI
+git clone https://github.com/Digidai/website2markdown-skills ~/.gemini/skills/website2markdown
+
 # OpenClaw
 npx clawhub@latest install website2markdown
 ```
 
-完整文档见 [website2markdown-skills](https://github.com/Digidai/website2markdown-skills) 仓库。
+一条命令安装，新会话自动发现。完整文档见 [website2markdown-skills](https://github.com/Digidai/website2markdown-skills) 仓库。
 
 ### MCP Server（Claude Desktop、Cursor IDE、Windsurf）
 
