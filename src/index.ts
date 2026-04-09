@@ -465,6 +465,23 @@ export default {
       const noCache = url.searchParams.get("no_cache") === "true";
       const queryToken = url.searchParams.get("token");
       const engine = url.searchParams.get("engine") || undefined;
+
+      // Expensive parameters (no_cache, engine, force_browser) require authentication
+      if (noCache || engine || forceBrowser) {
+        const hasToken = env.PUBLIC_API_TOKEN || env.API_TOKEN;
+        const expectedToken = env.PUBLIC_API_TOKEN || env.API_TOKEN || "";
+        if (hasToken) {
+          const authorized = await isAuthorizedByToken(request, expectedToken, queryToken);
+          if (!authorized) {
+            return errorResponse(
+              "Unauthorized",
+              "Parameters no_cache, engine, and force_browser require a valid token.",
+              401,
+              jsonErrors,
+            );
+          }
+        }
+      }
       const rawRequestPath = buildRawRequestPath(targetUrl, {
         selector,
         forceBrowser,

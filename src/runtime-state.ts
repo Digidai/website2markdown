@@ -37,7 +37,6 @@ export const runtimeCounters: RuntimeCounters = {
 };
 
 export const localRateCounters = new Map<string, { count: number; expiresAt: number }>();
-export const degradedRateLimitLogs = new Map<string, number>();
 
 // Paywall 同步状态
 export const PAYWALL_RULES_REFRESH_MS = 60_000;

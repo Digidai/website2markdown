@@ -28,10 +28,9 @@ export const BROWSER_CONCURRENCY = 2;
 
 /** Per-IP request limits (per 60 second window, when client IP is available). */
 export const RATE_LIMIT_WINDOW_SECONDS = 60;
-export const RATE_LIMIT_CONVERT_PER_WINDOW = 60;
+export const RATE_LIMIT_CONVERT_PER_WINDOW = 20;
 export const RATE_LIMIT_STREAM_PER_WINDOW = 30;
 export const RATE_LIMIT_BATCH_PER_WINDOW = 10;
-export const RATE_LIMIT_DEGRADED_FACTOR = 0.5;
 
 /** Valid output formats. */
 export const VALID_FORMATS = new Set(["markdown", "html", "text", "json"]);

@@ -6,17 +6,13 @@ import {
   RATE_LIMIT_CONVERT_PER_WINDOW,
   RATE_LIMIT_STREAM_PER_WINDOW,
   RATE_LIMIT_BATCH_PER_WINDOW,
-  RATE_LIMIT_DEGRADED_FACTOR,
 } from "../config";
 import {
   localRateCounters,
-  degradedRateLimitLogs,
   incrementCounter,
   logMetric,
 } from "../runtime-state";
 import { withExtraHeaders, errorResponse } from "../helpers/response";
-
-const RATE_LIMIT_DEGRADED_LOG_THROTTLE_MS = 60_000;
 
 export type RateLimitRoute = "convert" | "stream" | "batch";
 
@@ -61,46 +57,6 @@ export function consumeLocalRateCounter(
   return nextCount;
 }
 
-export function shouldLogRateLimitDegraded(route: RateLimitRoute, ip: string, nowMs: number): boolean {
-  const key = `${route}:${ip}`;
-  const lastLoggedAt = degradedRateLimitLogs.get(key);
-  if (lastLoggedAt !== undefined && nowMs - lastLoggedAt < RATE_LIMIT_DEGRADED_LOG_THROTTLE_MS) {
-    return false;
-  }
-
-  degradedRateLimitLogs.set(key, nowMs);
-  if (degradedRateLimitLogs.size > 2000) {
-    const staleBefore = nowMs - RATE_LIMIT_DEGRADED_LOG_THROTTLE_MS;
-    for (const [entryKey, loggedAt] of degradedRateLimitLogs) {
-      if (loggedAt < staleBefore) {
-        degradedRateLimitLogs.delete(entryKey);
-      }
-    }
-  }
-  return true;
-}
-
-export async function consumeDistributedRateCounter(
-  env: Env,
-  route: RateLimitRoute,
-  ip: string,
-  nowMs: number,
-): Promise<number | null> {
-  const windowMs = RATE_LIMIT_WINDOW_SECONDS * 1000;
-  const bucket = Math.floor(nowMs / windowMs);
-  const key = `rl:v1:${route}:${ip}:${bucket}`;
-  try {
-    const raw = await env.CACHE_KV.get(key, "text");
-    const current = Math.max(0, parseInt(raw || "0", 10) || 0);
-    const next = current + 1;
-    await env.CACHE_KV.put(key, String(next), {
-      expirationTtl: RATE_LIMIT_WINDOW_SECONDS + 5,
-    });
-    return next;
-  } catch {
-    return null;
-  }
-}
 
 function getClientIp(request: Request): string | null {
   const cfIp = request.headers.get("cf-connecting-ip");
@@ -114,33 +70,15 @@ function getClientIp(request: Request): string | null {
 
 export async function consumeRateLimit(
   request: Request,
-  env: Env,
+  _env: Env,
   route: RateLimitRoute,
 ): Promise<RateLimitDecision | null> {
   const ip = getClientIp(request);
   if (!ip) return null;
 
   const nowMs = Date.now();
-  const baseLimit = limitForRoute(route);
-  const localCount = consumeLocalRateCounter(route, ip, nowMs);
-  const distributedCount = await consumeDistributedRateCounter(env, route, ip, nowMs);
-  const distributedUnavailable = distributedCount === null;
-  const limit = distributedUnavailable
-    ? Math.max(1, Math.floor(baseLimit * RATE_LIMIT_DEGRADED_FACTOR))
-    : baseLimit;
-  const count = distributedUnavailable
-    ? localCount
-    : Math.max(localCount, distributedCount);
-
-  if (distributedUnavailable && shouldLogRateLimitDegraded(route, ip, nowMs)) {
-    logMetric("rate_limit.degraded_mode", {
-      route,
-      ip,
-      local_count: localCount,
-      limit,
-      base_limit: baseLimit,
-    });
-  }
+  const limit = limitForRoute(route);
+  const count = consumeLocalRateCounter(route, ip, nowMs);
 
   const windowMs = RATE_LIMIT_WINDOW_SECONDS * 1000;
   const retryAfterSeconds = Math.max(
