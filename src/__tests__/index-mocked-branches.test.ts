@@ -198,9 +198,9 @@ describe("index mocked branch coverage", () => {
     mocked.browser.fetchWithBrowser.mockRejectedValueOnce(new Error("PROXY_RETRY:SID=abc"));
 
     const req = new Request("https://md.example.com/https://example.com/proxy-missing", {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(502);
@@ -227,9 +227,10 @@ describe("index mocked branch coverage", () => {
 
     const { env } = createMockEnv({
       PROXY_URL: "u:p@proxy.example.com:8080",
+      API_TOKEN: "test-token",
     });
     const req = new Request("https://md.example.com/https://example.com/proxy-ok?raw=true", {
-      headers: { Accept: "text/markdown" },
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env);
 
@@ -263,9 +264,10 @@ describe("index mocked branch coverage", () => {
 
     const { env } = createMockEnv({
       PROXY_URL: "u:p@proxy.example.com:8080",
+      API_TOKEN: "test-token",
     });
     const req = new Request("https://md.example.com/https://example.com/proxy-token?raw=true", {
-      headers: { Accept: "text/markdown" },
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env);
 
@@ -293,9 +295,10 @@ describe("index mocked branch coverage", () => {
 
     const { env } = createMockEnv({
       PROXY_URL: "u:p@proxy.example.com:8080",
+      API_TOKEN: "test-token",
     });
     const req = new Request("https://md.example.com/https://example.com/proxy-garbage", {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env);
     const payload = await res.json() as { error?: string; message?: string };
@@ -342,9 +345,10 @@ describe("index mocked branch coverage", () => {
 
     const { env } = createMockEnv({
       PROXY_POOL: "u1:p1@proxy-1.example.com:8080,u2:p2@proxy-2.example.com:8080",
+      API_TOKEN: "test-token",
     });
     const req = new Request("https://md.example.com/https://example.com/proxy-pool?raw=true", {
-      headers: { Accept: "text/markdown" },
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env);
 
@@ -548,9 +552,9 @@ describe("index mocked branch coverage", () => {
     mocked.browser.fetchWithBrowser.mockRejectedValueOnce(new Error("render failed"));
 
     const req = new Request("https://md.example.com/https://example.com/challenge?raw=true", {
-      headers: { Accept: "text/markdown" },
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("# md body");

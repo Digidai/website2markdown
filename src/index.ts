@@ -300,7 +300,11 @@ export default {
         return rateLimitedResponse("stream", decision, true);
       }
       incrementCounter("streamRequests");
-      return handleStream(request, env, host, url);
+      // Determine browser access for stream: authenticated users get full pipeline
+      const streamIsAuth = env.PUBLIC_API_TOKEN
+        ? await isAuthorizedByToken(request, env.PUBLIC_API_TOKEN, streamToken)
+        : false;
+      return handleStream(request, env, host, url, streamIsAuth);
     }
 
     // R2 image proxy
@@ -475,21 +479,23 @@ export default {
       const queryToken = url.searchParams.get("token");
       const engine = url.searchParams.get("engine") || undefined;
 
+      // Determine authentication status — used for tier-based resource allocation.
+      // Anonymous users: cache + readability only (no browser rendering).
+      // Authenticated users: full pipeline including browser, proxy, engine selection.
+      const expectedToken = env.PUBLIC_API_TOKEN || env.API_TOKEN || "";
+      const isAuthenticated = expectedToken
+        ? await isAuthorizedByToken(request, expectedToken, queryToken)
+        : false;
+      const browserAllowed = isAuthenticated;
+
       // Expensive parameters (no_cache, engine, force_browser) require authentication
-      if (noCache || engine || forceBrowser) {
-        const hasToken = env.PUBLIC_API_TOKEN || env.API_TOKEN;
-        const expectedToken = env.PUBLIC_API_TOKEN || env.API_TOKEN || "";
-        if (hasToken) {
-          const authorized = await isAuthorizedByToken(request, expectedToken, queryToken);
-          if (!authorized) {
-            return errorResponse(
-              "Unauthorized",
-              "Parameters no_cache, engine, and force_browser require a valid token.",
-              401,
-              jsonErrors,
-            );
-          }
-        }
+      if ((noCache || engine || forceBrowser) && !isAuthenticated) {
+        return errorResponse(
+          "Unauthorized",
+          "Parameters no_cache, engine, and force_browser require a valid API key.",
+          401,
+          jsonErrors,
+        );
       }
       const rawRequestPath = buildRawRequestPath(targetUrl, {
         selector,
@@ -506,16 +512,13 @@ export default {
         format !== "markdown" ||
         acceptHeader.includes("application/json") ||
         acceptHeader.includes("text/markdown");
-      if (env.PUBLIC_API_TOKEN && isApiStyleRequest) {
-        const authorized = await isAuthorizedByToken(request, env.PUBLIC_API_TOKEN, queryToken);
-        if (!authorized) {
-          return errorResponse(
-            "Unauthorized",
-            "Valid token required for API access.",
-            401,
-            true,
-          );
-        }
+      if (env.PUBLIC_API_TOKEN && isApiStyleRequest && !isAuthenticated) {
+        return errorResponse(
+          "Unauthorized",
+          "Valid token required for API access.",
+          401,
+          true,
+        );
       }
 
       const rateDecision = await consumeRateLimit(request, env, "convert");
@@ -575,7 +578,7 @@ export default {
       // ── Raw / API calls → synchronous conversion ──
       const result = await convertUrlWithMetrics(
         targetUrl, env, host, format, selector, forceBrowser, noCache,
-        undefined, undefined, engine,
+        undefined, undefined, engine, browserAllowed,
       );
 
       incrementCounter("conversionsTotal");

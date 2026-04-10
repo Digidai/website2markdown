@@ -20,6 +20,22 @@ Deferred work from CEO Review (2026-03-25).
 **Depends on:** Nothing.
 **Source:** CEO Review 2026-03-25, outside voice finding #5.
 
+### Paddle 运营 Runbook
+**What:** Paddle 支付运营文档 — 退款流程、拒付处理、取消降级逻辑、对账检查清单。
+**Why:** 代码好写，运营难做。Codex outside voice 指出没有 runbook 的支付集成是定时炸弹。
+**Effort:** S (just a document)
+**Priority:** P1 (Phase D 前置条件)
+**Depends on:** Phase C (Developer Portal) 完成
+**Source:** CEO Review 2026-04-10, outside voice finding.
+
+### 匿名用户反滥用加固
+**What:** 匿名用户反滥用措施 — 每 IP 日请求上限、cold URL 限流、CF WAF 规则配置。
+**Why:** Phase A 限制匿名到 cache+readability，但攻击者仍可打大量冷门 URL 制造 miss、拉源站、耗 KV write。Codex outside voice 指出当前方案只修了"最贵路径"，不是"滥用面"。
+**Effort:** S
+**Priority:** P2 (在 Phase A 之后)
+**Depends on:** Phase A 完成
+**Source:** CEO Review 2026-04-10, outside voice finding.
+
 ## P3 — Future, Demand-Driven
 
 ### Docker / Non-Cloudflare Deployment

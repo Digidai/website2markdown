@@ -188,9 +188,9 @@ describe("index route edge coverage", () => {
     vi.mocked(puppeteer.launch).mockRejectedValueOnce(new Error("browser down"));
 
     const req = new Request("https://md.example.com/https://example.com/fail?force_browser=true", {
-      headers: { Accept: "application/json" },
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(502);

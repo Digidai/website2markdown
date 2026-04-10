@@ -240,8 +240,9 @@ describe("index conversion/stream/og routes", () => {
 
     const req = new Request(
       "https://md.example.com/https://example.com/jina?raw=true&format=html&engine=jina",
+      { headers: { Authorization: "Bearer test-token" } },
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -267,8 +268,9 @@ describe("index conversion/stream/og routes", () => {
 
     const req = new Request(
       "https://md.example.com/https://example.com/jina?raw=true&format=text&engine=jina",
+      { headers: { Authorization: "Bearer test-token" } },
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
     const body = await res.text();
 
     expect(res.status).toBe(200);

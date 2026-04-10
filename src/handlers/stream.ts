@@ -99,6 +99,7 @@ export function handleStream(
   env: Env,
   host: string,
   url: URL,
+  browserAllowed: boolean = true,
 ): Response {
   const targetUrl = url.searchParams.get("url");
   if (!targetUrl || !isValidUrl(targetUrl)) {
@@ -141,6 +142,7 @@ export function handleStream(
         async (step, label) => { await send("step", { id: step, label }); },
         streamSignal,
         engine,
+        browserAllowed,
       );
       await send("done", {
         rawUrl: rawRequestPath,

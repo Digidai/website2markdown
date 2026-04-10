@@ -274,6 +274,7 @@ export async function convertUrl(
   onProgress?: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
   engine?: string,
+  browserAllowed: boolean = true,
 ): Promise<ConvertResult> {
   const progress = onProgress || (() => {});
   throwIfAborted(abortSignal);
@@ -281,6 +282,9 @@ export async function convertUrl(
   let browserRendered = false;
   let paywallDetected = false;
   let sourceContentType = "text/html";
+
+  // Anonymous tier: forceBrowser is ineffective when browser is not allowed
+  const effectiveForceBrowser = browserAllowed ? forceBrowser : false;
 
   // 1. 缓存
   if (!noCache) {
@@ -306,24 +310,24 @@ export async function convertUrl(
     }
   }
 
-  // 2a. Jina 快速路径 — engine=jina 时跳过所有其他转换
+  // 2a. Jina 快速路径 — engine=jina 时跳过所有其他转换 (requires auth)
   if (engine === "jina") {
     return tryJinaFastPath(targetUrl, env, format, selector, noCache, engine, progress, abortSignal);
   }
 
-  // 2b. CF Markdown 快速路径
+  // 2b. CF Markdown 快速路径 (allowed for anonymous — it's a CF-internal API, low cost)
   if (engine === "cf" || ((!engine || engine === "auto") && await isCfEligible(targetUrl, env))) {
     const cfResult = await tryCfRestApi(
-      targetUrl, env, format, selector, forceBrowser, noCache, engine, fallbacks, progress, abortSignal,
+      targetUrl, env, format, selector, effectiveForceBrowser, noCache, engine, fallbacks, progress, abortSignal,
     );
     if (cfResult) return cfResult;
   }
 
   // 3. Fetch & parse
   return tryFetchAndParse(
-    targetUrl, env, host, format, selector, forceBrowser, noCache, engine,
+    targetUrl, env, host, format, selector, effectiveForceBrowser, noCache, engine,
     fallbacks, browserRendered, paywallDetected, sourceContentType,
-    progress, abortSignal,
+    progress, abortSignal, browserAllowed,
   );
 }
 
@@ -463,6 +467,7 @@ async function tryFetchAndParse(
   sourceContentType: string,
   progress: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
+  browserAllowed: boolean = true,
 ): Promise<ConvertResult> {
   let finalHtml = "";
   let method: ConvertMethod = "readability+turndown";
@@ -492,7 +497,7 @@ async function tryFetchAndParse(
   }
 
   // 早期浏览器路径 — 对总是需要浏览器的站点跳过多余的静态获取
-  if (!finalHtml && alwaysNeedsBrowser(targetUrl)) {
+  if (!finalHtml && alwaysNeedsBrowser(targetUrl) && browserAllowed) {
     const result = await tryBrowserRendering(
       targetUrl, env, host, fallbacks, abortSignal, progress,
     );
@@ -506,7 +511,7 @@ async function tryFetchAndParse(
     const staticResult = await tryStaticFetch(
       targetUrl, env, host, format, selector, forceBrowser, noCache, engine,
       fallbacks, browserRendered, paywallDetected, sourceContentType,
-      resolvedUrl, method, progress, abortSignal,
+      resolvedUrl, method, progress, abortSignal, browserAllowed,
     );
     if (staticResult.earlyReturn) {
       return staticResult.earlyReturn;
@@ -876,6 +881,7 @@ async function tryStaticFetch(
   method: ConvertMethod,
   progress: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
+  browserAllowed: boolean = true,
 ): Promise<StaticFetchResult> {
   let finalHtml = "";
 
@@ -945,6 +951,13 @@ async function tryStaticFetch(
   }
 
   if (staticFailed && !finalHtml) {
+    if (!browserAllowed) {
+      throw new ConvertError(
+        "Fetch Failed",
+        `Could not fetch this URL with basic methods. An API key is required for browser-rendered pages. Status: ${response.status}`,
+        502,
+      );
+    }
     // forceBrowser 为 true — 直接进入浏览器渲染
     throwIfAborted(abortSignal);
     await progress("browser", "Rendering with browser");
@@ -1054,7 +1067,7 @@ async function tryStaticFetch(
 
     // 7. 检查是否需要浏览器渲染
     finalHtml = body;
-    if (forceBrowser || needsBrowserRendering(body, resolvedUrl)) {
+    if (browserAllowed && (forceBrowser || needsBrowserRendering(body, resolvedUrl))) {
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {

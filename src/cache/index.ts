@@ -183,7 +183,19 @@ async function urlHash(str: string): Promise<string> {
   return hash;
 }
 
-/** Build a cache key from URL + format + optional selector/engine. KV key max is 512 bytes. */
+/**
+ * Build a unified cache key that works as both a KV key and a Cache API URL.
+ *
+ *   Cache layer diagram:
+ *   ┌──────────┐    ┌───────────┐    ┌─────────┐
+ *   │ hot_cache │───▶│ Cache API  │───▶│   KV    │
+ *   │ (15s,mem) │    │ (free,colo)│    │ (global)│
+ *   └──────────┘    └───────────┘    └─────────┘
+ *
+ * Format: https://md-cache/v1/{format}/{engine}/{contentHash}
+ *   contentHash = SHA-256(url|selector|engine), first 16 hex chars
+ *   Under 100 chars total, valid URL for Cache API, valid string for KV.
+ */
 async function cacheKey(
   url: string,
   format: string,
@@ -194,44 +206,60 @@ async function cacheKey(
   const memoized = getMemoized(cacheKeyMemo, memoKey);
   if (memoized) return memoized;
 
-  const maxKeyLength = 500;
-  const enginePart = engine ? `:eng=${engine}` : "";
-  let selPart = selector ? `:sel=${selector}` : "";
+  const contentHash = await urlHash(`${url}|${selector || ""}|${engine || ""}`);
+  const eng = engine || "default";
+  const key = `https://md-cache/v1/${format}/${eng}/${contentHash}`;
 
-  // Keep selector bounded in cache keys.
-  if (selector && selector.length > 120) {
-    const selectorHash = await urlHash(selector);
-    selPart = `:sel=${selector.slice(0, 120)}:sh=${selectorHash}`;
-  }
-
-  let full = `md:${format}${enginePart}${selPart}:${url}`;
-  if (full.length <= maxKeyLength) {
-    touchBoundedMap(cacheKeyMemo, memoKey, full, CACHE_KEY_MEMO_CAPACITY);
-    return full;
-  }
-
-  // If key is still too long, hash selector as well (if not hashed yet).
-  if (selector && !selPart.includes(":sh=")) {
-    const selectorHash = await urlHash(selector);
-    selPart = `:sel=${selector.slice(0, 120)}:sh=${selectorHash}`;
-    full = `md:${format}${enginePart}${selPart}:${url}`;
-    if (full.length <= maxKeyLength) {
-      touchBoundedMap(cacheKeyMemo, memoKey, full, CACHE_KEY_MEMO_CAPACITY);
-      return full;
-    }
-  }
-
-  // Truncate URL and append SHA-256 hash.
-  const hash = await urlHash(`${url}|${selector || ""}|${engine || ""}`);
-  const prefix = `md:${format}${enginePart}${selPart}:`;
-  const suffix = `:h=${hash}`;
-  const maxUrlLength = Math.max(0, maxKeyLength - prefix.length - suffix.length);
-  const finalKey = `${prefix}${url.slice(0, maxUrlLength)}${suffix}`;
-  touchBoundedMap(cacheKeyMemo, memoKey, finalKey, CACHE_KEY_MEMO_CAPACITY);
-  return finalKey;
+  touchBoundedMap(cacheKeyMemo, memoKey, key, CACHE_KEY_MEMO_CAPACITY);
+  return key;
 }
 
-/** Get cached markdown/content from KV. Returns null on miss. */
+/** Cache API helpers — free, per-colo, ephemeral. */
+const CACHE_API_READ_TIMEOUT_MS = 500;
+const CACHE_API_WRITE_TIMEOUT_MS = 1000;
+
+async function getCacheApi(key: string): Promise<CachedPayload | null> {
+  try {
+    if (typeof caches === "undefined") return null;
+    const cache = caches.default;
+    const response = await withTimeout(
+      cache.match(new Request(key)),
+      CACHE_API_READ_TIMEOUT_MS,
+      "Cache API read timed out",
+    );
+    if (!response) return null;
+    const raw = await response.text();
+    return parseCachedPayload(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function putCacheApi(
+  key: string,
+  data: CachedPayload,
+  ttlSeconds: number,
+): Promise<void> {
+  try {
+    if (typeof caches === "undefined") return;
+    const cache = caches.default;
+    const response = new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": `max-age=${ttlSeconds}`,
+      },
+    });
+    await withTimeout(
+      cache.put(new Request(key), response),
+      CACHE_API_WRITE_TIMEOUT_MS,
+      "Cache API write timed out",
+    );
+  } catch {
+    // Cache API write failure is non-fatal — KV is the durable layer
+  }
+}
+
+/** Get cached markdown/content. 3-tier: hot_cache → Cache API → KV. */
 export async function getCached(
   env: Env,
   url: string,
@@ -242,9 +270,18 @@ export async function getCached(
   try {
     const key = await cacheKey(url, format, selector, engine);
 
+    // Tier 1: in-memory hot cache (15s TTL, per-isolate)
     const hot = getHotCache(key);
     if (hot) return hot;
 
+    // Tier 2: Cache API (free, per-colo, ephemeral)
+    const apiCached = await getCacheApi(key);
+    if (apiCached) {
+      putHotCache(key, apiCached, HOT_CACHE_TTL_MS);
+      return clonePayload(apiCached);
+    }
+
+    // Tier 3: KV (global, persistent, paid per-op)
     const raw = await withTimeout(
       env.CACHE_KV.get(key, "text"),
       CACHE_READ_TIMEOUT_MS,
@@ -253,14 +290,17 @@ export async function getCached(
     if (!raw) return null;
     const parsed = parseCachedPayload(raw);
     if (!parsed) return null;
+    // Backfill: write to Cache API + hot cache so next read avoids KV
     putHotCache(key, parsed, HOT_CACHE_TTL_MS);
+    const backfillTtl = getTtlForUrl(url);
+    putCacheApi(key, parsed, backfillTtl).catch(() => {});
     return clonePayload(parsed);
   } catch {
     return null;
   }
 }
 
-/** Store result in KV cache. */
+/** Store result in all cache tiers. */
 export async function setCache(
   env: Env,
   url: string,
@@ -273,7 +313,14 @@ export async function setCache(
   try {
     const key = await cacheKey(url, format, selector, engine);
     const effectiveTtl = ttl ?? getTtlForUrl(url);
+
+    // Tier 1: hot cache
     putHotCache(key, data, hotTtlMs(effectiveTtl));
+
+    // Tier 2: Cache API (fire-and-forget, non-blocking)
+    putCacheApi(key, data, effectiveTtl).catch(() => {});
+
+    // Tier 3: KV (durable, paid per-op)
     await withTransientRetry(() =>
       withTimeout(
         env.CACHE_KV.put(key, JSON.stringify(data), {

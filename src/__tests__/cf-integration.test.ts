@@ -171,9 +171,9 @@ function cfEnv(overrides?: Record<string, unknown>) {
 
 describe("CF REST API integration in convertUrl", () => {
   it("uses CF /markdown for eligible URLs with engine=cf", async () => {
-    const { env } = cfEnv();
+    const { env } = cfEnv({ API_TOKEN: "test-token" });
     const req = new Request("https://md.example.com/https://example.com/page?raw=true&engine=cf", {
-      headers: { Accept: "text/markdown" },
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env);
 
@@ -313,9 +313,9 @@ describe("CF REST API integration in convertUrl", () => {
   });
 
   it("caches CF results in KV", async () => {
-    const { env } = cfEnv();
+    const { env } = cfEnv({ API_TOKEN: "test-token" });
     const req = new Request("https://md.example.com/https://example.com/cacheable?raw=true&engine=cf", {
-      headers: { Accept: "text/markdown" },
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     await worker.fetch(req, env);
 

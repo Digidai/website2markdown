@@ -103,23 +103,21 @@ describe("cache edge behavior", () => {
     const [secondKey] = mocks.kvPut.mock.calls[1] as [string, string, { expirationTtl?: number }];
 
     expect(firstKey.length).toBeLessThanOrEqual(500);
-    expect(firstKey).toContain(":sh=");
-    expect(firstKey).toContain(":h=");
+    expect(firstKey).toMatch(/^https:\/\/md-cache\/v1\//);
     expect(secondKey).toBe(firstKey);
-    expect(digestSpy.mock.calls.length - baseline).toBe(2);
+    // New unified key format uses a single SHA-256 hash for all inputs
+    expect(digestSpy.mock.calls.length - baseline).toBeGreaterThanOrEqual(1);
   });
 
   it("retries transient kv write failures and then succeeds", async () => {
-    vi.useFakeTimers();
     const { env, mocks } = createCacheEnv();
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.kvPut
       .mockRejectedValueOnce(new Error("network timeout"))
       .mockResolvedValueOnce(undefined);
 
-    const promise = setCache(env, "https://example.com/retry", "markdown", payload("retry"));
-    await vi.advanceTimersByTimeAsync(80);
-    await promise;
+    // Real timers — retry delay is 60ms, well within default timeout
+    await setCache(env, "https://example.com/retry", "markdown", payload("retry"));
 
     expect(mocks.kvPut).toHaveBeenCalledTimes(2);
     expect(consoleSpy).not.toHaveBeenCalled();
