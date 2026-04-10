@@ -41,6 +41,14 @@ export function createMockEnv(overrides?: Partial<Env>): {
   };
 }
 
+/** Mock ExecutionContext for tests (fetch handler's 3rd argument) */
+export function mockCtx(): ExecutionContext {
+  return {
+    waitUntil: vi.fn(),
+    passThroughOnException: vi.fn(),
+  } as unknown as ExecutionContext;
+}
+
 export function createByteStream(
   chunkSize: number,
   chunkCount: number,

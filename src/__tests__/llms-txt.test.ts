@@ -6,7 +6,7 @@ vi.mock("cloudflare:sockets", () => ({
 
 import worker from "../index";
 import { handleLlmsTxt, fetchTargetLlmsTxt } from "../handlers/llms-txt";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -16,7 +16,7 @@ afterEach(() => {
 describe("GET /llms.txt", () => {
   it("returns correct content with text/plain content type", async () => {
     const req = new Request("https://md.example.com/llms.txt");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
@@ -35,8 +35,8 @@ describe("GET /llms.txt", () => {
     const req2 = new Request("https://md.example.com/.well-known/llms.txt");
     const env = createMockEnv().env;
 
-    const res1 = await worker.fetch(req1, env);
-    const res2 = await worker.fetch(req2, env);
+    const res1 = await worker.fetch(req1, env, mockCtx());
+    const res2 = await worker.fetch(req2, env, mockCtx());
 
     expect(res1.status).toBe(200);
     expect(res2.status).toBe(200);

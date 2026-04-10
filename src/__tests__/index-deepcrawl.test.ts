@@ -6,7 +6,7 @@ vi.mock("cloudflare:sockets", () => ({
 
 import worker from "../index";
 import { setCache } from "../cache";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -127,7 +127,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       crawlId?: string;
       results?: Array<{ url: string; depth: number }>;
@@ -154,7 +154,7 @@ describe("POST /api/deepcrawl", () => {
       max_pages: 2,
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { crawlId?: string };
 
     expect(res.status).toBe(200);
@@ -176,7 +176,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -199,7 +199,7 @@ describe("POST /api/deepcrawl", () => {
         snapshot_interval: 1,
       },
     }, "token");
-    const firstRes = await worker.fetch(firstReq, env);
+    const firstRes = await worker.fetch(firstReq, env, mockCtx());
     const firstPayload = await firstRes.json() as {
       results?: Array<{ url: string }>;
       resumed?: boolean;
@@ -215,7 +215,7 @@ describe("POST /api/deepcrawl", () => {
         snapshot_interval: 1,
       },
     }, "token");
-    const resumeRes = await worker.fetch(resumeReq, env);
+    const resumeRes = await worker.fetch(resumeReq, env, mockCtx());
     const resumePayload = await resumeRes.json() as {
       results?: Array<{ url: string }>;
       resumed?: boolean;
@@ -244,7 +244,7 @@ describe("POST /api/deepcrawl", () => {
         snapshot_interval: 1,
       },
     }, "token");
-    const firstRes = await worker.fetch(firstReq, env);
+    const firstRes = await worker.fetch(firstReq, env, mockCtx());
     expect(firstRes.status).toBe(200);
 
     const resumeReq = deepcrawlRequest({
@@ -260,7 +260,7 @@ describe("POST /api/deepcrawl", () => {
         snapshot_interval: 1,
       },
     }, "token");
-    const resumeRes = await worker.fetch(resumeReq, env);
+    const resumeRes = await worker.fetch(resumeReq, env, mockCtx());
     const payload = await resumeRes.json() as { error?: string; message?: string };
 
     expect(resumeRes.status).toBe(409);
@@ -277,7 +277,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -292,7 +292,7 @@ describe("POST /api/deepcrawl", () => {
       seed,
       max_depth: 7,
     }, "token");
-    const badDepthRes = await worker.fetch(badDepthReq, env);
+    const badDepthRes = await worker.fetch(badDepthReq, env, mockCtx());
     const badDepthPayload = await badDepthRes.json() as { error?: string; message?: string };
     expect(badDepthRes.status).toBe(400);
     expect(badDepthPayload.error).toBe("Invalid request");
@@ -302,7 +302,7 @@ describe("POST /api/deepcrawl", () => {
       seed,
       max_pages: 0,
     }, "token");
-    const badPagesRes = await worker.fetch(badPagesReq, env);
+    const badPagesRes = await worker.fetch(badPagesReq, env, mockCtx());
     const badPagesPayload = await badPagesRes.json() as { error?: string; message?: string };
     expect(badPagesRes.status).toBe(400);
     expect(badPagesPayload.error).toBe("Invalid request");
@@ -316,7 +316,7 @@ describe("POST /api/deepcrawl", () => {
       max_depth: 1.5,
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -333,7 +333,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -351,7 +351,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -369,7 +369,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -403,7 +403,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{ success?: boolean; error?: string; method?: string }>;
     };
@@ -431,7 +431,7 @@ describe("POST /api/deepcrawl", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{ success?: boolean; error?: string; method?: string }>;
     };

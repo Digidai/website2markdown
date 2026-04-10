@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 const mocked = vi.hoisted(() => {
   // Sentinel object used to verify genericAdapter identity checks
@@ -175,7 +175,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/page?raw=true&engine=cf", {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -189,7 +189,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/page?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Markdown-Method")).toBe("cf");
@@ -211,7 +211,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/abc?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
@@ -231,7 +231,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/paywalled?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
@@ -255,7 +255,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/blocked?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
@@ -279,7 +279,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/cf-empty?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     // Should have attempted CF, then fallen back
@@ -304,7 +304,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/cf-error?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(mocked.cfRest.fetchViaCfMarkdown).toHaveBeenCalledTimes(1);
@@ -317,7 +317,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/cacheable?raw=true&engine=cf", {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
-    await worker.fetch(req, env);
+    await worker.fetch(req, env, mockCtx());
 
     expect(mocked.cache.setCache).toHaveBeenCalledTimes(1);
     const setCacheArgs = mocked.cache.setCache.mock.calls[0];
@@ -337,7 +337,7 @@ describe("CF REST API integration in convertUrl", () => {
     const req = new Request("https://md.example.com/https://example.com/no-cf?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
@@ -358,7 +358,7 @@ describe("CF integration in batch handler", () => {
         urls: ["https://example.com/a", "https://example.com/b"],
       }),
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     const body = await res.json() as any;
@@ -398,7 +398,7 @@ describe("CF integration in batch handler", () => {
         ],
       }),
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     const body = await res.json() as any;

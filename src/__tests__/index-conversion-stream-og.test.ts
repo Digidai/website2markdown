@@ -5,7 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -18,7 +18,7 @@ describe("index conversion/stream/og routes", () => {
       "https://md.example.com/https://example.com/article?format=xml",
       { headers: { Accept: "application/json" } },
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -31,7 +31,7 @@ describe("index conversion/stream/og routes", () => {
       "https://md.example.com/https://exa mple.com",
       { headers: { Accept: "application/json" } },
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string; status?: number };
 
     expect(res.status).toBe(400);
@@ -43,7 +43,7 @@ describe("index conversion/stream/og routes", () => {
       "https://md.example.com/http://127.0.0.1/private",
       { headers: { Accept: "application/json" } },
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(403);
@@ -61,7 +61,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request("https://md.example.com/https://example.com/file", {
       headers: { Accept: "application/json" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(415);
@@ -79,7 +79,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request("https://md.example.com/https://example.com/style.css", {
       headers: { Accept: "application/json" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(415);
@@ -96,7 +96,7 @@ describe("index conversion/stream/og routes", () => {
         "Sec-Fetch-Dest": "document",
       },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const html = await res.text();
 
     expect(res.status).toBe(200);
@@ -122,7 +122,7 @@ describe("index conversion/stream/og routes", () => {
         "Sec-Fetch-Dest": "document",
       },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const html = await res.text();
 
     expect(res.status).toBe(200);
@@ -142,7 +142,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request("https://md.example.com/https://example.com/md", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -160,7 +160,7 @@ describe("index conversion/stream/og routes", () => {
     ));
 
     const req = new Request("https://md.example.com/https://example.com/md?raw=true&format=html");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -178,7 +178,7 @@ describe("index conversion/stream/og routes", () => {
     ));
 
     const req = new Request("https://md.example.com/https://example.com/md?raw=true&format=json");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { method?: string; markdown?: string };
 
     expect(res.status).toBe(200);
@@ -195,7 +195,7 @@ describe("index conversion/stream/og routes", () => {
     ));
 
     const req = new Request("https://md.example.com/https://example.com/md?raw=true&format=text");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -214,7 +214,7 @@ describe("index conversion/stream/og routes", () => {
     ));
 
     const req = new Request("https://md.example.com/https://example.com/t?raw=true&format=text");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -242,7 +242,7 @@ describe("index conversion/stream/og routes", () => {
       "https://md.example.com/https://example.com/jina?raw=true&format=html&engine=jina",
       { headers: { Authorization: "Bearer test-token" } },
     );
-    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -270,7 +270,7 @@ describe("index conversion/stream/og routes", () => {
       "https://md.example.com/https://example.com/jina?raw=true&format=text&engine=jina",
       { headers: { Authorization: "Bearer test-token" } },
     );
-    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -286,7 +286,7 @@ describe("index conversion/stream/og routes", () => {
       `https://md.example.com/https://example.com/t?raw=true&selector=${selector}`,
       { headers: { Accept: "application/json" } },
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(400);
@@ -307,7 +307,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request(
       "https://md.example.com/https://example.com/t?raw=true&format=text&selector=.main",
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -341,7 +341,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request(
       "https://md.example.com/https://example.com/original?raw=true&format=json",
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { url?: string; markdown?: string };
 
     expect(res.status).toBe(200);
@@ -352,7 +352,7 @@ describe("index conversion/stream/og routes", () => {
 
   it("streams fail event for invalid /api/stream URL", async () => {
     const req = new Request("https://md.example.com/api/stream?url=not-a-url");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -366,7 +366,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request(
       `https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&selector=${selector}`,
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -383,7 +383,7 @@ describe("index conversion/stream/og routes", () => {
     ));
 
     const req = new Request("https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -410,7 +410,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request(
       "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&selector=.main&force_browser=true&no_cache=true&engine=jina&token=public-token",
     );
-    const res = await worker.fetch(req, createMockEnv({ PUBLIC_API_TOKEN: "public-token" }).env);
+    const res = await worker.fetch(req, createMockEnv({ PUBLIC_API_TOKEN: "public-token" }).env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -429,7 +429,7 @@ describe("index conversion/stream/og routes", () => {
     ));
 
     const req = new Request("https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Ffail");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -441,7 +441,7 @@ describe("index conversion/stream/og routes", () => {
 
   it("renders /api/og svg image", async () => {
     const req = new Request("https://md.example.com/api/og?title=This%20is%20a%20long%20title");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);

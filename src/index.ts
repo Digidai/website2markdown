@@ -1,6 +1,7 @@
 // 主入口：路由分发与 Cloudflare Worker 导出
 
-import type { ConvertMethod, Env, OutputFormat } from "./types";
+import type { ConvertMethod, Env, OutputFormat, AuthContext, PolicyDecision, Tier } from "./types";
+import { TIER_QUOTAS } from "./types";
 import {
   MAX_SELECTOR_LENGTH,
   CORS_HEADERS,
@@ -32,7 +33,10 @@ import {
   setPaywallSyncState,
 } from "./runtime-state";
 import { isAuthorizedByToken } from "./middleware/auth";
+import { resolveAuth } from "./middleware/auth-d1";
+import { buildPolicy, checkPolicy, policyHeaders } from "./middleware/tier-gate";
 import { consumeRateLimit, rateLimitedResponse } from "./middleware/rate-limit";
+import { recordUsage, flushUsage, shouldFlush, handleUsage } from "./handlers/usage";
 import {
   LANDING_CSP,
   LOADING_CSP,
@@ -117,7 +121,7 @@ function isDocumentNavigationRequest(request: Request, acceptHeader: string): bo
 // ─── 主 fetch handler ────────────────────────────────────────
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const host = url.host;
     const path = url.pathname;
@@ -268,43 +272,54 @@ export default {
       return handleOgImage(url, host);
     }
 
+    // GET /api/usage — per-key usage data
+    if (path === "/api/usage" && request.method === "GET") {
+      const auth = await resolveAuth(request, env);
+      return handleUsage(auth, env);
+    }
+
     // SSE stream endpoint (GET only — HEAD would trigger conversion with no body)
     if (path === "/api/stream") {
       if (request.method !== "GET") {
         return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
       }
-      const streamToken = url.searchParams.get("token");
-      const streamNoCache = url.searchParams.get("no_cache") === "true";
-      const streamEngine = url.searchParams.get("engine");
-      const streamForceBrowser = url.searchParams.get("force_browser") === "true";
-      if (env.PUBLIC_API_TOKEN) {
-        const authorized = await isAuthorizedByToken(
-          request,
-          env.PUBLIC_API_TOKEN,
-          streamToken,
-        );
-        if (!authorized) {
+      // D1 auth path (preferred when AUTH_DB is configured)
+      const streamAuth = env.AUTH_DB
+        ? await resolveAuth(request, env)
+        : null;
+      const streamPolicy = streamAuth
+        ? buildPolicy(streamAuth, "stream")
+        : null;
+
+      // Legacy auth fallback (when no D1)
+      if (!streamAuth) {
+        const streamToken = url.searchParams.get("token");
+        const streamNoCache = url.searchParams.get("no_cache") === "true";
+        const streamEngine = url.searchParams.get("engine");
+        const streamForceBrowser = url.searchParams.get("force_browser") === "true";
+        if (env.PUBLIC_API_TOKEN) {
+          const authorized = await isAuthorizedByToken(request, env.PUBLIC_API_TOKEN, streamToken);
+          if (!authorized) {
+            return Response.json(
+              { error: "Unauthorized", message: "Valid token required for /api/stream" },
+              { status: 401, headers: CORS_HEADERS },
+            );
+          }
+        } else if (streamNoCache || streamEngine || streamForceBrowser) {
           return Response.json(
-            { error: "Unauthorized", message: "Valid token required for /api/stream" },
+            { error: "Unauthorized", message: "Parameters no_cache, engine, and force_browser require a valid token." },
             { status: 401, headers: CORS_HEADERS },
           );
         }
-      } else if (streamNoCache || streamEngine || streamForceBrowser) {
-        return Response.json(
-          { error: "Unauthorized", message: "Parameters no_cache, engine, and force_browser require a valid token." },
-          { status: 401, headers: CORS_HEADERS },
-        );
       }
+
       const decision = await consumeRateLimit(request, env, "stream");
       if (decision?.exceeded) {
         return rateLimitedResponse("stream", decision, true);
       }
       incrementCounter("streamRequests");
-      // Determine browser access for stream: authenticated users get full pipeline
-      const streamIsAuth = env.PUBLIC_API_TOKEN
-        ? await isAuthorizedByToken(request, env.PUBLIC_API_TOKEN, streamToken)
-        : false;
-      return handleStream(request, env, host, url, streamIsAuth);
+      const streamBrowserAllowed = streamPolicy ? streamPolicy.browserAllowed : !env.PUBLIC_API_TOKEN ? false : true;
+      return handleStream(request, env, host, url, streamBrowserAllowed);
     }
 
     // R2 image proxy
@@ -479,46 +494,61 @@ export default {
       const queryToken = url.searchParams.get("token");
       const engine = url.searchParams.get("engine") || undefined;
 
-      // Determine authentication status — used for tier-based resource allocation.
-      // Anonymous users: cache + readability only (no browser rendering).
-      // Authenticated users: full pipeline including browser, proxy, engine selection.
-      const expectedToken = env.PUBLIC_API_TOKEN || env.API_TOKEN || "";
-      const isAuthenticated = expectedToken
-        ? await isAuthorizedByToken(request, expectedToken, queryToken)
-        : false;
-      const browserAllowed = isAuthenticated;
+      // ── Auth: D1 path (preferred) or legacy token path ──
+      let auth: AuthContext;
+      let policy: PolicyDecision;
 
-      // Expensive parameters (no_cache, engine, force_browser) require authentication
-      if ((noCache || engine || forceBrowser) && !isAuthenticated) {
-        return errorResponse(
-          "Unauthorized",
-          "Parameters no_cache, engine, and force_browser require a valid API key.",
-          401,
-          jsonErrors,
-        );
+      if (env.AUTH_DB) {
+        // D1-backed auth — resolveAuth checks Bearer header
+        auth = await resolveAuth(request, env);
+        policy = buildPolicy(auth, "convert");
+      } else {
+        // Legacy path: single-token auth (no D1 configured)
+        const expectedToken = env.PUBLIC_API_TOKEN || env.API_TOKEN || "";
+        const isAuthenticated = expectedToken
+          ? await isAuthorizedByToken(request, expectedToken, queryToken)
+          : false;
+        const legacyTier: Tier = isAuthenticated ? "pro" : "anonymous";
+        auth = {
+          tier: legacyTier,
+          accountId: null, keyId: null,
+          quotaLimit: TIER_QUOTAS[legacyTier],
+          quotaUsed: 0,
+        };
+        policy = buildPolicy(auth, "convert");
       }
+
+      // Check policy for restricted parameters
+      const policyError = checkPolicy(policy, { forceBrowser, noCache, engine });
+      if (policyError) {
+        return errorResponse("Unauthorized", policyError, 401, jsonErrors);
+      }
+
+      const browserAllowed = policy.browserAllowed;
+
       const rawRequestPath = buildRawRequestPath(targetUrl, {
         selector,
         forceBrowser,
         noCache,
         engine,
-        token: queryToken || undefined,
       });
 
-      // Optional API auth for non-document requests.
-      const isApiStyleRequest =
-        !isDocumentNav ||
-        wantsRaw ||
-        format !== "markdown" ||
-        acceptHeader.includes("application/json") ||
-        acceptHeader.includes("text/markdown");
-      if (env.PUBLIC_API_TOKEN && isApiStyleRequest && !isAuthenticated) {
-        return errorResponse(
-          "Unauthorized",
-          "Valid token required for API access.",
-          401,
-          true,
-        );
+      // Optional API auth for non-document requests (legacy path only)
+      if (!env.AUTH_DB) {
+        const isApiStyleRequest =
+          !isDocumentNav ||
+          wantsRaw ||
+          format !== "markdown" ||
+          acceptHeader.includes("application/json") ||
+          acceptHeader.includes("text/markdown");
+        if (env.PUBLIC_API_TOKEN && isApiStyleRequest && auth.tier === "anonymous") {
+          return errorResponse(
+            "Unauthorized",
+            "Valid token required for API access.",
+            401,
+            true,
+          );
+        }
       }
 
       const rateDecision = await consumeRateLimit(request, env, "convert");
@@ -575,6 +605,33 @@ export default {
         );
       }
 
+      // ── Quota check with graceful degradation ──
+      if (policy.tier !== "anonymous" && policy.quotaRemaining <= 0) {
+        // Quota exceeded: try to serve cached content
+        const cachedFallback = await getCached(env, targetUrl, format, selector, engine);
+        if (cachedFallback) {
+          incrementCounter("conversionsTotal");
+          incrementCounter("cacheHits");
+          const resp = buildResponse(
+            cachedFallback.content, targetUrl, host,
+            cachedFallback.method as ConvertMethod, format,
+            wantsRaw, "", true, cachedFallback.title,
+            { cacheHit: true, browserRendered: false, paywallDetected: false, fallbacks: [] },
+            rawRequestPath,
+          );
+          resp.headers.set("X-Quota-Exceeded", "true");
+          for (const [k, v] of Object.entries(policyHeaders(policy, auth))) resp.headers.set(k, v);
+          return resp;
+        }
+        // No cache available
+        return errorResponse(
+          "Quota Exceeded",
+          `Monthly quota of ${auth.quotaLimit} credits exhausted. Upgrade your plan at /portal/.`,
+          429,
+          jsonErrors,
+        );
+      }
+
       // ── Raw / API calls → synchronous conversion ──
       const result = await convertUrlWithMetrics(
         targetUrl, env, host, format, selector, forceBrowser, noCache,
@@ -599,11 +656,20 @@ export default {
         fallbacks: result.diagnostics.fallbacks,
       });
 
-      return buildResponse(
+      // Track usage (D1 flush via waitUntil)
+      recordUsage(auth, policy.creditCost, result.diagnostics.browserRendered, result.cached);
+      if (shouldFlush()) {
+        ctx.waitUntil(flushUsage(env));
+      }
+
+      const resp = buildResponse(
         result.content, targetUrl, host, result.method, format,
         wantsRaw, result.tokenCount, result.cached, result.title, result.diagnostics,
         rawRequestPath,
       );
+      // Add rate limit + cost headers
+      for (const [k, v] of Object.entries(policyHeaders(policy, auth))) resp.headers.set(k, v);
+      return resp;
     } catch (err: unknown) {
       if (err instanceof ConvertError) {
         incrementCounter("conversionFailures");

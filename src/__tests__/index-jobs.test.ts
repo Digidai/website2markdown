@@ -6,7 +6,7 @@ vi.mock("cloudflare:sockets", () => ({
 
 import worker from "../index";
 import { jobStorageKey } from "../dispatcher/model";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 import { createMockJobCoordinatorNamespace } from "./job-coordinator-test-helpers";
 
 afterEach(() => {
@@ -43,7 +43,7 @@ describe("POST /api/jobs", () => {
       tasks: ["https://example.com"],
     }, "token");
 
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(503);
@@ -57,7 +57,7 @@ describe("POST /api/jobs", () => {
       tasks: ["https://example.com"],
     }, "wrong");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(401);
@@ -71,7 +71,7 @@ describe("POST /api/jobs", () => {
       tasks: [{ html: "<h1>x</h1>" }],
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(400);
@@ -85,7 +85,7 @@ describe("POST /api/jobs", () => {
       tasks: ["https://example.com"],
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(503);
@@ -99,7 +99,7 @@ describe("POST /api/jobs", () => {
       headers: { Authorization: "Bearer token" },
     });
 
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(503);
@@ -115,7 +115,7 @@ describe("POST /api/jobs", () => {
       maxRetries: 3,
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       jobId?: string;
       status?: string;
@@ -140,9 +140,9 @@ describe("POST /api/jobs", () => {
       "token",
       { "Idempotency-Key": idempotency },
     );
-    const firstRes = await worker.fetch(req.clone(), env);
+    const firstRes = await worker.fetch(req.clone(), env, mockCtx());
     const firstPayload = await firstRes.json() as { jobId?: string };
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       jobId?: string;
       idempotent?: boolean;
@@ -168,8 +168,8 @@ describe("POST /api/jobs", () => {
       { "Idempotency-Key": idempotency },
     );
 
-    const firstRes = await worker.fetch(req, env);
-    const res = await worker.fetch(conflictReq, env);
+    const firstRes = await worker.fetch(req, env, mockCtx());
+    const res = await worker.fetch(conflictReq, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(firstRes.status).toBe(202);
@@ -186,7 +186,7 @@ describe("POST /api/jobs", () => {
       { "Idempotency-Key": "a".repeat(129) },
     );
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -202,7 +202,7 @@ describe("POST /api/jobs", () => {
       { "Idempotency-Key": "key/with/slash" },
     );
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -218,7 +218,7 @@ describe("POST /api/jobs", () => {
       { "Idempotency-Key": "   " },
     );
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -273,7 +273,7 @@ describe("POST /api/jobs", () => {
       method: "POST",
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       jobId?: string;
       status?: string;
@@ -327,7 +327,7 @@ describe("POST /api/jobs", () => {
       method: "POST",
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       executedTasks?: number;
       status?: string;
@@ -376,7 +376,7 @@ describe("POST /api/jobs", () => {
       method: "POST",
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       jobId?: string;
       status?: string;
@@ -448,7 +448,7 @@ describe("POST /api/jobs", () => {
       method: "POST",
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       jobId?: string;
       status?: string;
@@ -509,7 +509,7 @@ describe("POST /api/jobs", () => {
       method: "POST",
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     expect(res.status).toBe(200);
 
     const finalPersistCall = mocks.kvPut.mock.calls[mocks.kvPut.mock.calls.length - 1];
@@ -563,7 +563,7 @@ describe("POST /api/jobs", () => {
       method: "POST",
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { executedTasks?: number; status?: string };
 
     expect(res.status).toBe(200);
@@ -595,7 +595,7 @@ describe("POST /api/jobs", () => {
       method: "POST",
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(503);

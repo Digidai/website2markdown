@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 const mocked = vi.hoisted(() => ({
   browser: {
@@ -160,7 +160,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/a?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("# md body");
@@ -187,7 +187,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/static?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("# md body");
@@ -200,7 +200,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/proxy-missing", {
       headers: { Accept: "application/json", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(502);
@@ -232,7 +232,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/proxy-ok?raw=true", {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Markdown-Method")).toBe("browser+readability+turndown");
@@ -269,7 +269,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/proxy-token?raw=true", {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Markdown-Method")).toBe("browser+readability+turndown");
@@ -300,7 +300,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/proxy-garbage", {
       headers: { Accept: "application/json", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(502);
@@ -350,7 +350,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/proxy-pool?raw=true", {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("X-Markdown-Fallbacks")).toContain("proxy_pool_2_mobile");
@@ -374,7 +374,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/paywall-wayback?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(mocked.paywall.fetchWaybackSnapshot).toHaveBeenCalled();
@@ -398,7 +398,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/paywall-archive?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(mocked.paywall.fetchArchiveToday).toHaveBeenCalled();
@@ -419,7 +419,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/paywall-fail", {
       headers: { Accept: "application/json" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(502);
@@ -451,7 +451,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/jsonld?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -495,7 +495,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/archive-fallback?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -533,7 +533,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/amp?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("amp-markdown");
@@ -554,7 +554,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://example.com/challenge?raw=true", {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
-    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env);
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("# md body");
@@ -577,7 +577,7 @@ describe("index mocked branch coverage", () => {
     const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/abc?raw=true", {
       headers: { Accept: "text/markdown" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("proxied:");
@@ -590,7 +590,7 @@ describe("index mocked branch coverage", () => {
     const timeoutReq = new Request("https://md.example.com/https://example.com/timeout", {
       headers: { Accept: "application/json" },
     });
-    const timeoutRes = await worker.fetch(timeoutReq, createMockEnv().env);
+    const timeoutRes = await worker.fetch(timeoutReq, createMockEnv().env, mockCtx());
     const timeoutPayload = await timeoutRes.json() as { error?: string };
 
     expect(timeoutRes.status).toBe(504);
@@ -600,7 +600,7 @@ describe("index mocked branch coverage", () => {
     const failedReq = new Request("https://md.example.com/https://example.com/fail", {
       headers: { Accept: "application/json" },
     });
-    const failedRes = await worker.fetch(failedReq, createMockEnv().env);
+    const failedRes = await worker.fetch(failedReq, createMockEnv().env, mockCtx());
     const failedPayload = await failedRes.json() as { error?: string; message?: string };
 
     expect(failedRes.status).toBe(502);
@@ -623,7 +623,7 @@ describe("index mocked branch coverage", () => {
       },
       body: hugeBody,
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(413);
@@ -646,7 +646,7 @@ describe("index mocked branch coverage", () => {
       },
       body: JSON.stringify({ urls: ["https://example.com/a"] }),
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{ error?: string }>;
     };
@@ -676,7 +676,7 @@ describe("index mocked branch coverage", () => {
       },
       body: JSON.stringify({ urls: ["https://example.com/b"] }),
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{ error?: string }>;
     };

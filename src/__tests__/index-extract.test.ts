@@ -5,7 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -36,7 +36,7 @@ describe("POST /api/extract", () => {
       schema: { fields: [{ name: "title", selector: "h1" }] },
     }, "token");
 
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(503);
@@ -51,7 +51,7 @@ describe("POST /api/extract", () => {
       schema: { fields: [{ name: "title", selector: "h1" }] },
     }, "wrong-token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(401);
@@ -72,7 +72,7 @@ describe("POST /api/extract", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       success?: boolean;
       strategy?: string;
@@ -112,7 +112,7 @@ describe("POST /api/extract", () => {
       ],
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{
         success?: boolean;
@@ -142,7 +142,7 @@ describe("POST /api/extract", () => {
       },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       success?: boolean;
       strategy?: string;
@@ -164,7 +164,7 @@ describe("POST /api/extract", () => {
       schema: { fields: [{ name: "title", selector: "h1" }] },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { code?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -189,7 +189,7 @@ describe("POST /api/extract", () => {
       ],
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       code?: string;
       details?: { index?: number };
@@ -215,7 +215,7 @@ describe("POST /api/extract", () => {
       schema: { fields: [{ name: "title", selector: "h1", type: "text" }] },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       success?: boolean;
       data?: { title?: string };
@@ -232,7 +232,7 @@ describe("POST /api/extract", () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
 
     const emptyReq = extractRequest({ items: [] }, "token");
-    const emptyRes = await worker.fetch(emptyReq, env);
+    const emptyRes = await worker.fetch(emptyReq, env, mockCtx());
     const emptyPayload = await emptyRes.json() as { message?: string };
     expect(emptyRes.status).toBe(400);
     expect(emptyPayload.message).toContain("cannot be empty");
@@ -244,7 +244,7 @@ describe("POST /api/extract", () => {
         schema: { fields: [{ name: "title", selector: "h1" }] },
       })),
     }, "token");
-    const tooManyRes = await worker.fetch(tooManyReq, env);
+    const tooManyRes = await worker.fetch(tooManyReq, env, mockCtx());
     const tooManyPayload = await tooManyRes.json() as { message?: string };
     expect(tooManyRes.status).toBe(400);
     expect(tooManyPayload.message).toContain("Maximum 10 items");
@@ -259,7 +259,7 @@ describe("POST /api/extract", () => {
       schema: { fields: [{ name: "title", selector: "h1" }] },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { code?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -276,7 +276,7 @@ describe("POST /api/extract", () => {
       schema: { patterns: { hit: "x" } },
       options: [],
     }, "token");
-    const resNonObject = await worker.fetch(reqNonObject, env);
+    const resNonObject = await worker.fetch(reqNonObject, env, mockCtx());
     const payloadNonObject = await resNonObject.json() as { code?: string; message?: string };
     expect(resNonObject.status).toBe(400);
     expect(payloadNonObject.code).toBe("INVALID_REQUEST");
@@ -288,7 +288,7 @@ describe("POST /api/extract", () => {
       schema: { patterns: { hit: "x" } },
       options: { regexFlags: "gg" },
     }, "token");
-    const resBadFlags = await worker.fetch(reqBadFlags, env);
+    const resBadFlags = await worker.fetch(reqBadFlags, env, mockCtx());
     const payloadBadFlags = await resBadFlags.json() as { code?: string; message?: string };
     expect(resBadFlags.status).toBe(400);
     expect(payloadBadFlags.code).toBe("INVALID_REQUEST");
@@ -303,7 +303,7 @@ describe("POST /api/extract", () => {
       schema: { fields: [{ name: "title", selector: "h1" }] },
     }, "token");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { code?: string; message?: string };
 
     expect(res.status).toBe(413);

@@ -3,6 +3,8 @@ export interface Env {
   CACHE_KV: KVNamespace;
   IMAGE_BUCKET: R2Bucket;
   JOB_COORDINATOR?: DurableObjectNamespace;
+  /** D1 database for auth, API keys, and usage metering */
+  AUTH_DB?: D1Database;
   API_TOKEN?: string;
   PUBLIC_API_TOKEN?: string;
   PAYWALL_RULES_JSON?: string;
@@ -16,6 +18,42 @@ export interface Env {
   /** Cloudflare API Token with Browser Rendering - Edit permission */
   CF_API_TOKEN?: string;
 }
+
+// ─── Auth & Tier Types ──────────────────────────────────────
+
+export type Tier = "anonymous" | "free" | "pro";
+
+export interface AuthContext {
+  tier: Tier;
+  accountId: string | null;
+  keyId: string | null;
+  quotaLimit: number;
+  quotaUsed: number;
+}
+
+/**
+ * PolicyDecision — computed from AuthContext, controls what resources
+ * are available for this request. Downstream code only reads this.
+ *
+ *   resolveAuth() → AuthContext → buildPolicy() → PolicyDecision
+ */
+export interface PolicyDecision {
+  tier: Tier;
+  browserAllowed: boolean;
+  proxyAllowed: boolean;
+  engineSelectionAllowed: boolean;
+  noCacheAllowed: boolean;
+  quotaRemaining: number;
+  /** Fixed credit cost for this request type (not actual path cost) */
+  creditCost: number;
+}
+
+/** Quota limits per tier (credits per month) */
+export const TIER_QUOTAS: Record<Tier, number> = {
+  anonymous: 0,
+  free: 1000,
+  pro: 50000,
+};
 
 export type ConvertMethod =
   | "native"

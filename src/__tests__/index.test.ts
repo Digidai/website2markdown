@@ -5,7 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
-import { createByteStream, createMockEnv } from "./test-helpers";
+import { createByteStream, createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -21,7 +21,7 @@ describe("worker fetch hardening", () => {
       method: "HEAD",
       headers: { Accept: "application/json" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(405);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -39,7 +39,7 @@ describe("worker fetch hardening", () => {
 
     const target = encodeURIComponent("https://example.com/oversized.png");
     const req = new Request(`https://md.example.com/img/${target}`);
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(413);
     expect(await res.text()).toBe("Image too large");
@@ -60,7 +60,7 @@ describe("worker fetch hardening", () => {
       method: "GET",
       headers: { Accept: "application/json" },
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as {
       error?: string;
       message?: string;

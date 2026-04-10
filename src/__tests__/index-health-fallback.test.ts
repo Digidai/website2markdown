@@ -26,7 +26,7 @@ vi.mock("../paywall", async () => {
 });
 
 import worker from "../index";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 beforeEach(() => {
   mocked.getBrowserCapacityStats.mockReturnValue({
@@ -61,6 +61,7 @@ describe("/api/health defensive fallback", () => {
     const res = await worker.fetch(
       new Request("https://md.example.com/api/health"),
       createMockEnv().env,
+      mockCtx(),
     );
     const payload = await res.json() as {
       status?: string;

@@ -5,7 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
-import { createByteStream, createMockEnv } from "./test-helpers";
+import { createByteStream, createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -17,7 +17,7 @@ describe("worker endpoints", () => {
     const req = new Request("https://md.example.com/anything", {
       method: "OPTIONS",
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
@@ -27,7 +27,7 @@ describe("worker endpoints", () => {
 
   it("serves health endpoint for GET", async () => {
     const req = new Request("https://md.example.com/api/health");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as {
       status?: string;
       service?: string;
@@ -60,7 +60,7 @@ describe("worker endpoints", () => {
     const req = new Request("https://md.example.com/api/health", {
       method: "HEAD",
     });
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("");
@@ -70,7 +70,7 @@ describe("worker endpoints", () => {
   it("requires token for /api/stream when PUBLIC_API_TOKEN is configured", async () => {
     const { env } = createMockEnv({ PUBLIC_API_TOKEN: "public-token" });
     const req = new Request("https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Farticle");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(401);
@@ -82,7 +82,7 @@ describe("worker endpoints", () => {
     const req = new Request(
       "https://md.example.com/api/stream?url=not-a-url&token=public-token",
     );
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -96,7 +96,7 @@ describe("worker endpoints", () => {
       "https://md.example.com/https://example.com/article?raw=true",
       { headers: { Accept: "application/json" } },
     );
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(401);
@@ -112,7 +112,7 @@ describe("worker endpoints", () => {
       const req = new Request("https://md.example.com/api/stream?url=not-a-url", {
         headers: { "cf-connecting-ip": ip },
       });
-      last = await worker.fetch(req, env);
+      last = await worker.fetch(req, env, mockCtx());
     }
 
     expect(last).not.toBeNull();
@@ -122,7 +122,7 @@ describe("worker endpoints", () => {
 
   it("returns 400 for malformed encoded /img URLs", async () => {
     const req = new Request("https://md.example.com/img/%E0%A4%A");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(400);
     expect(await res.text()).toBe("Invalid image URL encoding");
@@ -138,7 +138,7 @@ describe("worker endpoints", () => {
 
     const target = encodeURIComponent("https://example.com/not-image");
     const req = new Request(`https://md.example.com/img/${target}`);
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(403);
     expect(await res.text()).toBe("Not an image");
@@ -157,7 +157,7 @@ describe("worker endpoints", () => {
 
     const target = encodeURIComponent("https://example.com/big-image");
     const req = new Request(`https://md.example.com/img/${target}`);
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(413);
     expect(await res.text()).toBe("Image too large");
@@ -165,7 +165,7 @@ describe("worker endpoints", () => {
 
   it("returns 404 for invalid /r2img key", async () => {
     const req = new Request("https://md.example.com/r2img/not-images/path");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
     expect(res.status).toBe(404);
   });
@@ -179,7 +179,7 @@ describe("worker endpoints", () => {
     });
 
     const req = new Request("https://md.example.com/r2img/images/test.svg");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(403);
     expect(await res.text()).toBe("Forbidden");
@@ -194,7 +194,7 @@ describe("worker endpoints", () => {
     });
 
     const req = new Request("https://md.example.com/r2img/images/test.png");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/png");

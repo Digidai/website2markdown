@@ -6,7 +6,7 @@ vi.mock("cloudflare:sockets", () => ({
 
 import worker from "../index";
 import { jobStorageKey } from "../dispatcher/model";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 import { createMockJobCoordinatorNamespace } from "./job-coordinator-test-helpers";
 
 afterEach(() => {
@@ -26,7 +26,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
       headers: { Authorization: "Bearer token" },
     });
 
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(503);
@@ -38,7 +38,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
       headers: { Authorization: "Bearer token" },
     });
 
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(503);
@@ -49,7 +49,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
     const { env } = createJobEnv({ API_TOKEN: "token" });
     const req = new Request("https://md.example.com/api/jobs/job-1");
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     expect(res.status).toBe(401);
   });
 
@@ -59,7 +59,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
       headers: { Authorization: "Bearer token" },
     });
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(404);
@@ -94,7 +94,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
       headers: { Authorization: "Bearer token" },
     });
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { jobId?: string; status?: string; totalTasks?: number };
 
     expect(res.status).toBe(200);
@@ -127,7 +127,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
     const req = new Request("https://md.example.com/api/jobs/job-done/stream", {
       headers: { Authorization: "Bearer token" },
     });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const body = await res.text();
 
     expect(res.status).toBe(200);
@@ -142,7 +142,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
       headers: { Authorization: "Bearer token" },
     });
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);
@@ -156,7 +156,7 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
       headers: { Authorization: "Bearer token" },
     });
 
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(400);

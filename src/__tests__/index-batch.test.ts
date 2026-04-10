@@ -5,7 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
-import { createMockEnv } from "./test-helpers";
+import { createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -31,7 +31,7 @@ function batchRequest(
 describe("POST /api/batch", () => {
   it("returns 503 when API_TOKEN is missing", async () => {
     const req = batchRequest({ urls: ["https://example.com"] }, "token");
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(503);
@@ -41,7 +41,7 @@ describe("POST /api/batch", () => {
   it("returns 401 for invalid bearer token", async () => {
     const { env } = createMockEnv({ API_TOKEN: "correct-token" });
     const req = batchRequest({ urls: ["https://example.com"] }, "wrong-token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(401);
@@ -55,7 +55,7 @@ describe("POST /api/batch", () => {
       "token",
       { "Content-Length": "100001" },
     );
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(413);
@@ -66,7 +66,7 @@ describe("POST /api/batch", () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const oversizedBody = `{"urls":["https://example.com/${"a".repeat(110_000)}"]}`;
     const req = batchRequest(oversizedBody, "token", { "Content-Length": "0" });
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(413);
@@ -77,7 +77,7 @@ describe("POST /api/batch", () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const req = batchRequest("{invalid-json", "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(400);
@@ -99,7 +99,7 @@ describe("POST /api/batch", () => {
 
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = batchRequest({ urls: ["https://example.com/internal-error-case"] }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string; message?: string };
 
     expect(res.status).toBe(500);
@@ -110,7 +110,7 @@ describe("POST /api/batch", () => {
   it("returns 400 when urls is missing", async () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = batchRequest({ foo: "bar" }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(400);
@@ -121,7 +121,7 @@ describe("POST /api/batch", () => {
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const urls = Array.from({ length: 11 }, (_, i) => `https://example.com/${i}`);
     const req = batchRequest({ urls }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(400);
@@ -136,7 +136,7 @@ describe("POST /api/batch", () => {
     const req = batchRequest({
       urls: ["https://example.com/a", 123, { bad: "item" }],
     }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(400);
@@ -152,7 +152,7 @@ describe("POST /api/batch", () => {
     const req = batchRequest({
       urls: ["   ", { url: "   ", format: "markdown" }],
     }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as { error?: string };
 
     expect(res.status).toBe(400);
@@ -180,7 +180,7 @@ describe("POST /api/batch", () => {
         },
       ],
     }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{
         url?: string;
@@ -215,7 +215,7 @@ describe("POST /api/batch", () => {
         },
       ],
     }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{ error?: string; content?: string }>;
     };
@@ -233,7 +233,7 @@ describe("POST /api/batch", () => {
     const req = batchRequest({
       urls: ["not-a-url", "http://127.0.0.1/private"],
     }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{ url?: string; error?: string }>;
     };
@@ -254,7 +254,7 @@ describe("POST /api/batch", () => {
 
     const { env } = createMockEnv({ API_TOKEN: "token" });
     const req = batchRequest({ urls: ["https://example.com/a"] }, "token");
-    const res = await worker.fetch(req, env);
+    const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{
         url?: string;
@@ -304,7 +304,7 @@ describe("POST /api/batch", () => {
       signal: controller.signal,
     });
 
-    const responsePromise = worker.fetch(req, env);
+    const responsePromise = worker.fetch(req, env, mockCtx());
     setTimeout(() => controller.abort(), 20);
 
     const race = await Promise.race([
