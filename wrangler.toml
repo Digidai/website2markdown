@@ -17,13 +17,10 @@ binding = "IMAGE_BUCKET"
 bucket_name = "md-images"
 
 # D1 database for auth, API keys, and usage metering
-# To enable: uncomment the block below after creating the database:
-#   wrangler d1 create md-auth
-#   wrangler d1 execute AUTH_DB --file=schema.sql
-# [[d1_databases]]
-# binding = "AUTH_DB"
-# database_name = "md-auth"
-# database_id = "" # Fill after: wrangler d1 create md-auth
+[[d1_databases]]
+binding = "AUTH_DB"
+database_name = "md-auth"
+database_id = "15623873-2c54-493a-8639-2428819665ad"
 
 [durable_objects]
 bindings = [
