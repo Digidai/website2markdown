@@ -273,11 +273,15 @@ export default {
       if (request.method !== "GET") {
         return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
       }
+      const streamToken = url.searchParams.get("token");
+      const streamNoCache = url.searchParams.get("no_cache") === "true";
+      const streamEngine = url.searchParams.get("engine");
+      const streamForceBrowser = url.searchParams.get("force_browser") === "true";
       if (env.PUBLIC_API_TOKEN) {
         const authorized = await isAuthorizedByToken(
           request,
           env.PUBLIC_API_TOKEN,
-          url.searchParams.get("token"),
+          streamToken,
         );
         if (!authorized) {
           return Response.json(
@@ -285,6 +289,11 @@ export default {
             { status: 401, headers: CORS_HEADERS },
           );
         }
+      } else if (streamNoCache || streamEngine || streamForceBrowser) {
+        return Response.json(
+          { error: "Unauthorized", message: "Parameters no_cache, engine, and force_browser require a valid token." },
+          { status: 401, headers: CORS_HEADERS },
+        );
       }
       const decision = await consumeRateLimit(request, env, "stream");
       if (decision?.exceeded) {

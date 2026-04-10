@@ -408,7 +408,7 @@ describe("index conversion/stream/og routes", () => {
     const req = new Request(
       "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&selector=.main&force_browser=true&no_cache=true&engine=jina&token=public-token",
     );
-    const res = await worker.fetch(req, createMockEnv().env);
+    const res = await worker.fetch(req, createMockEnv({ PUBLIC_API_TOKEN: "public-token" }).env);
     const body = await res.text();
 
     expect(res.status).toBe(200);
