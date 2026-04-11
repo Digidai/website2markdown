@@ -188,13 +188,22 @@ export default {
     // POST /api/auth/magic-link — send sign-in email
     // GET  /api/auth/verify     — verify magic link, create session
     // POST /api/auth/logout     — destroy session
-    if (path === "/api/auth/magic-link" && request.method === "POST") {
+    if (path === "/api/auth/magic-link") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST", ...CORS_HEADERS } });
+      }
       return handleSendMagicLink(request, env, host);
     }
-    if (path === "/api/auth/verify" && request.method === "GET") {
+    if (path === "/api/auth/verify") {
+      if (request.method !== "GET") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET", ...CORS_HEADERS } });
+      }
       return handleVerifyMagicLink(request, env, host);
     }
-    if (path === "/api/auth/logout" && request.method === "POST") {
+    if (path === "/api/auth/logout") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST", ...CORS_HEADERS } });
+      }
       return handleLogout(request, env);
     }
 

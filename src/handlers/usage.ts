@@ -19,7 +19,15 @@ interface UsageEntry {
 }
 
 const usageBuffer = new Map<string, UsageEntry>();
-const FLUSH_THRESHOLD = 100;
+/**
+ * Flush threshold: 1 = always flush after each authenticated request.
+ * Batching still happens naturally for concurrent requests within the same
+ * isolate (recordUsage adds to buffer, ctx.waitUntil runs flushUsage after
+ * response sent, the next concurrent request gets buffered until flushUsage
+ * clears it). For low-traffic deployments this keeps D1 fresh without
+ * requiring artificial accumulation that delays visibility in /api/usage.
+ */
+const FLUSH_THRESHOLD = 1;
 let pendingRequests = 0;
 
 function bufferKey(keyId: string, date: string): string {
