@@ -1,0 +1,33 @@
+name: D1 Migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      sql_file:
+        description: "Path to SQL file to execute"
+        required: false
+        default: "schema.sql"
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install wrangler
+        run: npm install -g wrangler@4
+      - name: Execute SQL on AUTH_DB
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "Running migration from ${{ inputs.sql_file }}"
+          wrangler d1 execute AUTH_DB --remote --file="${{ inputs.sql_file }}"
+      - name: Verify tables
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler d1 execute AUTH_DB --remote --command "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
