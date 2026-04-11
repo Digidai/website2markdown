@@ -53,6 +53,8 @@ import { portalPageHTML } from "./templates/portal";
 import {
   LANDING_CSP,
   LOADING_CSP,
+  PORTAL_CSP,
+  HSTS_VALUE,
   ConvertError,
   wantsJsonError,
   errorResponse,
@@ -64,7 +66,7 @@ import {
   BodyTooLargeError,
 } from "./handlers/convert";
 import { handleStream } from "./handlers/stream";
-import { handleHealth } from "./handlers/health";
+import { handleHealthRoute } from "./handlers/health";
 import { handleBatch } from "./handlers/batch";
 import { handleExtract } from "./handlers/extract";
 import { handleDeepCrawl } from "./handlers/deepcrawl";
@@ -337,6 +339,8 @@ export default {
         status: 200,
         headers: {
           "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": PORTAL_CSP,
+          "Strict-Transport-Security": HSTS_VALUE,
           "X-Frame-Options": "DENY",
           "X-Content-Type-Options": "nosniff",
           "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -345,9 +349,9 @@ export default {
       });
     }
 
-    // Health check
+    // Health check — public by default, ?full=1 + API_TOKEN Bearer for full metrics
     if (path === "/api/health") {
-      return handleHealth(host);
+      return handleHealthRoute(request, env, host);
     }
 
     // Dynamic OG image
@@ -409,7 +413,12 @@ export default {
       }
       incrementCounter("streamRequests");
       const streamBrowserAllowed = streamPolicy ? streamPolicy.browserAllowed : !env.PUBLIC_API_TOKEN ? false : true;
-      return handleStream(request, env, host, url, streamBrowserAllowed);
+      // Pass rate-limit headers through to the SSE response so clients can
+      // observe their quota without making a separate /api/usage call.
+      const streamResponseHeaders = streamAuth && streamPolicy
+        ? policyHeaders(streamPolicy, streamAuth)
+        : {};
+      return handleStream(request, env, host, url, streamBrowserAllowed, streamResponseHeaders);
     }
 
     // R2 image proxy
@@ -527,7 +536,10 @@ export default {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Content-Security-Policy": LANDING_CSP,
+          "Strict-Transport-Security": HSTS_VALUE,
           "X-Frame-Options": "DENY",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "strict-origin-when-cross-origin",
         },
       });
     }
@@ -688,7 +700,10 @@ export default {
             headers: {
               "Content-Type": "text/html; charset=utf-8",
               "Content-Security-Policy": LOADING_CSP,
+              "Strict-Transport-Security": HSTS_VALUE,
               "X-Frame-Options": "DENY",
+              "X-Content-Type-Options": "nosniff",
+              "Referrer-Policy": "strict-origin-when-cross-origin",
               ...CORS_HEADERS,
             },
           },

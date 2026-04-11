@@ -18,6 +18,7 @@ export function sseResponse(
     signal: AbortSignal,
   ) => Promise<void>,
   requestSignal?: AbortSignal,
+  extraHeaders: Record<string, string> = {},
 ): Response {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
@@ -90,6 +91,7 @@ export function sseResponse(
       "Cache-Control": "no-cache",
       "X-Accel-Buffering": "no",
       ...CORS_HEADERS,
+      ...extraHeaders,
     },
   });
 }
@@ -100,6 +102,7 @@ export function handleStream(
   host: string,
   url: URL,
   browserAllowed: boolean = true,
+  responseHeaders: Record<string, string> = {},
 ): Response {
   const targetUrl = url.searchParams.get("url");
   if (!targetUrl || !isValidUrl(targetUrl)) {
@@ -183,5 +186,5 @@ export function handleStream(
         await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 });
       }
     }
-  }, request.signal);
+  }, request.signal, responseHeaders);
 }

@@ -40,7 +40,12 @@ function generateApiKey(): { full: string; prefix: string } {
 function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
   return Response.json(data, {
     status,
-    headers: { ...CORS_HEADERS, ...extraHeaders },
+    headers: {
+      ...CORS_HEADERS,
+      // Session-authenticated data must never be cached by browsers or intermediaries
+      "Cache-Control": "no-store, private",
+      ...extraHeaders,
+    },
   });
 }
 
@@ -61,10 +66,13 @@ export async function handleCreateKey(
   ).bind(session.accountId).first<{ cnt: number }>();
 
   if ((countRow?.cnt ?? 0) >= MAX_KEYS_PER_ACCOUNT) {
+    // 409 Conflict is correct here: the request is well-formed, but the
+    // account state prevents creating another key. 400 would imply client
+    // input error, which is misleading for a quota condition.
     return jsonResponse({
       error: "Too Many Keys",
       message: `You can have at most ${MAX_KEYS_PER_ACCOUNT} active keys. Revoke an old key first.`,
-    }, 400);
+    }, 409);
   }
 
   // Parse optional name from body
@@ -100,10 +108,12 @@ export async function handleCreateKey(
     return jsonResponse({ error: "Internal Error", message: "Failed to create key" }, 500);
   }
 
-  // Return plaintext key ONCE — user must save it
+  // Return plaintext key ONCE — user must save it.
+  // `prefix` is formatted identically to GET /api/keys so clients can
+  // treat it as a display identifier without re-formatting.
   return jsonResponse({
     id: keyId,
-    prefix,
+    prefix: `mk_${prefix}...`,
     key: full,
     name,
     created_at: now,
@@ -171,8 +181,10 @@ export async function handleRevokeKey(
       return jsonResponse({ error: "Not Found" }, 404);
     }
 
+    // DELETE is idempotent by convention. If the key is already revoked,
+    // return the existing revocation timestamp with 200 rather than 400.
     if (row.revoked_at) {
-      return jsonResponse({ error: "Already Revoked" }, 400);
+      return jsonResponse({ id: keyId, revoked_at: row.revoked_at });
     }
 
     const now = new Date().toISOString();

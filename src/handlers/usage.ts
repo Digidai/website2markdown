@@ -178,7 +178,12 @@ export async function handleUsageForAccount(
         reset_at: account.monthly_credits_reset_at,
       },
       daily: dailyRows.results || [],
-    }, { headers: CORS_HEADERS });
+    }, {
+      headers: {
+        ...CORS_HEADERS,
+        "Cache-Control": "no-store, private",
+      },
+    });
   } catch (err) {
     console.error("Usage query failed:", err);
     return Response.json(

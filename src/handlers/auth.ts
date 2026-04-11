@@ -34,8 +34,49 @@ import {
 
 const TOKEN_TTL_MINUTES = 15;
 const EMAIL_RATE_LIMIT_PER_HOUR = 3;
+const IP_RATE_LIMIT_PER_HOUR = 10;  // Per-IP cap to prevent cross-email abuse
+const MAX_BODY_BYTES = 1024;         // Reject oversized magic-link request bodies
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
+
+/**
+ * Increment a Cache-API-backed counter at `key` with `ttlSeconds` expiry.
+ * Returns the new count. Non-atomic across isolates but good enough for
+ * abuse prevention (a distributed attacker can still trivially stay under
+ * the limit across isolates; this mostly prevents single-source bursts).
+ */
+async function incrementRateCounter(key: string, ttlSeconds: number): Promise<number> {
+  if (typeof caches === "undefined") return 0;
+  try {
+    const req = new Request(key);
+    const existing = await caches.default.match(req);
+    const current = existing ? Number(await existing.text()) || 0 : 0;
+    const next = current + 1;
+    await caches.default.put(req, new Response(String(next), {
+      headers: { "Cache-Control": `max-age=${ttlSeconds}` },
+    }));
+    return next;
+  } catch {
+    return 0;
+  }
+}
+
+async function readRateCounter(key: string): Promise<number> {
+  if (typeof caches === "undefined") return 0;
+  try {
+    const existing = await caches.default.match(new Request(key));
+    if (!existing) return 0;
+    return Number(await existing.text()) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getClientIp(request: Request): string {
+  return request.headers.get("cf-connecting-ip")
+    || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    || "unknown";
+}
 
 // ─── POST /api/auth/magic-link ──────────────────────────────
 
@@ -48,9 +89,15 @@ export async function handleSendMagicLink(
     return Response.json({ error: "Service Unavailable" }, { status: 503, headers: CORS_HEADERS });
   }
 
+  // Body size cap — prevent memory pressure from giant JSON payloads
+  const bodyText = await request.text();
+  if (bodyText.length > MAX_BODY_BYTES) {
+    return Response.json({ error: "Request too large" }, { status: 413, headers: CORS_HEADERS });
+  }
+
   let email: string;
   try {
-    const body = await request.json() as { email?: string };
+    const body = JSON.parse(bodyText) as { email?: string };
     email = String(body?.email || "").trim().toLowerCase();
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400, headers: CORS_HEADERS });
@@ -60,18 +107,21 @@ export async function handleSendMagicLink(
     return Response.json({ error: "Invalid email address" }, { status: 400, headers: CORS_HEADERS });
   }
 
-  // Rate limit via Cache API (per email, per hour)
-  const rateLimitKey = `https://md-rate-limit/magic-link/${encodeURIComponent(email)}`;
-  let count = 0;
-  if (typeof caches !== "undefined") {
-    try {
-      const existing = await caches.default.match(new Request(rateLimitKey));
-      if (existing) {
-        count = Number(await existing.text()) || 0;
-      }
-    } catch { /* ignore */ }
-  }
-  if (count >= EMAIL_RATE_LIMIT_PER_HOUR) {
+  // ── Rate limiting (two-dimensional) ─────────────────────────
+  // 1) Per-email cap: prevents mailbox flooding for a specific victim
+  // 2) Per-IP cap: prevents a single attacker from burning Resend quota
+  //    by rotating across many victim emails
+  const emailKey = `https://md-rate-limit/magic-link/email/${encodeURIComponent(email)}`;
+  const ip = getClientIp(request);
+  const ipKey = `https://md-rate-limit/magic-link/ip/${encodeURIComponent(ip)}`;
+
+  const [emailCount, ipCount] = await Promise.all([
+    readRateCounter(emailKey),
+    readRateCounter(ipKey),
+  ]);
+
+  // Silently 200 on rate limit (don't reveal which dimension tripped)
+  if (emailCount >= EMAIL_RATE_LIMIT_PER_HOUR || ipCount >= IP_RATE_LIMIT_PER_HOUR) {
     return Response.json(
       { ok: true, note: "If an account exists, an email was sent." },
       { status: 200, headers: CORS_HEADERS },
@@ -118,15 +168,14 @@ export async function handleSendMagicLink(
     console.warn("RESEND_API_KEY not configured — magic link logged only:", verifyUrl);
   }
 
-  // Increment rate limit counter
-  if (typeof caches !== "undefined") {
-    try {
-      const newCount = count + 1;
-      const resp = new Response(String(newCount), {
-        headers: { "Cache-Control": `max-age=${60 * 60}` },
-      });
-      await caches.default.put(new Request(rateLimitKey), resp);
-    } catch { /* ignore */ }
+  // Increment both rate limit counters (1-hour TTL)
+  const ONE_HOUR = 60 * 60;
+  try {
+    await Promise.all([
+      incrementRateCounter(emailKey, ONE_HOUR),
+      incrementRateCounter(ipKey, ONE_HOUR),
+    ]);
+  } catch { /* ignore */
   }
 
   return Response.json({
@@ -256,6 +305,7 @@ export async function handleVerifyMagicLink(
       headers: {
         Location: `https://${host}/portal/`,
         "Set-Cookie": buildSessionCookie(sessionToken, sessionExpires),
+        "Cache-Control": "no-store, private",
       },
     });
   } catch (err) {
@@ -279,6 +329,7 @@ export async function handleLogout(
     headers: {
       "Content-Type": "application/json",
       "Set-Cookie": buildClearCookie(),
+      "Cache-Control": "no-store, private",
       ...CORS_HEADERS,
     },
   });

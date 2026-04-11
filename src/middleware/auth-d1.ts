@@ -17,7 +17,19 @@ import type { AuthContext, Env, Tier } from "../types";
 import { TIER_QUOTAS } from "../types";
 
 const AUTH_LRU_CAPACITY = 1024;
-const AUTH_LRU_TTL_MS = 60_000;
+/**
+ * Auth LRU TTL: 10 seconds (was 60s).
+ *
+ * Trade-off: lower TTL = faster key revocation propagation, higher D1 read
+ * volume. 10s keeps D1 reads bounded (at 10 req/s sustained, that's 1 D1
+ * read per key per 10s) while giving users a credible "revoke takes
+ * effect in seconds" guarantee.
+ *
+ * Note: this is per-isolate. A revoked key could still work on a different
+ * isolate that hasn't refreshed its LRU yet. Hard cross-isolate invalidation
+ * would require Durable Objects; that's Phase D+.
+ */
+const AUTH_LRU_TTL_MS = 10_000;
 
 interface CachedAuth {
   ctx: AuthContext;

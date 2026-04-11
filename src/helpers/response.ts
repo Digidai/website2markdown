@@ -20,6 +20,21 @@ export const LOADING_CSP =
   "font-src https://fonts.gstatic.com; connect-src 'self'; img-src * data:; " +
   "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
+/**
+ * Portal CSP — tighter than landing because the portal shows plaintext API
+ * keys in a modal. Only allows self + Google Fonts for styles; all JS is
+ * inline; all fetch() calls are same-origin. No form posts.
+ */
+export const PORTAL_CSP =
+  "default-src 'none'; script-src 'unsafe-inline'; " +
+  "style-src 'unsafe-inline' https://fonts.googleapis.com; " +
+  "font-src https://fonts.gstatic.com; img-src 'self' data:; " +
+  "connect-src 'self'; base-uri 'none'; form-action 'self'; " +
+  "frame-ancestors 'none'";
+
+/** HSTS: 1 year, include subdomains, not yet preload-ready */
+export const HSTS_VALUE = "max-age=31536000; includeSubDomains";
+
 export function withExtraHeaders(
   response: Response,
   headersToMerge: Record<string, string>,

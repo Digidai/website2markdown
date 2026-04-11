@@ -25,18 +25,41 @@ describe("worker endpoints", () => {
     expect(res.headers.get("Access-Control-Allow-Headers")).toContain("Idempotency-Key");
   });
 
-  it("serves health endpoint for GET", async () => {
+  it("serves public health endpoint for GET (minimal info)", async () => {
     const req = new Request("https://md.example.com/api/health");
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
     const payload = await res.json() as {
       status?: string;
       service?: string;
-      browser?: { active?: number; queued?: number };
+      uptime_seconds?: number;
+      browser?: unknown;
+      metrics?: unknown;
+      paywall?: unknown;
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.status).toBe("ok");
+    expect(payload.service).toBe("md.example.com");
+    expect(payload.uptime_seconds).toBeGreaterThanOrEqual(0);
+    // Internal state must NOT be exposed on the public endpoint
+    expect(payload.browser).toBeUndefined();
+    expect(payload.metrics).toBeUndefined();
+    expect(payload.paywall).toBeUndefined();
+  });
+
+  it("serves full health via ?full=1 + API_TOKEN", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "admin-token" });
+    const req = new Request("https://md.example.com/api/health?full=1", {
+      headers: { Authorization: "Bearer admin-token" },
+    });
+    const res = await worker.fetch(req, env, mockCtx());
+    const payload = await res.json() as {
+      status?: string;
+      browser?: { active?: number; maxConcurrent?: number };
       metrics?: {
-        requestsTotal?: number;
         operational?: {
           throughput?: { requests_per_min?: number };
-          latency_ms?: { convert?: { p50?: number; p95?: number } };
+          latency_ms?: { convert?: { p50?: number } };
         };
       };
       paywall?: { source?: string };
@@ -44,13 +67,22 @@ describe("worker endpoints", () => {
 
     expect(res.status).toBe(200);
     expect(payload.status).toBe("ok");
-    expect(payload.service).toBe("md.example.com");
     expect(payload.browser).toBeTruthy();
     expect(payload.metrics).toBeTruthy();
     expect(payload.metrics?.operational).toBeTruthy();
     expect(payload.metrics?.operational?.throughput?.requests_per_min).toBeDefined();
     expect(payload.metrics?.operational?.latency_ms?.convert).toBeTruthy();
     expect(payload.paywall).toBeTruthy();
+  });
+
+  it("rejects full health without API_TOKEN (returns public info)", async () => {
+    const { env } = createMockEnv({ API_TOKEN: "admin-token" });
+    const req = new Request("https://md.example.com/api/health?full=1");
+    const res = await worker.fetch(req, env, mockCtx());
+    const payload = await res.json() as { browser?: unknown; metrics?: unknown };
+    expect(res.status).toBe(200);
+    expect(payload.browser).toBeUndefined();
+    expect(payload.metrics).toBeUndefined();
   });
 
   it("serves health endpoint for HEAD without conversion", async () => {

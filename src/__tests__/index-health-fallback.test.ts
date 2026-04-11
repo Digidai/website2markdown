@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("/api/health defensive fallback", () => {
-  it("returns 200 even when stats providers throw", async () => {
+  it("returns 200 even when stats providers throw (full health path)", async () => {
     mocked.getBrowserCapacityStats.mockImplementation(() => {
       throw new Error("browser stats unavailable");
     });
@@ -59,8 +59,10 @@ describe("/api/health defensive fallback", () => {
     });
 
     const res = await worker.fetch(
-      new Request("https://md.example.com/api/health"),
-      createMockEnv().env,
+      new Request("https://md.example.com/api/health?full=1", {
+        headers: { Authorization: "Bearer admin-token" },
+      }),
+      createMockEnv({ API_TOKEN: "admin-token" }).env,
       mockCtx(),
     );
     const payload = await res.json() as {

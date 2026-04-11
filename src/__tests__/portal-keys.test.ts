@@ -218,7 +218,8 @@ describe("Portal: /api/keys create", () => {
     expect(res.status).toBe(201);
     const body = await res.json() as any;
     expect(body.key).toMatch(/^mk_[0-9a-f]{64}$/);
-    expect(body.prefix).toMatch(/^[0-9a-f]{8}$/);
+    // Prefix format matches GET /api/keys for client consistency
+    expect(body.prefix).toMatch(/^mk_[0-9a-f]{8}\.\.\.$/);
     expect(body.name).toBe("test-key");
     expect(body.warning).toBeTruthy();
   });
@@ -274,7 +275,9 @@ describe("Portal: /api/keys create", () => {
       headers: { Cookie: `md_session=${sessionToken}` },
     });
     const res = await worker.fetch(req, env, mockCtx());
-    expect(res.status).toBe(400);
+    // 409 Conflict is semantically correct for a quota violation,
+    // distinguishing it from 400 (malformed input)
+    expect(res.status).toBe(409);
     const body = await res.json() as any;
     expect(body.error).toBe("Too Many Keys");
   });
@@ -387,10 +390,11 @@ describe("Portal: /api/keys revoke", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns 400 when key is already revoked", async () => {
+  it("is idempotent when key is already revoked (returns existing timestamp)", async () => {
     const d1 = createMockD1();
     const { accountId, sessionToken } = await seedAccountAndSession(d1);
     const keyId = crypto.randomUUID();
+    const originalRevokedAt = "2026-04-10T00:00:00.000Z";
     d1.tables.api_keys.set(keyId, {
       id: keyId,
       account_id: accountId,
@@ -398,7 +402,7 @@ describe("Portal: /api/keys revoke", () => {
       key_hash: "hash",
       name: null,
       created_at: new Date().toISOString(),
-      revoked_at: new Date().toISOString(),
+      revoked_at: originalRevokedAt,
     });
     const { env } = createMockEnv({ AUTH_DB: d1.db });
     const req = new Request(`https://md.example.com/api/keys/${keyId}`, {
@@ -406,7 +410,13 @@ describe("Portal: /api/keys revoke", () => {
       headers: { Cookie: `md_session=${sessionToken}` },
     });
     const res = await worker.fetch(req, env, mockCtx());
-    expect(res.status).toBe(400);
+    // DELETE is idempotent by REST convention: a second delete of a
+    // revoked key returns 200 with the original revocation timestamp,
+    // not an error.
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.id).toBe(keyId);
+    expect(body.revoked_at).toBe(originalRevokedAt);
   });
 });
 
