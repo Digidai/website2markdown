@@ -216,7 +216,13 @@ export default {
       if (!session) {
         return Response.json(
           { error: "Unauthorized", message: "Valid session required" },
-          { status: 401, headers: CORS_HEADERS },
+          {
+            status: 401,
+            headers: {
+              ...CORS_HEADERS,
+              "Cache-Control": "no-store, private",
+            },
+          },
         );
       }
 
