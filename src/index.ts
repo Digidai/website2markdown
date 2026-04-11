@@ -36,7 +36,7 @@ import { isAuthorizedByToken } from "./middleware/auth";
 import { resolveAuth } from "./middleware/auth-d1";
 import { buildPolicy, checkPolicy, policyHeaders } from "./middleware/tier-gate";
 import { consumeRateLimit, rateLimitedResponse } from "./middleware/rate-limit";
-import { recordUsage, flushUsage, shouldFlush, handleUsage } from "./handlers/usage";
+import { recordUsage, flushUsage, shouldFlush, handleUsage, handleUsageForAccount } from "./handlers/usage";
 import { resolveSession } from "./middleware/session";
 import {
   handleCreateKey,
@@ -346,8 +346,15 @@ export default {
       return handleOgImage(url, host);
     }
 
-    // GET /api/usage — per-key usage data
+    // GET /api/usage — per-account usage data
+    // Accepts EITHER Bearer API key (SDK/CLI) OR portal session cookie (dashboard)
     if (path === "/api/usage" && request.method === "GET") {
+      // Try session cookie first (Portal dashboard case)
+      const session = await resolveSession(request, env);
+      if (session) {
+        return handleUsageForAccount(env, session.accountId);
+      }
+      // Fall back to Bearer API key (SDK/CLI case)
       const auth = await resolveAuth(request, env);
       return handleUsage(auth, env);
     }

@@ -5,7 +5,8 @@
  * Best-effort: Worker crash loses unflushed counts.
  */
 
-import type { AuthContext, Env } from "../types";
+import type { AuthContext, Env, Tier } from "../types";
+import { TIER_QUOTAS } from "../types";
 import { CORS_HEADERS } from "../config";
 
 // ─── In-memory usage buffer ─────────────────────────────────
@@ -104,17 +105,16 @@ export function shouldFlush(): boolean {
 
 // ─── GET /api/usage endpoint ────────────────────────────────
 
-export async function handleUsage(
-  auth: AuthContext,
+/**
+ * Return usage data for an account.
+ *
+ * Accepts EITHER a Bearer API key (for SDK/CLI usage) OR a portal session
+ * cookie (for Dashboard). Callers must resolve the accountId before calling.
+ */
+export async function handleUsageForAccount(
   env: Env,
+  accountId: string,
 ): Promise<Response> {
-  if (!auth.keyId || !auth.accountId) {
-    return Response.json(
-      { error: "Unauthorized", message: "Valid API key required for /api/usage" },
-      { status: 401, headers: CORS_HEADERS },
-    );
-  }
-
   if (!env.AUTH_DB) {
     return Response.json(
       { error: "Service Unavailable", message: "Usage tracking is not configured" },
@@ -128,11 +128,18 @@ export async function handleUsage(
 
     const account = await env.AUTH_DB.prepare(
       `SELECT tier, monthly_credits_used, monthly_credits_reset_at FROM accounts WHERE id = ?`
-    ).bind(auth.accountId).first<{
+    ).bind(accountId).first<{
       tier: string;
       monthly_credits_used: number;
       monthly_credits_reset_at: string;
     }>();
+
+    if (!account) {
+      return Response.json(
+        { error: "Not Found", message: "Account not found" },
+        { status: 404, headers: CORS_HEADERS },
+      );
+    }
 
     const dailyRows = await env.AUTH_DB.prepare(`
       SELECT date, requests, credits, browser_calls, cache_hits
@@ -140,7 +147,7 @@ export async function handleUsage(
       WHERE key_id IN (SELECT id FROM api_keys WHERE account_id = ?)
         AND date >= ?
       ORDER BY date ASC
-    `).bind(auth.accountId, monthStart).all<{
+    `).bind(accountId, monthStart).all<{
       date: string;
       requests: number;
       credits: number;
@@ -148,14 +155,19 @@ export async function handleUsage(
       cache_hits: number;
     }>();
 
+    // Derive quota from the authoritative tier in D1, not from stale AuthContext
+    const tier = (account.tier === "pro" ? "pro" : account.tier === "enterprise" ? "pro" : "free") as Tier;
+    const quota = TIER_QUOTAS[tier];
+    const used = account.monthly_credits_used ?? 0;
+
     return Response.json({
-      tier: account?.tier || auth.tier,
-      quota: auth.quotaLimit,
-      used: account?.monthly_credits_used ?? auth.quotaUsed,
-      remaining: Math.max(0, auth.quotaLimit - (account?.monthly_credits_used ?? auth.quotaUsed)),
+      tier: account.tier,
+      quota,
+      used,
+      remaining: Math.max(0, quota - used),
       period: {
         start: monthStart,
-        reset_at: account?.monthly_credits_reset_at,
+        reset_at: account.monthly_credits_reset_at,
       },
       daily: dailyRows.results || [],
     }, { headers: CORS_HEADERS });
@@ -166,4 +178,18 @@ export async function handleUsage(
       { status: 500, headers: CORS_HEADERS },
     );
   }
+}
+
+/** Bearer-auth entry point (API key users) */
+export async function handleUsage(
+  auth: AuthContext,
+  env: Env,
+): Promise<Response> {
+  if (!auth.accountId) {
+    return Response.json(
+      { error: "Unauthorized", message: "Valid API key required for /api/usage" },
+      { status: 401, headers: CORS_HEADERS },
+    );
+  }
+  return handleUsageForAccount(env, auth.accountId);
 }
