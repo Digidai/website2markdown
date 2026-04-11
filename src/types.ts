@@ -17,6 +17,10 @@ export interface Env {
   CF_ACCOUNT_ID?: string;
   /** Cloudflare API Token with Browser Rendering - Edit permission */
   CF_API_TOKEN?: string;
+  /** Resend API key for sending magic-link emails */
+  RESEND_API_KEY?: string;
+  /** From address for auth emails, e.g. "md.genedai.me <noreply@mail.genedai.me>" */
+  AUTH_EMAIL_FROM?: string;
 }
 
 // ─── Auth & Tier Types ──────────────────────────────────────

@@ -45,6 +45,12 @@ import {
   handleMe,
 } from "./handlers/keys";
 import {
+  handleSendMagicLink,
+  handleVerifyMagicLink,
+  handleLogout,
+} from "./handlers/auth";
+import { portalPageHTML } from "./templates/portal";
+import {
   LANDING_CSP,
   LOADING_CSP,
   ConvertError,
@@ -178,6 +184,20 @@ export default {
       return handleJobs(request, env);
     }
 
+    // ─── Portal auth routes (no session required) ────────────
+    // POST /api/auth/magic-link — send sign-in email
+    // GET  /api/auth/verify     — verify magic link, create session
+    // POST /api/auth/logout     — destroy session
+    if (path === "/api/auth/magic-link" && request.method === "POST") {
+      return handleSendMagicLink(request, env, host);
+    }
+    if (path === "/api/auth/verify" && request.method === "GET") {
+      return handleVerifyMagicLink(request, env, host);
+    }
+    if (path === "/api/auth/logout" && request.method === "POST") {
+      return handleLogout(request, env);
+    }
+
     // ─── Portal API (session-based auth) ──────────────────────
     // POST /api/keys, GET /api/keys, DELETE /api/keys/:id, GET /api/me
     if (path === "/api/me" || path === "/api/keys" || path.startsWith("/api/keys/")) {
@@ -275,6 +295,12 @@ export default {
           },
         });
       }
+      if (path === "/portal" || path === "/portal/" || path.startsWith("/portal/")) {
+        return new Response(null, {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
       return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
     }
 
@@ -294,6 +320,20 @@ export default {
     // llms.txt — AI discoverability
     if (path === "/llms.txt" || path === "/.well-known/llms.txt") {
       return handleLlmsTxt(host);
+    }
+
+    // Developer Portal (SPA — single HTML page, client-side routing)
+    if (path === "/portal" || path === "/portal/" || path.startsWith("/portal/")) {
+      return new Response(portalPageHTML(), {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "X-Frame-Options": "DENY",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "strict-origin-when-cross-origin",
+          "Cache-Control": "no-store",
+        },
+      });
     }
 
     // Health check
