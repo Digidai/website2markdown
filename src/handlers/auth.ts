@@ -31,6 +31,7 @@ import {
   resolveSession,
   SESSION_COOKIE_NAME,
 } from "../middleware/session";
+import { bumpLimit } from "../middleware/rate-limit-d1";
 
 const TOKEN_TTL_MINUTES = 15;
 const EMAIL_RATE_LIMIT_PER_HOUR = 3;
@@ -38,39 +39,7 @@ const IP_RATE_LIMIT_PER_HOUR = 10;  // Per-IP cap to prevent cross-email abuse
 const MAX_BODY_BYTES = 1024;         // Reject oversized magic-link request bodies
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
-
-/**
- * Increment a Cache-API-backed counter at `key` with `ttlSeconds` expiry.
- * Returns the new count. Non-atomic across isolates but good enough for
- * abuse prevention (a distributed attacker can still trivially stay under
- * the limit across isolates; this mostly prevents single-source bursts).
- */
-async function incrementRateCounter(key: string, ttlSeconds: number): Promise<number> {
-  if (typeof caches === "undefined") return 0;
-  try {
-    const req = new Request(key);
-    const existing = await caches.default.match(req);
-    const current = existing ? Number(await existing.text()) || 0 : 0;
-    const next = current + 1;
-    await caches.default.put(req, new Response(String(next), {
-      headers: { "Cache-Control": `max-age=${ttlSeconds}` },
-    }));
-    return next;
-  } catch {
-    return 0;
-  }
-}
-
-async function readRateCounter(key: string): Promise<number> {
-  if (typeof caches === "undefined") return 0;
-  try {
-    const existing = await caches.default.match(new Request(key));
-    if (!existing) return 0;
-    return Number(await existing.text()) || 0;
-  } catch {
-    return 0;
-  }
-}
+const ONE_HOUR_SECONDS = 60 * 60;
 
 function getClientIp(request: Request): string {
   return request.headers.get("cf-connecting-ip")
@@ -107,21 +76,25 @@ export async function handleSendMagicLink(
     return Response.json({ error: "Invalid email address" }, { status: 400, headers: CORS_HEADERS });
   }
 
-  // ── Rate limiting (two-dimensional) ─────────────────────────
+  // ── Rate limiting (two-dimensional, D1-backed for atomicity) ────
   // 1) Per-email cap: prevents mailbox flooding for a specific victim
   // 2) Per-IP cap: prevents a single attacker from burning Resend quota
   //    by rotating across many victim emails
-  const emailKey = `https://md-rate-limit/magic-link/email/${encodeURIComponent(email)}`;
+  //
+  // Uses D1 INSERT ... ON CONFLICT UPDATE RETURNING for atomic counter
+  // semantics. The previous Cache API implementation was per-colo and
+  // non-atomic — an attacker could trivially burst past the limit.
   const ip = getClientIp(request);
-  const ipKey = `https://md-rate-limit/magic-link/ip/${encodeURIComponent(ip)}`;
+  const emailKey = `magic-link:email:${email}`;
+  const ipKey = `magic-link:ip:${ip}`;
 
-  const [emailCount, ipCount] = await Promise.all([
-    readRateCounter(emailKey),
-    readRateCounter(ipKey),
+  const [emailLimit, ipLimit] = await Promise.all([
+    bumpLimit(env, emailKey, EMAIL_RATE_LIMIT_PER_HOUR, ONE_HOUR_SECONDS),
+    bumpLimit(env, ipKey, IP_RATE_LIMIT_PER_HOUR, ONE_HOUR_SECONDS),
   ]);
 
   // Silently 200 on rate limit (don't reveal which dimension tripped)
-  if (emailCount >= EMAIL_RATE_LIMIT_PER_HOUR || ipCount >= IP_RATE_LIMIT_PER_HOUR) {
+  if (emailLimit.blocked || ipLimit.blocked) {
     return Response.json(
       { ok: true, note: "If an account exists, an email was sent." },
       { status: 200, headers: CORS_HEADERS },
@@ -155,7 +128,10 @@ export async function handleSendMagicLink(
     return Response.json({ error: "Internal Error" }, { status: 500, headers: CORS_HEADERS });
   }
 
-  // Send email via Resend (if configured)
+  // Send email via Resend (if configured).
+  // Rate counters were already incremented atomically by bumpLimit() above,
+  // so they're "spent" even if Resend fails. This is intentional: it prevents
+  // attackers from retrying by burning the Resend failure path.
   const verifyUrl = `https://${host}/api/auth/verify?token=${token}`;
   if (env.RESEND_API_KEY) {
     try {
@@ -166,16 +142,6 @@ export async function handleSendMagicLink(
     }
   } else {
     console.warn("RESEND_API_KEY not configured — magic link logged only:", verifyUrl);
-  }
-
-  // Increment both rate limit counters (1-hour TTL)
-  const ONE_HOUR = 60 * 60;
-  try {
-    await Promise.all([
-      incrementRateCounter(emailKey, ONE_HOUR),
-      incrementRateCounter(ipKey, ONE_HOUR),
-    ]);
-  } catch { /* ignore */
   }
 
   return Response.json({

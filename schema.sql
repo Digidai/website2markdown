@@ -62,3 +62,13 @@ CREATE TABLE IF NOT EXISTS magic_link_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_magic_hash ON magic_link_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_magic_email ON magic_link_tokens(email);
+
+-- Global rate limit counters (atomic via D1 upsert, unlike per-colo Cache API).
+-- Used for operations where global consistency matters, e.g., magic-link email
+-- quota protection against mail bombing.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT PRIMARY KEY,
+  count INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
