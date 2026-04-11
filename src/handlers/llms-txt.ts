@@ -47,14 +47,37 @@ POST ${baseUrl}/api/jobs
 GET ${baseUrl}/api/health
 - Returns: Service status and metrics
 
+### Usage (GET)
+GET ${baseUrl}/api/usage
+- Returns: Current tier, monthly quota, credits used, daily breakdown
+- Auth: Bearer API key
+
+## Developer Portal
+Sign up at ${baseUrl}/portal/ with your email (passwordless Magic Link).
+Manage API keys, track usage, see tier limits in real time.
+
 ## Supported Platforms
 WeChat (微信公众号), Zhihu (知乎), Yuque (语雀), Feishu/Lark (飞书),
 CSDN, Juejin (掘金), 36Kr, Toutiao (头条), NetEase (网易), Weibo (微博),
 Reddit, Twitter/X, Notion, and any other public URL.
 
-## Authentication
-Bearer token via Authorization header or ?token= query parameter.
-Required for /api/batch and /api/stream (when PUBLIC_API_TOKEN is set).
+## Authentication and Tiers
+
+Request an API key at ${baseUrl}/portal/. Authenticate with:
+  Authorization: Bearer mk_...
+
+Tiers:
+- anonymous (no key): cache + readability only, no browser rendering, no expensive params
+- free (1,000 credits/month): full pipeline including browser rendering
+- pro (50,000 credits/month): full pipeline + engine selection, proxy, no_cache, force_browser
+
+Credit costs are fixed per endpoint: convert=1, extract=3, deepcrawl=2 per URL.
+
+Response headers on authenticated requests:
+- X-RateLimit-Limit: monthly credit quota
+- X-RateLimit-Remaining: credits left this period
+- X-Request-Cost: credits this request consumed
+- X-Quota-Exceeded: true when cached content is served past quota
 
 ## MCP Server
 Install: npm install -g @digidai/mcp-website2markdown

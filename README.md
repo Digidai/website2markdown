@@ -25,6 +25,9 @@ curl "https://md.genedai.me/https://example.com?format=json&raw=true"
 
 Or just open in your browser: **[md.genedai.me/https://example.com](https://md.genedai.me/https://example.com)**
 
+Need browser-rendered pages (WeChat, Feishu, JS-heavy SPAs) or higher limits?
+Get a free API key at **[md.genedai.me/portal/](https://md.genedai.me/portal/)**.
+
 ## How It Works
 
 ```
@@ -78,21 +81,69 @@ curl https://md.genedai.me/https://example.com/page \
   -H "Accept: text/markdown"
 ```
 
-### Optional API Token Protection
+### API Keys and Tiers
 
-If `PUBLIC_API_TOKEN` is configured, API-style requests require a token:
+Sign up at **[md.genedai.me/portal/](https://md.genedai.me/portal/)** with
+your email to get an API key. No password; a sign-in link is emailed to you.
+
+| Tier | Credits/month | Browser rendering | Proxy / Engine selection |
+|------|---------------|-------------------|--------------------------|
+| **Anonymous** (no key) | — | ❌ cache + readability only | ❌ |
+| **Free** | 1,000 | ✅ | ❌ |
+| **Pro** | 50,000 | ✅ | ✅ (`engine=`, `no_cache=`, `force_browser=`) |
+
+Credit cost is **fixed per request type**, not per actual conversion path
+(so bills are predictable even if a site silently switches from static to
+browser rendering behind the scenes):
+
+| Endpoint | Credits |
+|---|---|
+| `GET /<url>` | 1 |
+| `GET /api/stream` | 1 |
+| `POST /api/batch` (per URL) | 1 |
+| `POST /api/extract` | 3 |
+| `POST /api/deepcrawl` (per URL) | 2 |
+
+Cache hits on a paying tier still consume 1 credit; when your quota is
+exhausted the API keeps serving cached URLs (with `X-Quota-Exceeded: true`)
+but rejects cache-miss requests with `429`.
+
+#### Using your key
 
 ```bash
-# Header token
+# Bearer header (recommended)
 curl "https://md.genedai.me/https://example.com/page?raw=true" \
-  -H "Authorization: Bearer <public-token>"
+  -H "Authorization: Bearer mk_..."
 
-# Query token on single-URL convert
-curl "https://md.genedai.me/https://example.com/page?raw=true&token=<public-token>"
-
-# Query token (useful for /api/stream EventSource)
-curl "https://md.genedai.me/api/stream?url=https%3A%2F%2Fexample.com%2Fpage&token=<public-token>"
+# The old ?token= query-parameter form is supported for legacy
+# PUBLIC_API_TOKEN deployments, but NOT for mk_ keys. Never put a real
+# API key in a query string — logs, referrers, and monitoring capture it.
 ```
+
+Every authenticated response includes per-key rate limit headers:
+
+```
+X-RateLimit-Limit:     50000
+X-RateLimit-Remaining: 49993
+X-Request-Cost:        1
+```
+
+#### Portal API (session cookie)
+
+Once signed in at `/portal/`, these endpoints are available under the same
+session cookie:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/me` | GET | Current account (email, tier, account_id) |
+| `/api/keys` | GET | List your keys (prefix only, never plaintext) |
+| `/api/keys` | POST | Create a new key; plaintext returned **once** |
+| `/api/keys/:id` | DELETE | Revoke a key (takes effect within 60s — LRU cache) |
+| `/api/usage` | GET | Usage breakdown (tier, quota, used, daily history) |
+| `/api/auth/logout` | POST | Destroy session, clear cookie |
+
+`/api/usage` also accepts an `Authorization: Bearer mk_...` header so SDK
+and CLI tools can poll usage without a session.
 
 ### Output Formats
 
@@ -391,15 +442,28 @@ print(data["title"], data["method"])
 
 ## Authentication Matrix
 
-| Route Group | Token Requirement | Notes |
-|---|---|---|
-| `/<url>` and format/query variants | No token by default | If `PUBLIC_API_TOKEN` is configured, use `Authorization: Bearer ...` or `?token=...` |
-| `/api/stream` | No token by default | If `PUBLIC_API_TOKEN` is configured, use `Authorization: Bearer ...` or `?token=...` |
-| `/api/batch` | `Authorization: Bearer <API_TOKEN>` | If `API_TOKEN` is not configured, API returns `503` (`API_TOKEN not set`) |
-| `/api/extract` | `Authorization: Bearer <API_TOKEN>` | If `API_TOKEN` is not configured, API returns `503` |
-| `/api/jobs*` | `Authorization: Bearer <API_TOKEN>` | Includes create/query/stream/run |
-| `/api/deepcrawl` | `Authorization: Bearer <API_TOKEN>` | Stream and non-stream both require `API_TOKEN` |
-| `/api/health` | Public | Operational observability endpoint |
+The hosted instance at `md.genedai.me` uses D1-backed API keys with tiers
+(see [API Keys and Tiers](#api-keys-and-tiers)). Self-hosted deployments
+can skip the `AUTH_DB` binding and fall back to the legacy
+`API_TOKEN` / `PUBLIC_API_TOKEN` secrets.
+
+| Route Group | Anonymous | Free tier (`mk_…`) | Pro tier (`mk_…`) |
+|---|---|---|---|
+| `GET /<url>` | ✅ cache + readability | ✅ full pipeline | ✅ + `engine`, `no_cache`, `force_browser` |
+| `GET /api/stream` | ✅ cache + readability | ✅ full pipeline | ✅ full + params |
+| `POST /api/batch` | ❌ 401 | ✅ | ✅ |
+| `POST /api/extract` | ❌ 401 | ✅ | ✅ |
+| `POST /api/deepcrawl` | ❌ 401 | ✅ | ✅ |
+| `POST /api/jobs*` | ❌ 401 | ✅ | ✅ |
+| `GET /api/me`, `/api/keys`, `/api/usage` | — | session cookie | session cookie or Bearer key |
+| `POST /api/auth/magic-link`, `/auth/logout` | public | public | public |
+| `GET /api/auth/verify` | public (single-use token) | — | — |
+| `GET /portal/` (SPA) | public HTML | — | — |
+| `GET /api/health`, `/llms.txt`, `/robots.txt`, `/sitemap.xml` | public | public | public |
+
+The batch / extract / deepcrawl / jobs endpoints are always gated because
+they either fan out into many conversions or touch Browser Rendering
+directly.
 
 ## Response Headers (Raw API)
 
@@ -409,12 +473,16 @@ print(data["title"], data["method"])
 | `X-Source-URL` | The original target URL |
 | `X-Markdown-Tokens` | Token count (native Markdown for Agents only) |
 | `X-Markdown-Native` | `"true"` when native, `"false"` otherwise |
-| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, `"browser+readability+turndown"`, or `"jina"` |
+| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, `"browser+readability+turndown"`, `"jina"`, or `"cf"` |
 | `X-Cache-Status` | `"HIT"` or `"MISS"` |
 | `X-Markdown-Fallbacks` | Comma-separated fallback list (when used) |
 | `X-Browser-Rendered` | `"true"` when browser rendering path was used |
 | `X-Paywall-Detected` | `"true"` when paywall heuristics were triggered |
-| `Retry-After` / `X-RateLimit-*` | Present on `429` responses |
+| `X-RateLimit-Limit` | Monthly credit quota (authenticated requests only) |
+| `X-RateLimit-Remaining` | Credits remaining this month |
+| `X-Request-Cost` | Fixed per-request-type credit cost |
+| `X-Quota-Exceeded` | `"true"` when quota is exhausted but a cached response was served |
+| `Retry-After` | Present on `429` responses (IP rate limit or quota exceeded) |
 | `Access-Control-Allow-Origin` | `*` — CORS enabled |
 
 ## Features
@@ -424,7 +492,9 @@ print(data["title"], data["method"])
 | **Any Website** | Works on every site with four conversion paths |
 | **Site Adapters** | Specialized extractors for WeChat, Feishu, Zhihu, Yuque, Notion, Juejin |
 | **Anti-Bot Bypass** | Browser Rendering handles JS challenges, CAPTCHAs, and verification |
-| **KV Cache** | Results cached for instant repeat access |
+| **3-Tier Cache** | In-memory hot cache → Cloudflare Cache API (per-colo, free) → KV (global, persistent) |
+| **Developer Portal** | Self-service signup, API key management, real-time usage dashboard |
+| **Tier System** | Anonymous (cache+readability only), Free (1k/mo), Pro (50k/mo) |
 | **R2 Image Storage** | Images stored reliably, served via proxy URLs |
 | **Multiple Formats** | Markdown, HTML, text, or structured JSON output |
 | **CSS Selectors** | Target specific page elements for extraction |

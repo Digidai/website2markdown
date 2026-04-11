@@ -19,6 +19,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         tabHome: "首页",
         tabDocs: "文档",
         tabIntegration: "集成",
+        portalLabel: "获取 API Key",
         // Hero
         heroTitleHtml: "任意 URL 转 <em>Markdown</em>，即刻完成",
         heroSubtitle: "将任意网页转为干净 Markdown，为 AI Agent、LLM 与开发者而生。开源、边缘部署、21 个平台适配器。",
@@ -213,6 +214,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         tabHome: "Home",
         tabDocs: "Docs",
         tabIntegration: "Integration",
+        portalLabel: "Get API Key",
         // Hero
         heroTitleHtml: "Any URL to <em>Markdown</em>, instantly",
         heroSubtitle: "Convert any web page to clean Markdown for AI agents, LLMs, and developers. Open source, edge-deployed, 21 platform adapters.",
@@ -636,6 +638,18 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     }
     .lang-link:hover { color: var(--text-primary); background: var(--bg-elevated); }
     .lang-link.active { color: #0e3a4a; background: var(--accent); font-weight: 600; }
+    .portal-link {
+      display: inline-flex; align-items: center;
+      padding: 6px 14px;
+      font-size: 13px; font-weight: 500;
+      color: #0e3a4a;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: var(--radius);
+      text-decoration: none;
+      transition: background 0.15s, transform 0.15s;
+    }
+    .portal-link:hover { background: #06b6d4; transform: translateY(-1px); }
     .github-link {
       display: flex; align-items: center; color: var(--text-secondary);
       transition: color 0.2s; padding: 4px;
@@ -1198,6 +1212,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       }
       .mobile-menu-btn { display: block; }
+      .portal-link { padding: 4px 10px; font-size: 12px; }
       .input-prefix { display: none; }
       .hero { padding: 48px 0 32px; }
       .footer-bottom { flex-direction: column; gap: 12px; }
@@ -1219,6 +1234,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         <button class="tab-btn" data-tab="integration" onclick="switchTab('integration')">${t.tabIntegration}</button>
       </nav>
       <div class="header-right">
+        <a href="/portal/" class="portal-link">${t.portalLabel}</a>
         <nav class="lang-switch" aria-label="${t.langSwitchAria}">
           <a class="lang-link ${isZh ? "" : "active"}" href="/?lang=en">EN</a>
           <a class="lang-link ${isZh ? "active" : ""}" href="/?lang=zh">中文</a>

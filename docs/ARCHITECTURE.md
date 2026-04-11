@@ -45,7 +45,12 @@ Client Request
    v
 Route parsing in src/index.ts
    |
-   +--> auth check for protected routes
+   +--> resolveAuth() — Bearer key → LRU cache → D1 lookup → AuthContext
+   |
+   +--> buildPolicy() — AuthContext → PolicyDecision (tier gate)
+   |        (sole source of truth for what the request may use)
+   |
+   +--> checkPolicy() — reject expensive params if tier doesn't allow
    |
    +--> per-IP rate limit
    |
@@ -55,18 +60,24 @@ Route parsing in src/index.ts
       SSRF guardrails in src/security.ts
             |
             v
-      cache lookup in CACHE_KV / hot cache
+      3-tier cache lookup in src/cache/index.ts
             |
-            +--> hit: return cached result
+            +--> hot_cache (in-memory, 15s, per-isolate)
+            +--> Cache API (per-colo, free, Cloudflare-native)
+            +--> CACHE_KV (global, persistent, paid per-op)
+            |
+            +--> hit: return cached result + policy headers
             |
             v
       conversion pipeline selection
+            |   (browserAllowed comes from PolicyDecision —
+            |    anonymous tier can never reach browser path)
             |
             +--> native markdown
             +--> CF REST markdown
             +--> static fetch + Readability/Turndown
-            +--> browser adapter path
-            +--> proxy retry / pool when anti-bot recovery is needed
+            +--> browser adapter path              [if policy.browserAllowed]
+            +--> proxy retry / pool                [if policy.proxyAllowed]
             +--> Jina fallback
             |
             v
@@ -77,10 +88,16 @@ Route parsing in src/index.ts
             +--> output format shaping
             |
             v
-      cache store
+      cache store (3-tier fan-out)
             |
             v
-        HTTP response
+      recordUsage() — buffer this request's credits in memory
+            |
+            v
+      ctx.waitUntil(flushUsage(env)) — async D1 write after response
+            |
+            v
+      response with X-RateLimit-*, X-Request-Cost headers
 ```
 
 ## Module Dependency Graph
@@ -90,14 +107,28 @@ Route parsing in src/index.ts
 ```text
 src/index.ts
 ├── config.ts
-├── types.ts
+├── types.ts                    (AuthContext, PolicyDecision, Tier, TIER_QUOTAS)
 ├── security.ts
 ├── converter.ts
 ├── cf-rest.ts
 ├── jina.ts
 ├── proxy.ts
 ├── paywall.ts
-├── cache/index.ts
+├── cache/index.ts              (hot cache → Cache API → KV)
+├── middleware/
+│   ├── auth.ts                 (legacy single-token auth)
+│   ├── auth-d1.ts              (resolveAuth — D1 + LRU cache)
+│   ├── session.ts              (portal session cookies, D1-backed)
+│   ├── tier-gate.ts            (buildPolicy, checkPolicy, policyHeaders)
+│   └── rate-limit.ts           (per-IP anti-abuse)
+├── handlers/
+│   ├── convert.ts
+│   ├── batch.ts, extract.ts, jobs.ts, deepcrawl.ts
+│   ├── stream.ts
+│   ├── auth.ts                 (magic link send/verify/logout)
+│   ├── keys.ts                 (/api/keys CRUD, /api/me)
+│   ├── usage.ts                (/api/usage, recordUsage, flushUsage)
+│   └── health.ts, og-image.ts, llms-txt.ts, seo.ts
 ├── browser/index.ts
 │   ├── browser/stealth.ts
 │   ├── browser/proxy-retry.ts
@@ -110,7 +141,10 @@ src/index.ts
 ├── deepcrawl/filters.ts
 ├── deepcrawl/scorers.ts
 ├── observability/metrics.ts
-└── templates/{landing,loading,rendered,error}.ts
+└── templates/
+    ├── landing.ts              (public homepage)
+    ├── loading.ts, rendered.ts, error.ts
+    └── portal.ts               (developer portal SPA)
 ```
 
 A second way to view the same system is by runtime responsibility:
@@ -134,15 +168,21 @@ Env
 ├── MYBROWSER
 │   └── Cloudflare Browser Rendering binding used by @cloudflare/puppeteer
 ├── CACHE_KV
-│   ├── conversion result cache
-│   ├── rate-limit counters
+│   ├── conversion result cache (tier 3, global/persistent)
 │   ├── CF blocked-domain negative cache
 │   ├── paywall rule refresh source
 │   └── job / crawl checkpoint persistence
 ├── IMAGE_BUCKET
 │   └── R2 bucket for captured and proxied images
-└── JOB_COORDINATOR
-    └── Durable Object used for job coordination
+├── JOB_COORDINATOR
+│   └── Durable Object used for job coordination
+└── AUTH_DB
+    ├── accounts            (email, tier, monthly_credits_used)
+    ├── api_keys            (SHA-256 hashed, prefix, revoked_at)
+    ├── sessions            (portal session cookies, SHA-256 hashed)
+    ├── magic_link_tokens   (passwordless email sign-in, single-use)
+    ├── usage_daily         (per-key per-day credit/request counters)
+    └── paddle_events       (webhook dedup for future billing)
 ```
 
 In `wrangler.toml`, these map to:
@@ -151,6 +191,108 @@ In `wrangler.toml`, these map to:
 - `CACHE_KV` for Cloudflare KV
 - `IMAGE_BUCKET` for R2
 - `JOB_COORDINATOR` for the Durable Object class `JobCoordinator`
+- `AUTH_DB` for the D1 SQLite database (`md-auth`)
+
+## Auth, Tier, and Metering
+
+The auth layer is layered deliberately: the only thing handlers see is a
+`PolicyDecision`, which is computed once at the top of the request by
+`buildPolicy(resolveAuth(request, env))`. Downstream code never touches
+Bearer headers, session cookies, or D1 directly.
+
+```text
+Request
+   │
+   ▼
+ resolveAuth()
+   │  1. parse Authorization: Bearer mk_…
+   │  2. sha256(token) → key hash
+   │  3. LRU cache hit? → return cached AuthContext
+   │  4. miss → D1 query (api_keys JOIN accounts)
+   │  5. D1 fail → fall back to stale LRU (preserves paid tier during D1 blip)
+   │  6. unknown or no key → anonymous AuthContext
+   ▼
+ AuthContext { tier, accountId, keyId, quotaLimit, quotaUsed }
+   │
+   ▼
+ buildPolicy(auth, route)
+   │  Translates tier → capabilities. Fixed-price per-route credit cost.
+   ▼
+ PolicyDecision {
+   browserAllowed,
+   proxyAllowed,
+   engineSelectionAllowed,
+   noCacheAllowed,
+   quotaRemaining,
+   creditCost,
+ }
+   │
+   ▼
+ checkPolicy(policy, {forceBrowser, noCache, engine})
+   │  401 if tier can't use a requested parameter
+   ▼
+ convertUrl(…, browserAllowed: policy.browserAllowed, …)
+```
+
+**Tiers and quotas** (from `TIER_QUOTAS` in `src/types.ts`):
+
+| Tier | Quota/mo | browser | proxy | engine= | no_cache | force_browser |
+|------|---------:|:-------:|:-----:|:-------:|:--------:|:-------------:|
+| anonymous | 0 | — | — | — | — | — |
+| free | 1,000 | ✅ | — | — | — | — |
+| pro | 50,000 | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**Usage metering**: `recordUsage()` mutates an in-memory buffer keyed by
+`{keyId}:{date}`. `ctx.waitUntil(flushUsage(env))` runs after the response
+is sent and writes the accumulated batch to D1 with `INSERT … ON CONFLICT
+UPDATE`, also bumping `accounts.monthly_credits_used` (the denormalized
+column used for fast quota checks). Threshold is 1 so the flush runs on
+every authenticated request; natural batching happens when multiple
+concurrent requests hit the same isolate before `waitUntil` fires.
+
+**D1 failure mode**: If D1 is briefly unreachable, the LRU cache keeps
+serving paid tier access for known keys until its 60s TTL expires. Only
+fully unknown keys degrade to anonymous. This prevents a D1 blip from
+turning into a paying-customer outage.
+
+## Developer Portal
+
+The portal at `/portal/` is a single HTML file served by the Worker (no
+build step, no framework, no `<script src>`). It fetches `/api/me`,
+`/api/keys`, and `/api/usage` client-side and renders a Stripe/Linear-style
+dashboard.
+
+**Auth flow** (Magic Link):
+
+```text
+POST /api/auth/magic-link { email }
+   │  1. validate email
+   │  2. rate limit 3/hour/email via Cache API
+   │  3. generate random 32-byte hex token
+   │  4. SHA-256 hash → magic_link_tokens row (15 min TTL)
+   │  5. send Resend email with link to /api/auth/verify?token=<token>
+   │  6. return 200 (never leak whether email exists)
+   ▼
+User clicks link → GET /api/auth/verify?token=<token>
+   │  1. hash token, look up magic_link_tokens row
+   │  2. check not expired, not already used
+   │  3. mark used_at to prevent replay
+   │  4. find-or-create accounts row by email
+   │  5. createSession() → new session row (token hash stored)
+   │  6. 302 redirect to /portal/ with Set-Cookie: md_session=<token>
+   ▼
+Portal loads → JS calls /api/me with session cookie
+```
+
+Portal API (session cookie required): `GET /api/me`, `GET /api/keys`,
+`POST /api/keys`, `DELETE /api/keys/:id`, `GET /api/usage`,
+`POST /api/auth/logout`. `/api/usage` also accepts `Authorization: Bearer`
+so SDKs can poll usage without a session.
+
+**Session security**: 32-byte random token in an `HttpOnly; Secure;
+SameSite=Lax` cookie. D1 only stores the SHA-256 hash, so leaking the
+sessions table does not grant access. CSRF is blocked by SameSite=Lax and
+the absence of `Access-Control-Allow-Credentials` in CORS headers.
 
 ## Adapter Layer
 

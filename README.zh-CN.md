@@ -25,6 +25,9 @@ curl "https://md.genedai.me/https://example.com?format=json&raw=true"
 
 或直接在浏览器打开：**[md.genedai.me/https://example.com](https://md.genedai.me/https://example.com)**
 
+需要浏览器渲染的页面（微信公众号、飞书、JS 重度 SPA），或需要更高的配额？
+去 **[md.genedai.me/portal/](https://md.genedai.me/portal/)** 领取免费 API key。
+
 ## 工作原理
 
 ```
@@ -78,21 +81,66 @@ curl https://md.genedai.me/https://example.com/page \
   -H "Accept: text/markdown"
 ```
 
-### 可选：API Token 保护
+### API Key 与套餐
 
-如果配置了 `PUBLIC_API_TOKEN`，API 风格请求会要求 token：
+在 **[md.genedai.me/portal/](https://md.genedai.me/portal/)** 用邮箱注册领取
+API key。无需密码，登录链接会发到你的邮箱。
+
+| 套餐 | 月额度 | 浏览器渲染 | proxy / engine 选择 |
+|------|--------|------------|---------------------|
+| **匿名**（无 key） | — | ❌ 只有缓存 + readability | ❌ |
+| **Free** | 1,000 credits | ✅ | ❌ |
+| **Pro** | 50,000 credits | ✅ | ✅（`engine=`、`no_cache=`、`force_browser=`） |
+
+Credit 成本按**请求类型固定计算**，而不是按实际转换路径计费（这样即使某个
+站点悄悄地从静态 HTML 切换到需要浏览器渲染，你的账单依然可以预测）：
+
+| 端点 | Credits |
+|---|---|
+| `GET /<url>` | 1 |
+| `GET /api/stream` | 1 |
+| `POST /api/batch`（每个 URL） | 1 |
+| `POST /api/extract` | 3 |
+| `POST /api/deepcrawl`（每个 URL） | 2 |
+
+付费套餐的缓存命中仍计 1 credit。月度额度用完时，API 仍然会服务已缓存的
+URL（带 `X-Quota-Exceeded: true` 头），只有 cache miss 的请求会返回 `429`。
+
+#### 使用你的 key
 
 ```bash
-# Header token
+# Bearer header（推荐）
 curl "https://md.genedai.me/https://example.com/page?raw=true" \
-  -H "Authorization: Bearer <public-token>"
+  -H "Authorization: Bearer mk_..."
 
-# 单 URL 转换也支持 query token
-curl "https://md.genedai.me/https://example.com/page?raw=true&token=<public-token>"
-
-# Query token（适用于 /api/stream EventSource）
-curl "https://md.genedai.me/api/stream?url=https%3A%2F%2Fexample.com%2Fpage&token=<public-token>"
+# 旧的 ?token= query 参数形式仍然支持 PUBLIC_API_TOKEN 部署，
+# 但不支持 mk_ key。不要把真实 API key 放在 query string 里 —
+# 日志、referrer、监控截图都会记录它。
 ```
+
+每个认证响应都包含 per-key 限流头：
+
+```
+X-RateLimit-Limit:     50000
+X-RateLimit-Remaining: 49993
+X-Request-Cost:        1
+```
+
+#### Portal API（session cookie）
+
+在 `/portal/` 登录后，以下端点可以用同一个 session cookie 调用：
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/api/me` | GET | 当前账户信息（email、tier、account_id） |
+| `/api/keys` | GET | 列出你的 key（只显示前缀，永远不含明文） |
+| `/api/keys` | POST | 创建新 key，明文**只返回一次** |
+| `/api/keys/:id` | DELETE | 吊销 key（60 秒内生效 — LRU 缓存） |
+| `/api/usage` | GET | 用量数据（tier、配额、已用、每日历史） |
+| `/api/auth/logout` | POST | 销毁 session，清理 cookie |
+
+`/api/usage` 也接受 `Authorization: Bearer mk_...` header，便于 SDK 和 CLI
+工具无需 session 也能查询用量。
 
 ### 输出格式
 
@@ -357,15 +405,26 @@ print(data["title"], data["method"])
 
 ## 鉴权矩阵
 
-| 路由组 | Token 要求 | 说明 |
-|---|---|---|
-| `/<url>` 及其查询变体 | 默认不需要 | 若配置 `PUBLIC_API_TOKEN`，可用 `Authorization: Bearer ...` 或 `?token=...` |
-| `/api/stream` | 默认不需要 | 若配置 `PUBLIC_API_TOKEN`，可用 `Authorization: Bearer ...` 或 `?token=...` |
-| `/api/batch` | `Authorization: Bearer <API_TOKEN>` | 若未配置 `API_TOKEN`，返回 `503`（`API_TOKEN not set`） |
-| `/api/extract` | `Authorization: Bearer <API_TOKEN>` | 若未配置 `API_TOKEN`，返回 `503` |
-| `/api/jobs*` | `Authorization: Bearer <API_TOKEN>` | 包含 create/query/stream/run |
-| `/api/deepcrawl` | `Authorization: Bearer <API_TOKEN>` | 流式和非流式都要求 `API_TOKEN` |
-| `/api/health` | 公开 | 运营可观测性端点 |
+托管版 `md.genedai.me` 使用 D1 支持的 API key + 套餐系统（见
+[API Key 与套餐](#api-key-与套餐)）。自部署可以不配置 `AUTH_DB` binding，
+fallback 到 legacy 的 `API_TOKEN` / `PUBLIC_API_TOKEN` 单 token 模式。
+
+| 路由组 | 匿名 | Free (`mk_…`) | Pro (`mk_…`) |
+|---|---|---|---|
+| `GET /<url>` | ✅ 缓存 + readability | ✅ 完整管线 | ✅ + `engine`、`no_cache`、`force_browser` |
+| `GET /api/stream` | ✅ 缓存 + readability | ✅ 完整管线 | ✅ + 参数 |
+| `POST /api/batch` | ❌ 401 | ✅ | ✅ |
+| `POST /api/extract` | ❌ 401 | ✅ | ✅ |
+| `POST /api/deepcrawl` | ❌ 401 | ✅ | ✅ |
+| `POST /api/jobs*` | ❌ 401 | ✅ | ✅ |
+| `GET /api/me`、`/api/keys`、`/api/usage` | — | session cookie | session cookie 或 Bearer key |
+| `POST /api/auth/magic-link`、`/auth/logout` | 公开 | 公开 | 公开 |
+| `GET /api/auth/verify` | 公开（single-use token） | — | — |
+| `GET /portal/`（SPA） | 公开 HTML | — | — |
+| `GET /api/health`、`/llms.txt`、`/robots.txt`、`/sitemap.xml` | 公开 | 公开 | 公开 |
+
+batch / extract / deepcrawl / jobs 端点始终需要认证，因为它们要么会 fan-out
+出大量转换，要么直接触发 Browser Rendering。
 
 ## 响应头（Raw API）
 
@@ -375,12 +434,16 @@ print(data["title"], data["method"])
 | `X-Source-URL` | 原始目标 URL |
 | `X-Markdown-Tokens` | Token 数（仅原生 Markdown for Agents） |
 | `X-Markdown-Native` | 原生路径为 `"true"`，否则 `"false"` |
-| `X-Markdown-Method` | `"native"`、`"readability+turndown"`、`"browser+readability+turndown"`、`"jina"` |
+| `X-Markdown-Method` | `"native"`、`"readability+turndown"`、`"browser+readability+turndown"`、`"jina"`、`"cf"` |
 | `X-Cache-Status` | `"HIT"` 或 `"MISS"` |
 | `X-Markdown-Fallbacks` | 逗号分隔的兜底链路（如有） |
 | `X-Browser-Rendered` | 使用浏览器渲染时为 `"true"` |
 | `X-Paywall-Detected` | 命中付费墙规则时为 `"true"` |
-| `Retry-After` / `X-RateLimit-*` | 在 `429` 响应中出现 |
+| `X-RateLimit-Limit` | 月度 credit 配额（仅认证请求） |
+| `X-RateLimit-Remaining` | 本月剩余 credits |
+| `X-Request-Cost` | 该请求类型的固定 credit 成本 |
+| `X-Quota-Exceeded` | 配额用完但返回了缓存内容时为 `"true"` |
+| `Retry-After` | 在 `429` 响应中出现（IP 限流或配额超限） |
 | `Access-Control-Allow-Origin` | `*`，已启用 CORS |
 
 ## 功能特性
@@ -390,7 +453,9 @@ print(data["title"], data["method"])
 | **任意网站** | 四条转换路径覆盖更多页面类型 |
 | **站点适配器** | WeChat / Feishu / Zhihu / Yuque / Notion / Juejin 专项提取 |
 | **反爬绕过** | Browser Rendering 处理 JS 挑战与验证场景 |
-| **KV 缓存** | 重复请求快速返回 |
+| **3 层缓存** | 内存 hot cache → Cloudflare Cache API（per-colo 免费）→ KV（全球持久） |
+| **Developer Portal** | 自助注册、API key 管理、实时用量仪表盘 |
+| **套餐系统** | 匿名（只有缓存+readability）、Free（1k/月）、Pro（50k/月） |
 | **R2 图片存储** | 图片稳定保存并通过代理地址交付 |
 | **多输出格式** | Markdown、HTML、Text、JSON |
 | **CSS 选择器** | 精准提取指定页面区域 |
