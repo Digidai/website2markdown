@@ -37,6 +37,13 @@ import { resolveAuth } from "./middleware/auth-d1";
 import { buildPolicy, checkPolicy, policyHeaders } from "./middleware/tier-gate";
 import { consumeRateLimit, rateLimitedResponse } from "./middleware/rate-limit";
 import { recordUsage, flushUsage, shouldFlush, handleUsage } from "./handlers/usage";
+import { resolveSession } from "./middleware/session";
+import {
+  handleCreateKey,
+  handleListKeys,
+  handleRevokeKey,
+  handleMe,
+} from "./handlers/keys";
 import {
   LANDING_CSP,
   LOADING_CSP,
@@ -169,6 +176,33 @@ export default {
         return rateLimitedResponse("batch", decision, true);
       }
       return handleJobs(request, env);
+    }
+
+    // ─── Portal API (session-based auth) ──────────────────────
+    // POST /api/keys, GET /api/keys, DELETE /api/keys/:id, GET /api/me
+    if (path === "/api/me" || path === "/api/keys" || path.startsWith("/api/keys/")) {
+      const session = await resolveSession(request, env);
+      if (!session) {
+        return Response.json(
+          { error: "Unauthorized", message: "Valid session required" },
+          { status: 401, headers: CORS_HEADERS },
+        );
+      }
+
+      if (path === "/api/me" && request.method === "GET") {
+        return handleMe(session);
+      }
+      if (path === "/api/keys" && request.method === "POST") {
+        return handleCreateKey(request, env, session);
+      }
+      if (path === "/api/keys" && request.method === "GET") {
+        return handleListKeys(env, session);
+      }
+      if (path.startsWith("/api/keys/") && request.method === "DELETE") {
+        const keyId = path.slice("/api/keys/".length);
+        return handleRevokeKey(env, session, keyId);
+      }
+      return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
     }
 
     const jobPath = parseJobPath(path);
