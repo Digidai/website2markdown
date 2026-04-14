@@ -324,7 +324,7 @@ export async function fetchViaProxyPool(
           };
         }
         errors.push(
-          `proxy[${proxyIndex}]/${variant.name}: rejected status=${result.status} body=${result.body.slice(0, 200)}`,
+          `proxy[${proxyIndex}]/${variant.name}: rejected status=${result.status} body_bytes=${result.body.length}`,
         );
       } catch (error) {
         errors.push(
