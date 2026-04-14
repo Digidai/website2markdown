@@ -458,15 +458,17 @@ async function detectTcpEgressIp(): Promise<string | null> {
   const decoder = new TextDecoder();
   let socket: ReturnType<typeof connect> | null = null;
   try {
+    // api4.ipify.org is IPv4-only (no AAAA records), forcing TCP to use IPv4
+    // — the same path the proxy connection to brd.superproxy.io takes.
     socket = connect(
-      { hostname: "ifconfig.me", port: 80 },
+      { hostname: "api4.ipify.org", port: 80 },
       { secureTransport: "off", allowHalfOpen: false },
     );
     const writer = socket.writable.getWriter();
     const reader = socket.readable.getReader();
 
     await writer.write(encoder.encode(
-      "GET /ip HTTP/1.1\r\nHost: ifconfig.me\r\nConnection: close\r\n\r\n",
+      "GET / HTTP/1.1\r\nHost: api4.ipify.org\r\nConnection: close\r\n\r\n",
     ));
 
     const chunks: string[] = [];
