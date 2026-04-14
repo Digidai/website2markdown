@@ -35,6 +35,7 @@ import {
   fetchViaProxyPool,
   ensureBrightDataAllowlisted,
 } from "../proxy";
+import { fetchViaBrowserUse } from "../browser-use";
 import {
   applyPaywallHeaders,
   extractJsonLdArticle,
@@ -508,13 +509,25 @@ async function tryFetchAndParse(
       browserRendered = true;
     }
   } else if (!finalHtml && alwaysNeedsBrowser(targetUrl) && !browserAllowed) {
-    // Anonymous 用户无 browser 权限 — 对必须浏览器的站点直接走住宅代理
-    const proxyResult = await tryDirectProxyFetch(
-      targetUrl, env, fallbacks, abortSignal, progress,
-    );
-    if (proxyResult) {
-      finalHtml = proxyResult;
-      method = "proxy+readability+turndown";
+    // Anonymous 用户无 browser 权限 — 先走 Browser Use 远程浏览器，再降级住宅代理
+    if (env.BROWSER_USE_API_KEY) {
+      throwIfAborted(abortSignal);
+      await progress("fetch", "Fetching via remote browser");
+      const buHtml = await fetchViaBrowserUse(targetUrl, env.BROWSER_USE_API_KEY, abortSignal);
+      if (buHtml) {
+        finalHtml = buHtml;
+        method = "proxy+readability+turndown";
+        fallbacks.add("browser_use");
+      }
+    }
+    if (!finalHtml) {
+      const proxyResult = await tryDirectProxyFetch(
+        targetUrl, env, fallbacks, abortSignal, progress,
+      );
+      if (proxyResult) {
+        finalHtml = proxyResult;
+        method = "proxy+readability+turndown";
+      }
     }
   } else if (!finalHtml) {
     // 3. 静态获取
