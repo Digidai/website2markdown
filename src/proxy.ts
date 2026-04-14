@@ -448,16 +448,34 @@ let lastAllowlistedIp: string | null = null;
 let lastAllowlistTime = 0;
 const ALLOWLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Cloudflare published IPv4 egress ranges (https://www.cloudflare.com/ips-v4)
+// Workers use IPv6 internally with NAT64; external services see these IPv4s.
+const CF_IPV4_RANGES = [
+  "173.245.48.0/20",
+  "103.21.244.0/22",
+  "103.22.200.0/22",
+  "103.31.4.0/22",
+  "141.101.64.0/18",
+  "108.162.192.0/18",
+  "190.93.240.0/20",
+  "188.114.96.0/20",
+  "197.234.240.0/22",
+  "198.41.128.0/17",
+  "162.158.0.0/15",
+  "104.16.0.0/13",
+  "104.24.0.0/14",
+  "172.64.0.0/13",
+  "131.0.72.0/22",
+];
+
 /**
- * Ensure 0.0.0.0/0 is in Bright Data's zone allowlist.
- * Cloudflare Workers use IPv6 egress with NAT64, making per-IP
- * allowlisting impractical. The proxy is still protected by
- * username/password authentication in PROXY_URL.
- * Cached in memory — only calls the API once per isolate lifetime.
+ * Add Cloudflare egress IP ranges to Bright Data's zone allowlist.
+ * Workers use IPv6+NAT64 so we can't detect the exact IPv4 address.
+ * The proxy is still protected by username/password in PROXY_URL.
+ * Cached — only calls the API once per isolate lifetime.
  */
 export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void> {
-  const now = Date.now();
-  if (lastAllowlistedIp && now - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
+  if (lastAllowlistedIp === "cf_ranges" && Date.now() - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
     return;
   }
 
@@ -468,12 +486,12 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ ip: "0.0.0.0/0" }),
-      signal: AbortSignal.timeout(5000),
+      body: JSON.stringify({ ip: CF_IPV4_RANGES }),
+      signal: AbortSignal.timeout(10000),
     });
     if (resp.ok || resp.status === 201) {
-      lastAllowlistedIp = "0.0.0.0/0";
-      lastAllowlistTime = now;
+      lastAllowlistedIp = "cf_ranges";
+      lastAllowlistTime = Date.now();
     } else {
       console.error("Bright Data allowlist failed:", resp.status, await resp.text().catch(() => ""));
     }
