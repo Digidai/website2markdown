@@ -22,7 +22,7 @@ export function renderedPageHTML(
   content: string,
   sourceUrl: string,
   tokenCount: string,
-  method: "native" | "fallback" | "browser" | "jina" | "cloudflare",
+  method: "native" | "fallback" | "browser" | "proxy" | "jina" | "cloudflare",
   cached: boolean = false,
   articleTitle: string = "",
   rawRequestPath: string = buildRawRequestPath(sourceUrl),
@@ -35,6 +35,7 @@ export function renderedPageHTML(
     native: { label: "Native Markdown", cls: "st-native" },
     fallback: { label: "Readability + Turndown", cls: "st-fallback" },
     browser: { label: "Browser Rendered", cls: "st-browser" },
+    proxy: { label: "Residential Proxy", cls: "st-browser" },
     jina: { label: "Jina Reader", cls: "st-jina" },
     cloudflare: { label: "Cloudflare REST", cls: "st-native" },
   };

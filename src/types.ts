@@ -13,6 +13,8 @@ export interface Env {
   PROXY_URL?: string;
   /** Optional proxy pool. Accepts comma/newline separated proxy URLs. */
   PROXY_POOL?: string;
+  /** Bright Data Account API key for dynamic IP allowlisting */
+  BRIGHTDATA_API_KEY?: string;
   /** Cloudflare Account ID for REST API calls */
   CF_ACCOUNT_ID?: string;
   /** Cloudflare API Token with Browser Rendering - Edit permission */
@@ -63,6 +65,7 @@ export type ConvertMethod =
   | "native"
   | "readability+turndown"
   | "browser+readability+turndown"
+  | "proxy+readability+turndown"
   | "jina"
   | "cf";
 

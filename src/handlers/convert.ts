@@ -33,6 +33,7 @@ import {
   parseProxyPool,
   fetchViaProxy,
   fetchViaProxyPool,
+  ensureBrightDataAllowlisted,
 } from "../proxy";
 import {
   applyPaywallHeaders,
@@ -506,6 +507,15 @@ async function tryFetchAndParse(
       method = "browser+readability+turndown";
       browserRendered = true;
     }
+  } else if (!finalHtml && alwaysNeedsBrowser(targetUrl) && !browserAllowed) {
+    // Anonymous 用户无 browser 权限 — 对必须浏览器的站点直接走住宅代理
+    const proxyResult = await tryDirectProxyFetch(
+      targetUrl, env, fallbacks, abortSignal, progress,
+    );
+    if (proxyResult) {
+      finalHtml = proxyResult;
+      method = "proxy+readability+turndown";
+    }
   } else if (!finalHtml) {
     // 3. 静态获取
     const staticResult = await tryStaticFetch(
@@ -775,6 +785,11 @@ async function tryProxyRetry(
     );
   }
 
+  // Allowlist Worker IP with Bright Data before connecting
+  if (env.BRIGHTDATA_API_KEY) {
+    await ensureBrightDataAllowlisted(env.BRIGHTDATA_API_KEY);
+  }
+
   throwIfAborted(abortSignal);
   await _progress("fetch", "Retrying via proxy");
   try {
@@ -849,6 +864,76 @@ async function tryProxyRetry(
       `Proxy access failed: ${proxyDetail}`,
       502,
     );
+  }
+}
+
+// ─── 子函数：直接代理获取（anonymous 用户） ──────────────────
+
+async function tryDirectProxyFetch(
+  targetUrl: string,
+  env: Env,
+  fallbacks: Set<string>,
+  abortSignal?: AbortSignal,
+  progress?: (step: string, label: string) => void | Promise<void>,
+): Promise<string | null> {
+  const _progress = progress || (() => {});
+  const pooledConfigs = env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
+  const fallbackProxy = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
+  if (pooledConfigs.length === 0 && fallbackProxy) {
+    pooledConfigs.push(fallbackProxy);
+  }
+  if (pooledConfigs.length === 0) {
+    return null; // No proxy configured — can't help anonymous users
+  }
+
+  // Allowlist Worker IP with Bright Data before connecting
+  if (env.BRIGHTDATA_API_KEY) {
+    await ensureBrightDataAllowlisted(env.BRIGHTDATA_API_KEY);
+  }
+
+  throwIfAborted(abortSignal);
+  await _progress("fetch", "Fetching via residential proxy");
+
+  // Build headers matching what the adapter expects
+  const isWechat = targetUrl.includes("mp.weixin.qq.com");
+  const headers: Record<string, string> = {
+    "User-Agent": isWechat ? WECHAT_UA : MOBILE_UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "Accept-Encoding": "identity",
+  };
+  if (isWechat) {
+    headers["Referer"] = "https://mp.weixin.qq.com/";
+  }
+
+  try {
+    const headerVariants = [
+      { name: "mobile", headers },
+      {
+        name: "desktop",
+        headers: { ...headers, "User-Agent": DESKTOP_UA },
+      },
+    ];
+
+    const proxyResult = await fetchViaProxyPool(
+      targetUrl,
+      pooledConfigs,
+      headerVariants,
+      {
+        timeoutMs: 25_000,
+        signal: abortSignal,
+        acceptResult: (candidate) =>
+          candidate.status >= 200 &&
+          candidate.status < 400 &&
+          candidate.body.length > 1000 &&
+          !isLikelyChallengeHtml(candidate.body),
+      },
+    );
+    fallbacks.add(`direct_proxy_${proxyResult.variant}`);
+    return proxyResult.body;
+  } catch (e) {
+    console.error("Direct proxy fetch failed:", errorMessage(e));
+    return null;
   }
 }
 

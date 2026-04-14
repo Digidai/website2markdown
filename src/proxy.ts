@@ -441,3 +441,57 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
 
   return concatUint8Arrays(chunks, total);
 }
+
+// ─── Bright Data IP Allowlisting ──────────────────────────────
+
+let lastAllowlistedIp: string | null = null;
+let lastAllowlistTime = 0;
+const ALLOWLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Detect the Worker's egress IP and add it to Bright Data's allowlist.
+ * Cached in memory to avoid repeated API calls within the same isolate.
+ */
+export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void> {
+  const now = Date.now();
+  if (lastAllowlistedIp && now - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
+    return;
+  }
+
+  // Detect our egress IP
+  const ipResp = await fetch("https://api.ipify.org?format=json", {
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!ipResp.ok) {
+    console.error("IP detection failed:", ipResp.status);
+    return;
+  }
+  const { ip } = (await ipResp.json()) as { ip: string };
+  if (!ip) return;
+
+  // Skip if same IP was recently allowlisted
+  if (ip === lastAllowlistedIp && now - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
+    return;
+  }
+
+  // Add to Bright Data allowlist (idempotent)
+  try {
+    const resp = await fetch("https://api.brightdata.com/zone/whitelist", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ip }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (resp.ok || resp.status === 201) {
+      lastAllowlistedIp = ip;
+      lastAllowlistTime = now;
+    } else {
+      console.error("Bright Data allowlist failed:", resp.status, await resp.text().catch(() => ""));
+    }
+  } catch (e) {
+    console.error("Bright Data allowlist error:", errorMessage(e));
+  }
+}
