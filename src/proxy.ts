@@ -458,10 +458,10 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
     return;
   }
 
-  // Detect our egress IPv4 (api4.ipify.org forces IPv4-only resolution)
+  // Detect our egress IP (Cloudflare Workers may use IPv4 or IPv6)
   let ip: string;
   try {
-    const ipResp = await fetch("https://api4.ipify.org", {
+    const ipResp = await fetch("https://api64.ipify.org", {
       signal: AbortSignal.timeout(5000),
     });
     if (!ipResp.ok) {
@@ -473,10 +473,7 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
     console.error("IP detection error:", errorMessage(e));
     return;
   }
-  if (!ip || !ip.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-    console.error("IP detection returned non-IPv4:", ip);
-    return;
-  }
+  if (!ip) return;
 
   // Skip if same IP was recently allowlisted
   if (ip === lastAllowlistedIp && now - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
