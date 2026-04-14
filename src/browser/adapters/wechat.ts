@@ -1,5 +1,6 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { WECHAT_UA } from "../../config";
+import { STEALTH_SCRIPT } from "../stealth";
 
 export const wechatAdapter: SiteAdapter = {
   match(url: string): boolean {
@@ -9,6 +10,13 @@ export const wechatAdapter: SiteAdapter = {
   alwaysBrowser: true,
 
   async configurePage(page: any): Promise<void> {
+    // Inject stealth patches to hide headless Chrome fingerprints,
+    // then override desktop-oriented values with mobile-consistent ones.
+    await page.evaluateOnNewDocument(STEALTH_SCRIPT);
+    await page.evaluateOnNewDocument(`
+      Object.defineProperty(navigator, 'platform', { get: () => 'iPhone' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { get: () => 5 });
+    `);
     await page.setUserAgent(WECHAT_UA);
     await page.setViewport({
       width: 390,

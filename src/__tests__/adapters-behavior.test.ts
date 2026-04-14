@@ -10,6 +10,7 @@ type MockPage = {
   setUserAgent: ReturnType<typeof vi.fn>;
   setViewport: ReturnType<typeof vi.fn>;
   setExtraHTTPHeaders: ReturnType<typeof vi.fn>;
+  evaluateOnNewDocument: ReturnType<typeof vi.fn>;
   evaluate: ReturnType<typeof vi.fn>;
   content: ReturnType<typeof vi.fn>;
 };
@@ -19,6 +20,7 @@ function createMockPage(html = "<html><body>ok</body></html>"): MockPage {
     setUserAgent: vi.fn(async () => {}),
     setViewport: vi.fn(async () => {}),
     setExtraHTTPHeaders: vi.fn(async () => {}),
+    evaluateOnNewDocument: vi.fn(async () => {}),
     evaluate: vi.fn(async () => {}),
     content: vi.fn(async () => html),
   };
