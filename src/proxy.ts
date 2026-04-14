@@ -458,16 +458,25 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
     return;
   }
 
-  // Detect our egress IP
-  const ipResp = await fetch("https://api.ipify.org?format=json", {
-    signal: AbortSignal.timeout(5000),
-  });
-  if (!ipResp.ok) {
-    console.error("IP detection failed:", ipResp.status);
+  // Detect our egress IPv4 (api4.ipify.org forces IPv4-only resolution)
+  let ip: string;
+  try {
+    const ipResp = await fetch("https://api4.ipify.org", {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!ipResp.ok) {
+      console.error("IP detection failed:", ipResp.status);
+      return;
+    }
+    ip = (await ipResp.text()).trim();
+  } catch (e) {
+    console.error("IP detection error:", errorMessage(e));
     return;
   }
-  const { ip } = (await ipResp.json()) as { ip: string };
-  if (!ip) return;
+  if (!ip || !ip.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+    console.error("IP detection returned non-IPv4:", ip);
+    return;
+  }
 
   // Skip if same IP was recently allowlisted
   if (ip === lastAllowlistedIp && now - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
