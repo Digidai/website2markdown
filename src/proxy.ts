@@ -449,7 +449,60 @@ let lastAllowlistTime = 0;
 const ALLOWLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
+ * Detect TCP egress IP via raw socket — same egress path as the proxy.
+ * Cloudflare Workers' fetch() and connect() may use different egress IPs,
+ * so we must use connect() to get the IP that the proxy will actually see.
+ */
+async function detectTcpEgressIp(): Promise<string | null> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let socket: ReturnType<typeof connect> | null = null;
+  try {
+    socket = connect(
+      { hostname: "ifconfig.me", port: 80 },
+      { secureTransport: "off", allowHalfOpen: false },
+    );
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+
+    await writer.write(encoder.encode(
+      "GET /ip HTTP/1.1\r\nHost: ifconfig.me\r\nConnection: close\r\n\r\n",
+    ));
+
+    const chunks: string[] = [];
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const readPromise = reader.read();
+      const timeoutPromise = new Promise<{ value: undefined; done: true }>(
+        (resolve) => setTimeout(() => resolve({ value: undefined, done: true }), remaining),
+      );
+      const { value, done } = await Promise.race([readPromise, timeoutPromise]);
+      if (done) break;
+      if (value) chunks.push(decoder.decode(value));
+    }
+
+    try { await writer.close(); } catch {}
+    try { writer.releaseLock(); } catch {}
+    try { await reader.cancel(); } catch {}
+    try { reader.releaseLock(); } catch {}
+
+    const response = chunks.join("");
+    const bodyStart = response.indexOf("\r\n\r\n");
+    if (bodyStart < 0) return null;
+    return response.slice(bodyStart + 4).trim() || null;
+  } catch (e) {
+    console.error("TCP IP detection failed:", errorMessage(e));
+    return null;
+  } finally {
+    try { socket?.close(); } catch {}
+  }
+}
+
+/**
  * Detect the Worker's egress IP and add it to Bright Data's allowlist.
+ * Uses TCP socket detection so the IP matches the proxy connection path.
  * Cached in memory to avoid repeated API calls within the same isolate.
  */
 export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void> {
@@ -458,22 +511,9 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
     return;
   }
 
-  // Detect our egress IP (Cloudflare Workers may use IPv4 or IPv6)
-  let ip: string;
-  try {
-    const ipResp = await fetch("https://api64.ipify.org", {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!ipResp.ok) {
-      console.error("IP detection failed:", ipResp.status);
-      return;
-    }
-    ip = (await ipResp.text()).trim();
-  } catch (e) {
-    console.error("IP detection error:", errorMessage(e));
-    return;
-  }
+  const ip = await detectTcpEgressIp();
   if (!ip) return;
+  console.log("Detected TCP egress IP:", ip);
 
   // Skip if same IP was recently allowlisted
   if (ip === lastAllowlistedIp && now - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
@@ -494,6 +534,7 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
     if (resp.ok || resp.status === 201) {
       lastAllowlistedIp = ip;
       lastAllowlistTime = now;
+      console.log("Bright Data allowlist OK for", ip);
     } else {
       console.error("Bright Data allowlist failed:", resp.status, await resp.text().catch(() => ""));
     }
