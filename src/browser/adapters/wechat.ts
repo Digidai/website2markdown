@@ -1,6 +1,7 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { WECHAT_UA } from "../../config";
 import { STEALTH_SCRIPT } from "../stealth";
+import { createProxyRetrySignal } from "../proxy-retry";
 
 export const wechatAdapter: SiteAdapter = {
   match(url: string): boolean {
@@ -32,6 +33,29 @@ export const wechatAdapter: SiteAdapter = {
 
   async extract(page: any): Promise<ExtractResult | null> {
     await new Promise((r) => setTimeout(r, 2000));
+
+    // Detect WeChat anti-bot verification page ("环境异常")
+    const isBlocked = await page.evaluate(`
+      (function() {
+        var text = document.body ? document.body.innerText : '';
+        return text.indexOf('\\u5f53\\u524d\\u73af\\u5883\\u5f02\\u5e38') !== -1
+            || text.indexOf('\\u5b8c\\u6210\\u9a8c\\u8bc1') !== -1;
+      })()
+    `);
+
+    if (isBlocked) {
+      let cookies: Array<{ name: string; value: string }> = [];
+      try { cookies = await page.cookies(); } catch {}
+
+      if (cookies.length > 0) {
+        const retrySignal = createProxyRetrySignal(cookies);
+        if (retrySignal) {
+          throw new Error(retrySignal);
+        }
+      }
+      throw new Error("WeChat blocked with environment verification page.");
+    }
+
     await page.evaluate(`
       (function() {
         // Extract publish time from script tags BEFORE removing them.
