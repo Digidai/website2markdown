@@ -6,6 +6,7 @@
  */
 
 import { errorMessage } from "./utils";
+import { escapeHtml as escapeForHtml } from "./security";
 
 const API_BASE = "https://api.browser-use.com/api/v3";
 const PROFILE_ID = "fa51e564-422f-433a-97df-2658ab6cc5aa";
@@ -41,20 +42,17 @@ export async function fetchViaBrowserUse(
     const result = await pollSession(session.id, apiKey, signal);
     if (!result?.output) return null;
 
-    // 3. Parse structured output — agent returns { html: "..." }
-    try {
-      const parsed = JSON.parse(result.output);
-      if (parsed.html && typeof parsed.html === "string" && parsed.html.length > 500) {
-        return parsed.html;
-      }
-    } catch {
-      // Agent returned plain text — use as-is if it looks like HTML
-      if (result.output.includes("<html") || result.output.includes("<body")) {
-        return result.output;
-      }
+    // 3. Wrap agent output as HTML for downstream conversion
+    const output = result.output.trim();
+    if (!output || output.length < 100) return null;
+
+    // If agent returned raw HTML, use as-is
+    if (output.includes("<html") || output.includes("<body") || output.includes("<article")) {
+      return output;
     }
 
-    return null;
+    // Agent returned text/markdown — wrap in HTML for Readability+Turndown pipeline
+    return `<html><head><title></title></head><body><article>${escapeForHtml(output)}</article></body></html>`;
   } catch (e) {
     console.error("Browser Use fetch failed:", errorMessage(e));
     return null;
@@ -68,9 +66,10 @@ async function createSession(
 ): Promise<BrowserUseSession | null> {
   const task = [
     `Navigate to ${url}`,
-    "Wait for the page content to fully load (wait at least 3 seconds).",
-    "Then execute JavaScript: document.documentElement.outerHTML",
-    "Return the complete HTML result.",
+    "Wait for the page to fully load (at least 3 seconds).",
+    "Extract the COMPLETE article content including: title, author, publish date, and the full article body text.",
+    "Return ALL the content — do not summarize or truncate. Include every paragraph, heading, list, code block, and image URL.",
+    "Format the output as the raw article text with headings preserved.",
   ].join("\n");
 
   const resp = await fetch(`${API_BASE}/sessions`, {
@@ -84,13 +83,6 @@ async function createSession(
       model: "claude-sonnet-4.6",
       profile_id: PROFILE_ID,
       proxy_country_code: "us",
-      output_schema: {
-        type: "object",
-        properties: {
-          html: { type: "string", description: "The complete HTML source of the page" },
-        },
-        required: ["html"],
-      },
     }),
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
   });
@@ -125,10 +117,11 @@ async function pollSession(
 
     const session = (await resp.json()) as BrowserUseSession;
 
-    if (session.status === "completed" || session.status === "finished") {
+    // "stopped" is the normal terminal state (agent finished and session stopped)
+    if (session.status === "completed" || session.status === "finished" || session.status === "stopped") {
       return session;
     }
-    if (session.status === "failed" || session.status === "error" || session.status === "stopped") {
+    if (session.status === "failed" || session.status === "error") {
       console.error("Browser Use session failed:", session.status);
       return null;
     }
