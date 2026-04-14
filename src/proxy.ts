@@ -448,34 +448,90 @@ let lastAllowlistedIp: string | null = null;
 let lastAllowlistTime = 0;
 const ALLOWLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// Cloudflare published IPv4 egress ranges (https://www.cloudflare.com/ips-v4)
-// Workers use IPv6 internally with NAT64; external services see these IPv4s.
-const CF_IPV4_RANGES = [
-  "173.245.48.0/20",
-  "103.21.244.0/22",
-  "103.22.200.0/22",
-  "103.31.4.0/22",
-  "141.101.64.0/18",
-  "108.162.192.0/18",
-  "190.93.240.0/20",
-  "188.114.96.0/20",
-  "197.234.240.0/22",
-  "198.41.128.0/17",
-  "162.158.0.0/15",
-  "104.16.0.0/13",
-  "104.24.0.0/14",
-  "172.64.0.0/13",
-  "131.0.72.0/22",
-];
+/**
+ * Detect the Worker's IPv4 egress address by making a TCP connection
+ * to an IPv4-only HTTP echo service. This uses the same connect() path
+ * as the proxy, so the detected IP matches what Bright Data sees.
+ */
+async function detectEgressIp(): Promise<string | null> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  // Try multiple IPv4 echo services in case one is unreachable
+  const targets = [
+    { host: "icanhazip.com", port: 80, path: "/" },
+    { host: "ifconfig.me", port: 80, path: "/ip" },
+    { host: "checkip.amazonaws.com", port: 80, path: "/" },
+  ];
+
+  for (const target of targets) {
+    let socket: ReturnType<typeof connect> | null = null;
+    try {
+      socket = connect(
+        { hostname: target.host, port: target.port },
+        { secureTransport: "off", allowHalfOpen: false },
+      );
+      const writer = socket.writable.getWriter();
+      const reader = socket.readable.getReader();
+
+      await writer.write(encoder.encode(
+        `GET ${target.path} HTTP/1.1\r\nHost: ${target.host}\r\nConnection: close\r\n\r\n`,
+      ));
+
+      const chunks: string[] = [];
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        const { value, done } = await Promise.race([
+          reader.read(),
+          new Promise<{ value: undefined; done: true }>((r) =>
+            setTimeout(() => r({ value: undefined, done: true }), remaining),
+          ),
+        ]);
+        if (done) break;
+        if (value) chunks.push(decoder.decode(value));
+      }
+
+      try { await writer.close(); } catch {}
+      try { writer.releaseLock(); } catch {}
+      try { await reader.cancel(); } catch {}
+      try { reader.releaseLock(); } catch {}
+
+      const response = chunks.join("");
+      const bodyStart = response.indexOf("\r\n\r\n");
+      if (bodyStart < 0) continue;
+      const ip = response.slice(bodyStart + 4).trim().split("\n")[0].trim();
+      if (ip && /^[\d.]+$/.test(ip)) {
+        console.log(`Detected egress IPv4 via ${target.host}: ${ip}`);
+        return ip;
+      }
+      // Got a response but not IPv4 — log and try next service
+      console.log(`${target.host} returned non-IPv4: ${ip}`);
+    } catch (e) {
+      console.log(`TCP to ${target.host}:${target.port} failed: ${errorMessage(e)}`);
+    } finally {
+      try { socket?.close(); } catch {}
+    }
+  }
+  return null;
+}
 
 /**
- * Add Cloudflare egress IP ranges to Bright Data's zone allowlist.
- * Workers use IPv6+NAT64 so we can't detect the exact IPv4 address.
- * The proxy is still protected by username/password in PROXY_URL.
- * Cached — only calls the API once per isolate lifetime.
+ * Detect Worker's egress IP and add it to Bright Data's allowlist.
+ * Cached in memory to avoid repeated API calls within the same isolate.
  */
 export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void> {
-  if (lastAllowlistedIp === "cf_ranges" && Date.now() - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
+  if (lastAllowlistedIp && Date.now() - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
+    return;
+  }
+
+  const ip = await detectEgressIp();
+  if (!ip) {
+    console.error("Could not detect egress IPv4 for Bright Data allowlisting");
+    return;
+  }
+
+  if (ip === lastAllowlistedIp && Date.now() - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
     return;
   }
 
@@ -486,12 +542,13 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ ip: CF_IPV4_RANGES }),
-      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ ip }),
+      signal: AbortSignal.timeout(5000),
     });
-    if (resp.ok || resp.status === 201) {
-      lastAllowlistedIp = "cf_ranges";
+    if (resp.ok || resp.status === 201 || resp.status === 204) {
+      lastAllowlistedIp = ip;
       lastAllowlistTime = Date.now();
+      console.log("Bright Data allowlist OK for", ip);
     } else {
       console.error("Bright Data allowlist failed:", resp.status, await resp.text().catch(() => ""));
     }
