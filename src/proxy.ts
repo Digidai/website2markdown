@@ -449,63 +449,11 @@ let lastAllowlistTime = 0;
 const ALLOWLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Detect TCP egress IP via raw socket — same egress path as the proxy.
- * Cloudflare Workers' fetch() and connect() may use different egress IPs,
- * so we must use connect() to get the IP that the proxy will actually see.
- */
-async function detectTcpEgressIp(): Promise<string | null> {
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  let socket: ReturnType<typeof connect> | null = null;
-  try {
-    // api4.ipify.org is IPv4-only (no AAAA records), forcing TCP to use IPv4
-    // — the same path the proxy connection to brd.superproxy.io takes.
-    socket = connect(
-      { hostname: "api4.ipify.org", port: 80 },
-      { secureTransport: "off", allowHalfOpen: false },
-    );
-    const writer = socket.writable.getWriter();
-    const reader = socket.readable.getReader();
-
-    await writer.write(encoder.encode(
-      "GET / HTTP/1.1\r\nHost: api4.ipify.org\r\nConnection: close\r\n\r\n",
-    ));
-
-    const chunks: string[] = [];
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
-      const readPromise = reader.read();
-      const timeoutPromise = new Promise<{ value: undefined; done: true }>(
-        (resolve) => setTimeout(() => resolve({ value: undefined, done: true }), remaining),
-      );
-      const { value, done } = await Promise.race([readPromise, timeoutPromise]);
-      if (done) break;
-      if (value) chunks.push(decoder.decode(value));
-    }
-
-    try { await writer.close(); } catch {}
-    try { writer.releaseLock(); } catch {}
-    try { await reader.cancel(); } catch {}
-    try { reader.releaseLock(); } catch {}
-
-    const response = chunks.join("");
-    const bodyStart = response.indexOf("\r\n\r\n");
-    if (bodyStart < 0) return null;
-    return response.slice(bodyStart + 4).trim() || null;
-  } catch (e) {
-    console.error("TCP IP detection failed:", errorMessage(e));
-    return null;
-  } finally {
-    try { socket?.close(); } catch {}
-  }
-}
-
-/**
- * Detect the Worker's egress IP and add it to Bright Data's allowlist.
- * Uses TCP socket detection so the IP matches the proxy connection path.
- * Cached in memory to avoid repeated API calls within the same isolate.
+ * Ensure 0.0.0.0/0 is in Bright Data's zone allowlist.
+ * Cloudflare Workers use IPv6 egress with NAT64, making per-IP
+ * allowlisting impractical. The proxy is still protected by
+ * username/password authentication in PROXY_URL.
+ * Cached in memory — only calls the API once per isolate lifetime.
  */
 export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void> {
   const now = Date.now();
@@ -513,16 +461,6 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
     return;
   }
 
-  const ip = await detectTcpEgressIp();
-  if (!ip) return;
-  console.log("Detected TCP egress IP:", ip);
-
-  // Skip if same IP was recently allowlisted
-  if (ip === lastAllowlistedIp && now - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
-    return;
-  }
-
-  // Add to Bright Data allowlist (idempotent)
   try {
     const resp = await fetch("https://api.brightdata.com/zone/whitelist", {
       method: "POST",
@@ -530,13 +468,12 @@ export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void>
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ ip }),
+      body: JSON.stringify({ ip: "0.0.0.0/0" }),
       signal: AbortSignal.timeout(5000),
     });
     if (resp.ok || resp.status === 201) {
-      lastAllowlistedIp = ip;
+      lastAllowlistedIp = "0.0.0.0/0";
       lastAllowlistTime = now;
-      console.log("Bright Data allowlist OK for", ip);
     } else {
       console.error("Bright Data allowlist failed:", resp.status, await resp.text().catch(() => ""));
     }
