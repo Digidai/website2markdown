@@ -74,6 +74,31 @@ describe("cache edge behavior", () => {
     expect(result).toBeNull();
   });
 
+  it("returns null for empty cached content", async () => {
+    const { env, mocks } = createCacheEnv();
+    mocks.kvGet.mockResolvedValueOnce(JSON.stringify({
+      content: "  ",
+      method: "readability+turndown",
+      title: "",
+    }));
+
+    const result = await getCached(env, "https://example.com/empty-cache", "markdown");
+
+    expect(result).toBeNull();
+  });
+
+  it("does not store empty cache content", async () => {
+    const { env, mocks } = createCacheEnv();
+
+    await setCache(env, "https://example.com/empty-write", "markdown", {
+      content: "",
+      method: "readability+turndown",
+      title: "",
+    });
+
+    expect(mocks.kvPut).not.toHaveBeenCalled();
+  });
+
   it("does not use hot cache when ttl is zero", async () => {
     const { env, mocks } = createCacheEnv();
     const url = "https://example.com/no-hot-cache";

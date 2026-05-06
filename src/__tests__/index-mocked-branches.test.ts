@@ -34,6 +34,9 @@ const mocked = vi.hoisted(() => ({
     fetchViaProxy: vi.fn(),
     fetchViaProxyPool: vi.fn(),
   },
+  browserUse: {
+    fetchViaBrowserUse: vi.fn(),
+  },
 }));
 
 vi.mock("cloudflare:sockets", () => ({
@@ -75,6 +78,10 @@ vi.mock("../proxy", () => ({
   parseProxyPool: mocked.proxy.parseProxyPool,
   fetchViaProxy: mocked.proxy.fetchViaProxy,
   fetchViaProxyPool: mocked.proxy.fetchViaProxyPool,
+}));
+
+vi.mock("../browser-use", () => ({
+  fetchViaBrowserUse: mocked.browserUse.fetchViaBrowserUse,
 }));
 
 import worker from "../index";
@@ -145,6 +152,7 @@ beforeEach(() => {
     attempts: 1,
     errors: [],
   });
+  mocked.browserUse.fetchViaBrowserUse.mockResolvedValue(null);
 });
 
 describe("index mocked branch coverage", () => {
@@ -206,6 +214,55 @@ describe("index mocked branch coverage", () => {
     expect(res.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
     expect(payload.message).toContain("configure PROXY_URL");
+  });
+
+  it("does not cache empty output when anonymous always-browser fallbacks return no content", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
+      markdown: html.trim() ? "# md body" : "",
+      title: "",
+      contentHtml: html,
+    }));
+
+    const req = new Request("https://md.example.com/https://example.com/needs-browser?raw=true", {
+      headers: { Accept: "application/json" },
+    });
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+    const payload = await res.json() as { error?: string; message?: string };
+
+    expect(res.status).toBe(502);
+    expect(payload.error).toBe("Fetch Failed");
+    expect(payload.message).toContain("requires browser or proxy access");
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("uses static WeChat fetch for anonymous users when remote browser and proxy produce no content", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("<html><body><div id=\"js_content\">wechat article</div></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
+      markdown: html.includes("wechat article") ? "# wechat article" : "",
+      title: "wechat",
+      contentHtml: "<article>wechat article</article>",
+    }));
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/abc?raw=true", {
+      headers: { Accept: "text/markdown" },
+    });
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("proxied:# wechat article");
+    expect(fetchMock).toHaveBeenCalled();
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((init.headers as Record<string, string>)["User-Agent"]).toContain("MicroMessenger");
+    expect((init.headers as Record<string, string>).Referer).toBe("https://mp.weixin.qq.com/");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("wechat_static_fallback");
   });
 
   it("retries through proxy and succeeds after PROXY_RETRY signal", async () => {

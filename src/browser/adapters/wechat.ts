@@ -2,6 +2,64 @@ import type { SiteAdapter, ExtractResult } from "../../types";
 import { WECHAT_UA } from "../../config";
 import { STEALTH_SCRIPT } from "../stealth";
 import { createProxyRetrySignal } from "../proxy-retry";
+import { parseHTML } from "linkedom";
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (ch) => {
+    switch (ch) {
+      case "&": return "&amp;";
+      case "<": return "&lt;";
+      case ">": return "&gt;";
+      case '"': return "&quot;";
+      default: return "&#039;";
+    }
+  });
+}
+
+function normalizeText(value: string | null | undefined): string {
+  return (value || "").replace(/\s+/g, " ").trim();
+}
+
+function extractWechatArticleHtml(html: string): string | null {
+  if (!html.includes("js_content")) return null;
+
+  try {
+    const { document } = parseHTML(html);
+    const content = document.querySelector("#js_content") as any;
+    if (!content) return null;
+
+    content.querySelectorAll?.("img[data-src]").forEach((img: any) => {
+      const real = img.getAttribute("data-src");
+      if (real) img.setAttribute("src", real);
+    });
+
+    const title = normalizeText(
+      (document.querySelector("#activity-name") as any)?.textContent ||
+      (document.querySelector("meta[property='og:title']") as any)?.getAttribute?.("content") ||
+      document.title,
+    );
+    const author = normalizeText((document.querySelector("#js_name") as any)?.textContent);
+    const publishTime = normalizeText(
+      (document.querySelector("[data-wechat-meta='publish_time']") as any)?.textContent,
+    );
+
+    const metaParts: string[] = [];
+    if (author) metaParts.push(`<p data-wechat-meta="author">作者: ${escapeHtml(author)}</p>`);
+    if (publishTime) metaParts.push(`<p data-wechat-meta="publish_time">${escapeHtml(publishTime)}</p>`);
+
+    return [
+      "<html><head>",
+      `<title>${escapeHtml(title)}</title>`,
+      "</head><body><article data-adapter=\"wechat\">",
+      title ? `<h1>${escapeHtml(title)}</h1>` : "",
+      ...metaParts,
+      content.outerHTML || content.innerHTML || "",
+      "</article></body></html>",
+    ].join("");
+  } catch {
+    return null;
+  }
+}
 
 export const wechatAdapter: SiteAdapter = {
   match(url: string): boolean {
@@ -97,6 +155,42 @@ export const wechatAdapter: SiteAdapter = {
         });
       })()
     `);
+
+    const articleHtml = await page.evaluate(`
+      (function() {
+        function esc(s) {
+          return String(s || '').replace(/[&<>"']/g, function(ch) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[ch];
+          });
+        }
+        function txt(sel) {
+          var el = document.querySelector(sel);
+          return el ? (el.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+        }
+        var content = document.getElementById('js_content');
+        if (!content) return '';
+        content.querySelectorAll('img[data-src]').forEach(function(img) {
+          var real = img.getAttribute('data-src');
+          if (real) img.setAttribute('src', real);
+        });
+        var title = txt('#activity-name') || document.title || '';
+        var author = txt('#js_name');
+        var publish = txt('[data-wechat-meta="publish_time"]');
+        var parts = [
+          '<html><head><title>' + esc(title) + '</title></head><body><article data-adapter="wechat">'
+        ];
+        if (title) parts.push('<h1>' + esc(title) + '</h1>');
+        if (author) parts.push('<p data-wechat-meta="author">作者: ' + esc(author) + '</p>');
+        if (publish) parts.push('<p data-wechat-meta="publish_time">' + esc(publish) + '</p>');
+        parts.push(content.outerHTML || content.innerHTML || '');
+        parts.push('</article></body></html>');
+        return parts.join('');
+      })()
+    `);
+    if (articleHtml && articleHtml.length > 200) {
+      return { html: articleHtml };
+    }
+
     const html = await page.content();
     return { html };
   },
@@ -150,6 +244,6 @@ export const wechatAdapter: SiteAdapter = {
       },
     );
 
-    return result;
+    return extractWechatArticleHtml(result) || result;
   },
 };
