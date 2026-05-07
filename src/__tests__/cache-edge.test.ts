@@ -99,6 +99,31 @@ describe("cache edge behavior", () => {
     expect(mocks.kvPut).not.toHaveBeenCalled();
   });
 
+  it("returns null for suspiciously short WeChat cached content", async () => {
+    const { env, mocks } = createCacheEnv();
+    mocks.kvGet.mockResolvedValueOnce(JSON.stringify({
+      content: "# Title\n\n作者: Someone",
+      method: "readability+turndown",
+      title: "Title",
+    }));
+
+    const result = await getCached(env, "https://mp.weixin.qq.com/s/short-cache", "markdown");
+
+    expect(result).toBeNull();
+  });
+
+  it("does not store suspiciously short WeChat conversion output", async () => {
+    const { env, mocks } = createCacheEnv();
+
+    await setCache(env, "https://mp.weixin.qq.com/s/short-write", "markdown", {
+      content: "# Title\n\n作者: Someone",
+      method: "readability+turndown",
+      title: "Title",
+    });
+
+    expect(mocks.kvPut).not.toHaveBeenCalled();
+  });
+
   it("does not use hot cache when ttl is zero", async () => {
     const { env, mocks } = createCacheEnv();
     const url = "https://example.com/no-hot-cache";

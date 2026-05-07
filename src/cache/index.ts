@@ -142,6 +142,18 @@ function parseCachedPayload(raw: string): CachedPayload | null {
   };
 }
 
+function isUsablePayload(url: string, data: CachedPayload): boolean {
+  if (!data.content.trim()) return false;
+  if (
+    url.includes("mp.weixin.qq.com") &&
+    data.method !== "native" &&
+    data.content.trim().length < 200
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function getHotCache(key: string): CachedPayload | null {
   const entry = hotCache.get(key);
   if (!entry) return null;
@@ -273,11 +285,12 @@ export async function getCached(
 
     // Tier 1: in-memory hot cache (15s TTL, per-isolate)
     const hot = getHotCache(key);
-    if (hot) return hot;
+    if (hot && isUsablePayload(url, hot)) return hot;
+    if (hot) hotCache.delete(key);
 
     // Tier 2: Cache API (free, per-colo, ephemeral)
     const apiCached = await getCacheApi(key);
-    if (apiCached) {
+    if (apiCached && isUsablePayload(url, apiCached)) {
       putHotCache(key, apiCached, HOT_CACHE_TTL_MS);
       return clonePayload(apiCached);
     }
@@ -291,6 +304,7 @@ export async function getCached(
     if (!raw) return null;
     const parsed = parseCachedPayload(raw);
     if (!parsed) return null;
+    if (!isUsablePayload(url, parsed)) return null;
     // Backfill: write to Cache API + hot cache so next read avoids KV
     putHotCache(key, parsed, HOT_CACHE_TTL_MS);
     const backfillTtl = getTtlForUrl(url);
@@ -312,7 +326,7 @@ export async function setCache(
   engine?: string,
 ): Promise<void> {
   try {
-    if (!data.content.trim()) return;
+    if (!isUsablePayload(url, data)) return;
 
     const key = await cacheKey(url, format, selector, engine);
     const effectiveTtl = ttl ?? getTtlForUrl(url);
