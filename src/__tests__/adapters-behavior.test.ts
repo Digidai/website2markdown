@@ -5,6 +5,7 @@ import { redditAdapter } from "../browser/adapters/reddit";
 import { neteaseAdapter } from "../browser/adapters/netease";
 import { feishuAdapter, isFeishuDocumentUrl } from "../browser/adapters/feishu";
 import { twitterAdapter } from "../browser/adapters/twitter";
+import { htmlToMarkdown } from "../converter";
 
 type MockPage = {
   setUserAgent: ReturnType<typeof vi.fn>;
@@ -135,6 +136,22 @@ describe("adapter behavior", () => {
     expect(processed).toContain("real article body");
     expect(processed).toContain('src="https://mmbiz.qpic.cn/mmbiz_png/a/640"');
     expect(processed).not.toContain("outside noise");
+  });
+
+  it("wechat postProcess keeps article body readable when js_content root is hidden", () => {
+    const html = `<html><head><title>Fallback</title></head><body>
+      <h1 id="activity-name">Article Title</h1>
+      <span id="js_name">Author Name</span>
+      <div id="js_content" style="visibility:hidden">
+        <p>real hidden-root article body</p>
+      </div>
+    </body></html>`;
+
+    const processed = wechatAdapter.postProcess!(html);
+    const result = htmlToMarkdown(processed, "https://mp.weixin.qq.com/s/abc");
+
+    expect(result.markdown).toContain("Article Title");
+    expect(result.markdown).toContain("real hidden-root article body");
   });
 
   it("keeps feishu adapter as no-op extraction", async () => {

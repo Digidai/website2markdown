@@ -53,7 +53,7 @@ function extractWechatArticleHtml(html: string): string | null {
       "</head><body><article data-adapter=\"wechat\">",
       title ? `<h1>${escapeHtml(title)}</h1>` : "",
       ...metaParts,
-      content.outerHTML || content.innerHTML || "",
+      content.innerHTML || "",
       "</article></body></html>",
     ].join("");
   } catch {
@@ -182,7 +182,7 @@ export const wechatAdapter: SiteAdapter = {
         if (title) parts.push('<h1>' + esc(title) + '</h1>');
         if (author) parts.push('<p data-wechat-meta="author">作者: ' + esc(author) + '</p>');
         if (publish) parts.push('<p data-wechat-meta="publish_time">' + esc(publish) + '</p>');
-        parts.push(content.outerHTML || content.innerHTML || '');
+        parts.push(content.innerHTML || '');
         parts.push('</article></body></html>');
         return parts.join('');
       })()
