@@ -126,6 +126,7 @@ function parseCachedPayload(raw: string): CachedPayload | null {
   if (
     !parsed ||
     typeof parsed.content !== "string" ||
+    parsed.content.trim().length === 0 ||
     typeof parsed.method !== "string" ||
     typeof parsed.title !== "string"
   ) {
@@ -311,6 +312,8 @@ export async function setCache(
   engine?: string,
 ): Promise<void> {
   try {
+    if (!data.content.trim()) return;
+
     const key = await cacheKey(url, format, selector, engine);
     const effectiveTtl = ttl ?? getTtlForUrl(url);
 

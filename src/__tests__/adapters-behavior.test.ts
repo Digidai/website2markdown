@@ -116,6 +116,27 @@ describe("adapter behavior", () => {
     expect(processed).toContain("plain article");
   });
 
+  it("wechat postProcess promotes js_content into a focused article document", () => {
+    const html = `<html><head><title>Fallback</title></head><body>
+      <h1 id="activity-name">Article Title</h1>
+      <span id="js_name">Author Name</span>
+      <div id="js_content">
+        <p>real article body</p>
+        <img data-src="https://mmbiz.qpic.cn/mmbiz_png/a/640" />
+      </div>
+      <div class="share-widget">outside noise</div>
+    </body></html>`;
+
+    const processed = wechatAdapter.postProcess!(html);
+
+    expect(processed).toContain('data-adapter="wechat"');
+    expect(processed).toContain("<h1>Article Title</h1>");
+    expect(processed).toContain("作者: Author Name");
+    expect(processed).toContain("real article body");
+    expect(processed).toContain('src="https://mmbiz.qpic.cn/mmbiz_png/a/640"');
+    expect(processed).not.toContain("outside noise");
+  });
+
   it("keeps feishu adapter as no-op extraction", async () => {
     expect(feishuAdapter.alwaysBrowser).toBe(true);
     expect(await feishuAdapter.extract({} as any, new Map())).toBeNull();

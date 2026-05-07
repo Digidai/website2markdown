@@ -199,6 +199,7 @@ export function asFetchConvertError(error: unknown): ConvertError {
 export function isLikelyChallengeHtml(body: string): boolean {
   const lower = body.toLowerCase();
   return (
+    isWechatVerificationHtml(body) ||
     (lower.includes("passport.weibo") ||
       lower.includes("qrcode_login") ||
       lower.includes("login_type")) ||
@@ -210,6 +211,14 @@ export function isLikelyChallengeHtml(body: string): boolean {
     (lower.includes("just a moment") &&
       lower.includes("cloudflare") &&
       body.length < 10000)
+  );
+}
+
+export function isWechatVerificationHtml(body: string): boolean {
+  return (
+    body.includes("wappoc_appmsgcaptcha") ||
+    body.includes("当前环境异常") ||
+    body.includes("完成验证后即可继续访问")
   );
 }
 
@@ -499,7 +508,9 @@ async function tryFetchAndParse(
   }
 
   // 早期浏览器路径 — 对总是需要浏览器的站点跳过多余的静态获取
-  if (!finalHtml && alwaysNeedsBrowser(targetUrl) && browserAllowed) {
+  const requiresBrowser = alwaysNeedsBrowser(targetUrl);
+
+  if (!finalHtml && requiresBrowser && browserAllowed) {
     const result = await tryBrowserRendering(
       targetUrl, env, host, fallbacks, abortSignal, progress,
     );
@@ -508,7 +519,7 @@ async function tryFetchAndParse(
       method = "browser+readability+turndown";
       browserRendered = true;
     }
-  } else if (!finalHtml && alwaysNeedsBrowser(targetUrl) && !browserAllowed) {
+  } else if (!finalHtml && requiresBrowser && !browserAllowed) {
     // Anonymous 用户无 browser 权限 — 先走 Browser Use 远程浏览器，再降级住宅代理
     if (env.BROWSER_USE_API_KEY) {
       throwIfAborted(abortSignal);
@@ -528,6 +539,36 @@ async function tryFetchAndParse(
         finalHtml = proxyResult;
         method = "proxy+readability+turndown";
       }
+    }
+
+    // WeChat often serves usable article HTML to a MicroMessenger UA. Use this
+    // as a low-cost fallback for anonymous users before failing the request.
+    if (!finalHtml && targetUrl.includes("mp.weixin.qq.com")) {
+      const staticResult = await tryStaticFetch(
+        targetUrl, env, host, format, selector, forceBrowser, noCache, engine,
+        fallbacks, browserRendered, paywallDetected, sourceContentType,
+        resolvedUrl, method, progress, abortSignal, browserAllowed,
+      );
+      if (staticResult.earlyReturn) {
+        return staticResult.earlyReturn;
+      }
+      finalHtml = staticResult.finalHtml;
+      method = staticResult.method;
+      resolvedUrl = staticResult.resolvedUrl;
+      browserRendered = staticResult.browserRendered;
+      paywallDetected = staticResult.paywallDetected;
+      sourceContentType = staticResult.sourceContentType;
+      if (finalHtml) {
+        fallbacks.add("wechat_static_fallback");
+      }
+    }
+
+    if (!finalHtml) {
+      throw new ConvertError(
+        "Fetch Failed",
+        "This URL requires browser or proxy access, but no content was returned by the available fallback methods.",
+        502,
+      );
     }
   } else if (!finalHtml) {
     // 3. 静态获取
@@ -549,6 +590,21 @@ async function tryFetchAndParse(
 
   // 7. 去除 <script> 和 <style> 标签
   throwIfAborted(abortSignal);
+  if (!finalHtml.trim()) {
+    throw new ConvertError(
+      "Fetch Failed",
+      "The target URL returned no HTML content.",
+      502,
+    );
+  }
+  if (targetUrl.includes("mp.weixin.qq.com") && isWechatVerificationHtml(finalHtml)) {
+    throw new ConvertError(
+      "Fetch Failed",
+      "WeChat returned an environment verification page instead of the article content.",
+      502,
+    );
+  }
+
   finalHtml = finalHtml
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
@@ -678,6 +734,14 @@ async function tryFetchAndParse(
     } catch {
       // Jina 失败，使用现有内容继续
     }
+  }
+
+  if (!markdown.trim()) {
+    throw new ConvertError(
+      "No Content",
+      "The target page was fetched, but no readable content could be extracted.",
+      422,
+    );
   }
 
   switch (format) {
@@ -1125,6 +1189,14 @@ async function tryStaticFetch(
 
     const tokenCount = response.headers.get("x-markdown-tokens") || "";
     const isMarkdown = contentType.includes("text/markdown");
+    const isWechatVerification = isWechat && isWechatVerificationHtml(body);
+    if (isWechatVerification && !browserAllowed) {
+      throw new ConvertError(
+        "Fetch Failed",
+        "WeChat returned an environment verification page instead of the article content.",
+        502,
+      );
+    }
 
     // 6. 原生 markdown
     if (isMarkdown) {
@@ -1165,7 +1237,7 @@ async function tryStaticFetch(
 
     // 7. 检查是否需要浏览器渲染
     finalHtml = body;
-    if (browserAllowed && (forceBrowser || needsBrowserRendering(body, resolvedUrl))) {
+    if (browserAllowed && (forceBrowser || isWechatVerification || needsBrowserRendering(body, resolvedUrl))) {
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {
@@ -1174,6 +1246,13 @@ async function tryStaticFetch(
         browserRendered = true;
         fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
       } catch (e) {
+        if (isWechatVerification) {
+          throw new ConvertError(
+            "Fetch Failed",
+            "WeChat returned an environment verification page and browser rendering failed.",
+            502,
+          );
+        }
         console.error("Browser rendering failed, using static HTML:", e instanceof Error ? e.message : e);
       }
     }
