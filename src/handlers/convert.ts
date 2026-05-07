@@ -520,30 +520,10 @@ async function tryFetchAndParse(
       browserRendered = true;
     }
   } else if (!finalHtml && requiresBrowser && !browserAllowed) {
-    // Anonymous 用户无 browser 权限 — 先走 Browser Use 远程浏览器，再降级住宅代理
-    if (env.BROWSER_USE_API_KEY) {
-      throwIfAborted(abortSignal);
-      await progress("fetch", "Fetching via remote browser");
-      const buHtml = await fetchViaBrowserUse(targetUrl, env.BROWSER_USE_API_KEY, abortSignal);
-      if (buHtml) {
-        finalHtml = buHtml;
-        method = "proxy+readability+turndown";
-        fallbacks.add("browser_use");
-      }
-    }
-    if (!finalHtml) {
-      const proxyResult = await tryDirectProxyFetch(
-        targetUrl, env, fallbacks, abortSignal, progress,
-      );
-      if (proxyResult) {
-        finalHtml = proxyResult;
-        method = "proxy+readability+turndown";
-      }
-    }
-
-    // WeChat often serves usable article HTML to a MicroMessenger UA. Use this
-    // as a low-cost fallback for anonymous users before failing the request.
-    if (!finalHtml && targetUrl.includes("mp.weixin.qq.com")) {
+    // WeChat often serves usable article HTML to a MicroMessenger UA. Try this
+    // before the slower remote-browser/proxy paths so public page loads do not
+    // wait on a long-running Browser Use session.
+    if (targetUrl.includes("mp.weixin.qq.com")) {
       const staticResult = await tryStaticFetch(
         targetUrl, env, host, format, selector, forceBrowser, noCache, engine,
         fallbacks, browserRendered, paywallDetected, sourceContentType,
@@ -560,6 +540,27 @@ async function tryFetchAndParse(
       sourceContentType = staticResult.sourceContentType;
       if (finalHtml) {
         fallbacks.add("wechat_static_fallback");
+      }
+    }
+
+    // Anonymous 用户无 browser 权限 — 先走 Browser Use 远程浏览器，再降级住宅代理
+    if (!finalHtml && env.BROWSER_USE_API_KEY) {
+      throwIfAborted(abortSignal);
+      await progress("fetch", "Fetching via remote browser");
+      const buHtml = await fetchViaBrowserUse(targetUrl, env.BROWSER_USE_API_KEY, abortSignal);
+      if (buHtml) {
+        finalHtml = buHtml;
+        method = "proxy+readability+turndown";
+        fallbacks.add("browser_use");
+      }
+    }
+    if (!finalHtml) {
+      const proxyResult = await tryDirectProxyFetch(
+        targetUrl, env, fallbacks, abortSignal, progress,
+      );
+      if (proxyResult) {
+        finalHtml = proxyResult;
+        method = "proxy+readability+turndown";
       }
     }
 

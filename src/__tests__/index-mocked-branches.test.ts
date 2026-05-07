@@ -265,6 +265,31 @@ describe("index mocked branch coverage", () => {
     expect(res.headers.get("X-Markdown-Fallbacks")).toContain("wechat_static_fallback");
   });
 
+  it("tries static WeChat fetch before Browser Use for anonymous users", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("<html><body><div id=\"js_content\">wechat static first</div></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
+      markdown: html.includes("wechat static first") ? "# wechat static first" : "",
+      title: "wechat",
+      contentHtml: "<article>wechat static first</article>",
+    }));
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/static-first?raw=true", {
+      headers: { Accept: "text/markdown" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ BROWSER_USE_API_KEY: "browser-use-key" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("proxied:# wechat static first");
+    expect(mocked.browserUse.fetchViaBrowserUse).not.toHaveBeenCalled();
+  });
+
   it("retries through proxy and succeeds after PROXY_RETRY signal", async () => {
     mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
     mocked.browser.fetchWithBrowser.mockRejectedValueOnce(
