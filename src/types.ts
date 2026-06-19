@@ -21,6 +21,12 @@ export interface Env {
   CF_ACCOUNT_ID?: string;
   /** Cloudflare API Token with Browser Rendering - Edit permission */
   CF_API_TOKEN?: string;
+  /** Optional Firecrawl API key. Omit to use Firecrawl keyless when available. */
+  FIRECRAWL_API_KEY?: string;
+  /** Optional Firecrawl API base URL. Defaults to https://api.firecrawl.dev. */
+  FIRECRAWL_API_URL?: string;
+  /** Optional Firecrawl timeout in milliseconds. */
+  FIRECRAWL_TIMEOUT_MS?: string;
   /** Resend API key for sending magic-link emails */
   RESEND_API_KEY?: string;
   /** From address for auth emails, e.g. "md.genedai.me <noreply@mail.genedai.me>" */
@@ -69,6 +75,7 @@ export type ConvertMethod =
   | "browser+readability+turndown"
   | "proxy+readability+turndown"
   | "jina"
+  | "firecrawl"
   | "cf";
 
 export type OutputFormat = "markdown" | "html" | "text" | "json";

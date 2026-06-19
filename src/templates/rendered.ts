@@ -22,7 +22,7 @@ export function renderedPageHTML(
   content: string,
   sourceUrl: string,
   tokenCount: string,
-  method: "native" | "fallback" | "browser" | "proxy" | "jina" | "cloudflare",
+  method: "native" | "fallback" | "browser" | "proxy" | "jina" | "firecrawl" | "cloudflare",
   cached: boolean = false,
   articleTitle: string = "",
   rawRequestPath: string = buildRawRequestPath(sourceUrl),
@@ -37,6 +37,7 @@ export function renderedPageHTML(
     browser: { label: "Browser Rendered", cls: "st-browser" },
     proxy: { label: "Residential Proxy", cls: "st-browser" },
     jina: { label: "Jina Reader", cls: "st-jina" },
+    firecrawl: { label: "Firecrawl", cls: "st-firecrawl" },
     cloudflare: { label: "Cloudflare REST", cls: "st-native" },
   };
   const status = statusConfig[method];
@@ -103,6 +104,7 @@ export function renderedPageHTML(
     .st-fallback { background: rgba(251,191,36,0.08); color: var(--amber); border: 1px solid rgba(251,191,36,0.18); }
     .st-browser { background: rgba(167,139,250,0.08); color: var(--violet); border: 1px solid rgba(167,139,250,0.18); }
     .st-jina { background: rgba(251,191,36,0.08); color: var(--amber); border: 1px solid rgba(251,191,36,0.18); }
+    .st-firecrawl { background: rgba(34,211,238,0.08); color: var(--accent); border: 1px solid rgba(34,211,238,0.18); }
     .cache-pill { padding: 0.2rem 0.5rem; border-radius: 6px; font-family: var(--font-mono); font-size: 0.6rem; font-weight: 500; background: rgba(52,211,153,0.08); color: var(--green); border: 1px solid rgba(52,211,153,0.18); }
     .tokens { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); white-space: nowrap; }
 

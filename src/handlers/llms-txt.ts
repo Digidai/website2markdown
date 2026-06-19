@@ -17,7 +17,7 @@ export function handleLlmsTxt(host: string): Response {
 ### Convert URL (GET)
 GET ${baseUrl}/<encoded-url>
 - Returns: Markdown content
-- Params: ?format=markdown|html|text|json, ?selector=<css>, ?force_browser=true, ?no_cache=true
+- Params: ?format=markdown|html|text|json, ?selector=<css>, ?force_browser=true, ?engine=jina|firecrawl|cf, ?no_cache=true
 
 ### Streaming (GET)
 GET ${baseUrl}/api/stream?url=<encoded-url>
@@ -67,9 +67,9 @@ Request an API key at ${baseUrl}/portal/. Authenticate with:
   Authorization: Bearer mk_...
 
 Tiers:
-- anonymous (no key): cache + readability only, no browser rendering, no expensive params
-- free (1,000 credits/month): full pipeline including browser rendering
-- pro (50,000 credits/month): full pipeline + engine selection, proxy, no_cache, force_browser
+- anonymous (no key): cache + readability plus keyless engine=jina/firecrawl, no browser rendering
+- free (1,000 credits/month): full pipeline including browser rendering plus keyless engine=jina/firecrawl
+- pro (50,000 credits/month): full pipeline + all engines including engine=cf, proxy, no_cache, force_browser
 
 Credit costs are fixed per endpoint: convert=1, extract=3, deepcrawl=2 per URL.
 

@@ -141,6 +141,7 @@ export function loadingPageHTML(
     .st-fallback{background:rgba(251,191,36,.08);color:var(--amber);border:1px solid rgba(251,191,36,.18)}
     .st-browser{background:rgba(167,139,250,.08);color:var(--violet);border:1px solid rgba(167,139,250,.18)}
     .st-jina{background:rgba(251,191,36,.08);color:var(--amber);border:1px solid rgba(251,191,36,.18)}
+    .st-firecrawl{background:rgba(34,211,238,.08);color:var(--accent);border:1px solid rgba(34,211,238,.18)}
     .cache-pill{
       padding:.2rem .5rem;border-radius:6px;font-family:var(--font-mono);
       font-size:.6rem;font-weight:500;display:none;
@@ -391,6 +392,7 @@ export function loadingPageHTML(
       if (m.indexOf('browser') !== -1) { mp.className = 'status-pill st-browser'; mp.textContent = 'Browser Rendered'; }
       else if (m === 'native') { mp.className = 'status-pill st-native'; mp.textContent = 'Native Markdown'; }
       else if (m === 'jina') { mp.className = 'status-pill st-jina'; mp.textContent = 'Jina Reader'; }
+      else if (m === 'firecrawl') { mp.className = 'status-pill st-firecrawl'; mp.textContent = 'Firecrawl'; }
       else { mp.className = 'status-pill st-fallback'; mp.textContent = 'Readability + Turndown'; }
 
       if (data.cached) document.getElementById('r-cache').style.display = '';

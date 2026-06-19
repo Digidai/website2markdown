@@ -16,6 +16,12 @@ const CREDIT_COSTS: Record<string, number> = {
   deepcrawl: 2,
 };
 
+const PUBLIC_KEYLESS_ENGINES = new Set(["jina", "firecrawl"]);
+
+export function isPublicKeylessEngine(engine?: string): boolean {
+  return !!engine && PUBLIC_KEYLESS_ENGINES.has(engine);
+}
+
 export function buildPolicy(
   auth: AuthContext,
   route: string = "convert",
@@ -77,7 +83,11 @@ export function checkPolicy(
   if (params.noCache && !policy.noCacheAllowed) {
     return "no_cache requires a Pro API key.";
   }
-  if (params.engine && !policy.engineSelectionAllowed) {
+  if (
+    params.engine &&
+    !policy.engineSelectionAllowed &&
+    !isPublicKeylessEngine(params.engine)
+  ) {
     return "engine selection requires a Pro API key.";
   }
   // Quota check (skip for anonymous — they have separate restrictions)

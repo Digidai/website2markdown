@@ -27,15 +27,17 @@ The conversion stack is best understood as a 5-layer capability ladder. Not ever
         Cloudflare Browser Rendering + 14 adapters
                 |
                 v
-    [5] Jina
-        Explicit engine or last-resort fallback
+    [5] External Markdown Providers
+        Firecrawl keyless/API-key scrape -> Jina fallback
 ```
 
 Notes:
 
 - Layer 2 is only eligible when Cloudflare REST credentials are configured and the URL is suitable for the generic path.
 - Layer 4 includes 14 adapters total: 13 site-specific adapters plus 1 generic fallback adapter.
-- Layer 5 can be selected explicitly with `engine=jina`, or used as a fallback when normal extraction is too thin.
+- Layer 5 can be selected explicitly with `engine=firecrawl` or `engine=jina`,
+  or used as a fallback when normal extraction is too thin. Firecrawl is tried
+  before Jina and omitted Authorization is treated as keyless best effort.
 
 ## Request Flow
 
@@ -78,7 +80,7 @@ Route parsing in src/index.ts
             +--> static fetch + Readability/Turndown
             +--> browser adapter path              [if policy.browserAllowed]
             +--> proxy retry / pool                [if policy.proxyAllowed]
-            +--> Jina fallback
+            +--> Firecrawl fallback -> Jina fallback
             |
             v
       post-processing
@@ -153,7 +155,7 @@ A second way to view the same system is by runtime responsibility:
 HTTP router / orchestration
    |
    +--> Security: auth, SSRF, rate limiting
-   +--> Retrieval: native, CF REST, static fetch, browser, proxy, Jina
+   +--> Retrieval: native, CF REST, static fetch, browser, proxy, Firecrawl, Jina
    +--> Conversion: Readability + Turndown + output shaping
    +--> Storage: KV cache, R2 images, session snapshots, job state
    +--> Async features: jobs, deep crawl, metrics
@@ -338,9 +340,16 @@ Adapters can:
 - fetch directly from a site-specific API
 - post-process HTML before conversion
 
-### 5. Jina
+### 5. External Markdown Providers
 
-`src/jina.ts` provides the explicit Jina engine and the final fallback when local extraction yields too little useful content.
+`src/firecrawl.ts` provides the explicit Firecrawl engine plus a best-effort
+fallback for thin extraction and non-text document URLs. When no
+`FIRECRAWL_API_KEY` is configured it sends no Authorization header so
+Firecrawl can use keyless mode if accepted by the upstream. Firecrawl failures
+are non-fatal in automatic fallback paths.
+
+`src/jina.ts` provides the explicit Jina engine and the final fallback when
+Firecrawl is unavailable or local extraction yields too little useful content.
 
 ## Practical Data Flow
 
@@ -359,7 +368,7 @@ retrieve source document
  |
  +--> JS / anti-bot / challenge ----------> browser adapter / proxy recovery
  |
- +--> still too thin ---------------------> Jina fallback
+ +--> still too thin / non-text document -> Firecrawl fallback -> Jina fallback
  |
  v
 final markdown

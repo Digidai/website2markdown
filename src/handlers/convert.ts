@@ -28,6 +28,7 @@ import {
 } from "../browser/proxy-retry";
 import { getCached, setCache } from "../cache";
 import { fetchViaJina } from "../jina";
+import { fetchViaFirecrawl, type FirecrawlConfig } from "../firecrawl";
 import {
   parseProxyUrl,
   parseProxyPool,
@@ -268,8 +269,20 @@ export interface ConvertResult {
 
 function resolveCachedSourceContentType(method: string, sourceContentType?: string): string {
   if (sourceContentType) return sourceContentType;
-  if (method === "jina" || method === "native") return "text/markdown";
+  if (method === "jina" || method === "firecrawl" || method === "native") return "text/markdown";
   return "text/html";
+}
+
+function getFirecrawlConfig(env: Env): FirecrawlConfig {
+  const parsedTimeout = Number(env.FIRECRAWL_TIMEOUT_MS);
+  const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout > 0
+    ? Math.min(Math.max(parsedTimeout, 5_000), 60_000)
+    : 20_000;
+  return {
+    apiKey: env.FIRECRAWL_API_KEY,
+    apiUrl: env.FIRECRAWL_API_URL,
+    timeoutMs,
+  };
 }
 
 // ─── 核心转换函数 ────────────────────────────────────────────
@@ -321,12 +334,17 @@ export async function convertUrl(
     }
   }
 
-  // 2a. Jina 快速路径 — engine=jina 时跳过所有其他转换 (requires auth)
+  // 2a. Firecrawl 快速路径 — engine=firecrawl 时跳过所有其他转换
+  if (engine === "firecrawl") {
+    return tryFirecrawlFastPath(targetUrl, env, format, selector, noCache, engine, progress, abortSignal);
+  }
+
+  // 2b. Jina 快速路径 — engine=jina 时跳过所有其他转换
   if (engine === "jina") {
     return tryJinaFastPath(targetUrl, env, format, selector, noCache, engine, progress, abortSignal);
   }
 
-  // 2b. CF Markdown 快速路径 (allowed for anonymous — it's a CF-internal API, low cost)
+  // 2c. CF Markdown 快速路径 (allowed for anonymous — it's a CF-internal API, low cost)
   if (engine === "cf" || ((!engine || engine === "auto") && await isCfEligible(targetUrl, env))) {
     const cfResult = await tryCfRestApi(
       targetUrl, env, format, selector, effectiveForceBrowser, noCache, engine, fallbacks, progress, abortSignal,
@@ -340,6 +358,162 @@ export async function convertUrl(
     fallbacks, browserRendered, paywallDetected, sourceContentType,
     progress, abortSignal, browserAllowed,
   );
+}
+
+// ─── 子函数：Firecrawl 快速路径 ───────────────────────────────
+
+async function tryFirecrawlFastPath(
+  targetUrl: string,
+  env: Env,
+  format: OutputFormat,
+  selector: string | undefined,
+  noCache: boolean,
+  engine: string | undefined,
+  progress: (step: string, label: string) => void | Promise<void>,
+  abortSignal?: AbortSignal,
+): Promise<ConvertResult> {
+  await progress("fetch", "Fetching via Firecrawl");
+  const firecrawlResult = await fetchViaFirecrawl(
+    targetUrl,
+    getFirecrawlConfig(env),
+    abortSignal,
+  );
+  const sourceContentType = "text/markdown";
+  const output = formatOutput(
+    firecrawlResult.markdown,
+    format,
+    targetUrl,
+    firecrawlResult.title,
+    "firecrawl",
+  );
+
+  if (!noCache) {
+    await setCache(
+      env, targetUrl, format,
+      {
+        content: output,
+        method: "firecrawl",
+        title: firecrawlResult.title,
+        sourceContentType,
+      },
+      selector, undefined, engine,
+    );
+  }
+
+  return {
+    content: output,
+    title: firecrawlResult.title,
+    method: "firecrawl",
+    tokenCount: "",
+    sourceContentType,
+    cached: false,
+    diagnostics: {
+      cacheHit: false,
+      browserRendered: false,
+      paywallDetected: false,
+      fallbacks: [],
+    },
+  };
+}
+
+async function buildExternalMarkdownResult(
+  targetUrl: string,
+  env: Env,
+  format: OutputFormat,
+  selector: string | undefined,
+  noCache: boolean,
+  engine: string | undefined,
+  method: Extract<ConvertMethod, "firecrawl" | "jina">,
+  markdown: string,
+  title: string,
+  fallbacks: Set<string>,
+): Promise<ConvertResult> {
+  const sourceContentType = "text/markdown";
+  const output = formatOutput(markdown, format, targetUrl, title, method);
+
+  if (!noCache) {
+    await setCache(
+      env, targetUrl, format,
+      { content: output, method, title, sourceContentType },
+      selector, undefined, engine,
+    );
+  }
+
+  return {
+    content: output,
+    title,
+    method,
+    tokenCount: "",
+    sourceContentType,
+    cached: false,
+    diagnostics: {
+      cacheHit: false,
+      browserRendered: false,
+      paywallDetected: false,
+      fallbacks: [...fallbacks],
+    },
+  };
+}
+
+async function tryExternalMarkdownEarlyReturn(
+  targetUrl: string,
+  env: Env,
+  format: OutputFormat,
+  selector: string | undefined,
+  noCache: boolean,
+  engine: string | undefined,
+  fallbacks: Set<string>,
+  abortSignal?: AbortSignal,
+): Promise<ConvertResult | null> {
+  let firecrawlFailed = false;
+
+  try {
+    const firecrawlResult = await fetchViaFirecrawl(
+      targetUrl,
+      getFirecrawlConfig(env),
+      abortSignal,
+    );
+    fallbacks.add("firecrawl_fallback");
+    return buildExternalMarkdownResult(
+      targetUrl,
+      env,
+      format,
+      selector,
+      noCache,
+      engine,
+      "firecrawl",
+      firecrawlResult.markdown,
+      firecrawlResult.title,
+      fallbacks,
+    );
+  } catch (error) {
+    firecrawlFailed = true;
+    console.debug("Firecrawl fallback unavailable:", errorMessage(error));
+  }
+
+  try {
+    const jinaResult = await fetchViaJina(targetUrl, 15_000, abortSignal);
+    if (firecrawlFailed) {
+      fallbacks.add("firecrawl_error_fallthrough");
+    }
+    fallbacks.add("jina_fallback");
+    return buildExternalMarkdownResult(
+      targetUrl,
+      env,
+      format,
+      selector,
+      noCache,
+      engine,
+      "jina",
+      jinaResult.markdown,
+      jinaResult.title,
+      fallbacks,
+    );
+  } catch (error) {
+    console.debug("Jina fallback unavailable:", errorMessage(error));
+  }
+
+  return null;
 }
 
 // ─── 子函数：Jina 快速路径 ──────────────────────────────────
@@ -721,19 +895,43 @@ async function tryFetchAndParse(
     }
   }
 
-  // Jina 回退 — 基本转换产出极少时的最后手段
+  // External provider 回退 — 基本转换产出极少时的最后手段
   if (markdown.length < 500 && !browserRendered && fallbacks.size === 0 && finalHtml.length > 2000) {
+    let firecrawlFailed = false;
     try {
-      const jinaResult = await fetchViaJina(conversionUrl, 15_000, abortSignal);
-      if (jinaResult.markdown.length > markdown.length) {
-        markdown = jinaResult.markdown;
-        extractedTitle = jinaResult.title || extractedTitle;
-        method = "jina";
+      const firecrawlResult = await fetchViaFirecrawl(
+        conversionUrl,
+        getFirecrawlConfig(env),
+        abortSignal,
+      );
+      if (firecrawlResult.markdown.length > markdown.length) {
+        markdown = firecrawlResult.markdown;
+        extractedTitle = firecrawlResult.title || extractedTitle;
+        method = "firecrawl";
         sourceContentType = "text/markdown";
-        fallbacks.add("jina_fallback");
+        fallbacks.add("firecrawl_fallback");
       }
-    } catch {
-      // Jina 失败，使用现有内容继续
+    } catch (error) {
+      firecrawlFailed = true;
+      console.debug("Firecrawl fallback unavailable:", errorMessage(error));
+    }
+
+    if (method !== "firecrawl") {
+      try {
+        const jinaResult = await fetchViaJina(conversionUrl, 15_000, abortSignal);
+        if (jinaResult.markdown.length > markdown.length) {
+          markdown = jinaResult.markdown;
+          extractedTitle = jinaResult.title || extractedTitle;
+          method = "jina";
+          sourceContentType = "text/markdown";
+          if (firecrawlFailed) {
+            fallbacks.add("firecrawl_error_fallthrough");
+          }
+          fallbacks.add("jina_fallback");
+        }
+      } catch (error) {
+        console.debug("Jina fallback unavailable:", errorMessage(error));
+      }
     }
   }
 
@@ -747,7 +945,9 @@ async function tryFetchAndParse(
 
   switch (format) {
     case "html":
-      output = method === "jina" ? formatOutput(markdown, "html", conversionUrl, extractedTitle, method) : contentHtml;
+      output = method === "jina" || method === "firecrawl"
+        ? formatOutput(markdown, "html", conversionUrl, extractedTitle, method)
+        : contentHtml;
       break;
     case "text":
       output = formatOutput(markdown, "text", conversionUrl, extractedTitle, method);
@@ -1149,6 +1349,27 @@ async function tryStaticFetch(
       contentType.includes("text/markdown") ||
       contentType.includes("text/plain");
     if (!isTextContent && !contentType.includes("text/")) {
+      const externalResult = await tryExternalMarkdownEarlyReturn(
+        resolvedUrl,
+        env,
+        format,
+        selector,
+        noCache,
+        engine,
+        fallbacks,
+        abortSignal,
+      );
+      if (externalResult) {
+        return {
+          earlyReturn: externalResult,
+          finalHtml: "",
+          method: externalResult.method,
+          resolvedUrl,
+          browserRendered,
+          paywallDetected,
+          sourceContentType: externalResult.sourceContentType,
+        };
+      }
       throw new ConvertError(
         "Unsupported Content",
         `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`,

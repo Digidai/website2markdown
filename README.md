@@ -56,6 +56,7 @@ Fetch target with Accept: text/markdown
 | **Native** | Target site supports Markdown for Agents | Cloudflare edge converts via `Accept: text/markdown` content negotiation | `native` |
 | **Fallback** | Normal HTML pages | Readability extracts main content → Turndown converts to Markdown | `readability+turndown` |
 | **Browser** | Anti-bot pages, JS-rendered content | Headless Chrome renders the page → Readability + Turndown | `browser+readability+turndown` |
+| **Firecrawl** | Explicit `engine=firecrawl`, non-text documents, or thin local extraction | Convert via Firecrawl v2 scrape; omits Authorization by default for keyless when accepted | `firecrawl` |
 | **Jina** | Explicit `engine=jina` or last-resort fallback | Convert via Jina Reader API while preserving the same output/query surface | `jina` |
 
 ## API Usage
@@ -88,9 +89,9 @@ your email to get an API key. No password; a sign-in link is emailed to you.
 
 | Tier | Credits/month | Browser rendering | Proxy / Engine selection |
 |------|---------------|-------------------|--------------------------|
-| **Anonymous** (no key) | — | ❌ cache + readability only | ❌ |
-| **Free** | 1,000 | ✅ | ❌ |
-| **Pro** | 50,000 | ✅ | ✅ (`engine=`, `no_cache=`, `force_browser=`) |
+| **Anonymous** (no key) | — | ❌ no browser rendering | ✅ keyless `engine=jina` / `engine=firecrawl` |
+| **Free** | 1,000 | ✅ | ✅ keyless `engine=jina` / `engine=firecrawl` |
+| **Pro** | 50,000 | ✅ | ✅ all engines + `no_cache=` + `force_browser=` |
 
 Credit cost is **fixed per request type**, not per actual conversion path
 (so bills are predictable even if a site silently switches from static to
@@ -183,13 +184,31 @@ curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_bro
 
 ### Jina Reader Engine
 
-Use `engine=jina` to convert via [r.jina.ai](https://r.jina.ai) instead of the built-in pipeline. This is useful for JS-heavy pages when browser rendering is unavailable. Free tier: 20 RPM, 2 concurrent, per-IP rate limit.
+Use `engine=jina` to convert via [r.jina.ai](https://r.jina.ai) instead of the built-in pipeline. This is useful for JS-heavy pages when browser rendering is unavailable. Keyless/free tier: 20 RPM per IP without an API key; higher limits are available with a Jina key.
 
 ```bash
 curl "https://md.genedai.me/https://example.com?raw=true&engine=jina"
 ```
 
 > Jina is also used automatically as a last-resort fallback when Readability extraction produces very little content and no browser/proxy path was used.
+
+### Firecrawl Keyless Fallback
+
+Use `engine=firecrawl` to convert via Firecrawl v2 scrape. If `FIRECRAWL_API_KEY`
+is not configured, the worker sends no `Authorization` header so Firecrawl can
+use its keyless free tier when the upstream accepts the request. Keyless can
+still return `403` or `429`; automatic fallbacks treat that as non-fatal and
+continue to Jina.
+
+```bash
+curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl"
+```
+
+> `engine=jina` and `engine=firecrawl` are intentionally available without a
+> Pro key because both upstreams provide keyless/free reader paths. Account-backed
+> engines such as `engine=cf` still require Pro. Firecrawl is also tried before
+> Jina when local extraction is too thin or the target is a non-text document
+> such as a PDF/Word/Excel URL.
 
 ### Cache Control
 
@@ -426,6 +445,7 @@ print(data["title"], data["method"])
 | `/<url>?selector=.class` | GET | Extract specific CSS selector |
 | `/<url>?force_browser=true` | GET | Force browser rendering |
 | `/<url>?engine=jina` | GET | Convert via Jina Reader API using the same output formats |
+| `/<url>?engine=firecrawl` | GET | Convert via Firecrawl scrape using keyless mode when no key is configured |
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
 | `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) with `selector` / `force_browser` / `no_cache` / `engine` / `token` support |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |
@@ -449,8 +469,8 @@ can skip the `AUTH_DB` binding and fall back to the legacy
 
 | Route Group | Anonymous | Free tier (`mk_…`) | Pro tier (`mk_…`) |
 |---|---|---|---|
-| `GET /<url>` | ✅ cache + readability | ✅ full pipeline | ✅ + `engine`, `no_cache`, `force_browser` |
-| `GET /api/stream` | ✅ cache + readability | ✅ full pipeline | ✅ full + params |
+| `GET /<url>` | ✅ cache + readability + keyless `engine=jina/firecrawl` | ✅ full pipeline + keyless `engine=jina/firecrawl` | ✅ + all engines, `no_cache`, `force_browser` |
+| `GET /api/stream` | ✅ cache + readability + keyless `engine=jina/firecrawl` | ✅ full pipeline + keyless `engine=jina/firecrawl` | ✅ full + params |
 | `POST /api/batch` | ❌ 401 | ✅ | ✅ |
 | `POST /api/extract` | ❌ 401 | ✅ | ✅ |
 | `POST /api/deepcrawl` | ❌ 401 | ✅ | ✅ |
@@ -473,7 +493,7 @@ directly.
 | `X-Source-URL` | The original target URL |
 | `X-Markdown-Tokens` | Token count (native Markdown for Agents only) |
 | `X-Markdown-Native` | `"true"` when native, `"false"` otherwise |
-| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, `"browser+readability+turndown"`, `"jina"`, or `"cf"` |
+| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, `"browser+readability+turndown"`, `"jina"`, `"firecrawl"`, or `"cf"` |
 | `X-Cache-Status` | `"HIT"` or `"MISS"` |
 | `X-Markdown-Fallbacks` | Comma-separated fallback list (when used) |
 | `X-Browser-Rendered` | `"true"` when browser rendering path was used |

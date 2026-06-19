@@ -119,12 +119,13 @@ export function buildResponse(
   diagnostics?: ConvertDiagnostics,
   rawRequestPath?: string,
 ): Response {
-  type MethodLabel = "native" | "fallback" | "browser" | "proxy" | "jina" | "cloudflare";
+  type MethodLabel = "native" | "fallback" | "browser" | "proxy" | "jina" | "firecrawl" | "cloudflare";
   const methodLabelMap: Record<ConvertMethod, MethodLabel> = {
     "browser+readability+turndown": "browser",
     "proxy+readability+turndown": "proxy",
     "native": "native",
     "jina": "jina",
+    "firecrawl": "firecrawl",
     "cf": "cloudflare",
     "readability+turndown": "fallback",
   };

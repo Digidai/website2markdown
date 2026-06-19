@@ -56,6 +56,7 @@ Fetch target with Accept: text/markdown
 | **Native** | 目标站点支持 Markdown for Agents | 通过 `Accept: text/markdown` 在 Cloudflare 边缘协商原生 Markdown | `native` |
 | **Fallback** | 普通 HTML 页面 | Readability 提取正文 → Turndown 转 Markdown | `readability+turndown` |
 | **Browser** | 反爬或重 JS 页面 | 无头浏览器渲染后再走 Readability + Turndown | `browser+readability+turndown` |
+| **Firecrawl** | 显式指定 `engine=firecrawl`、非文本文档或本地提取内容过薄 | 通过 Firecrawl v2 scrape 转换；默认不带 Authorization，允许上游接受 keyless 免费层 | `firecrawl` |
 | **Jina** | 显式指定 `engine=jina` 或最终兜底 | 通过 Jina Reader API 转换，同时保留相同的输出格式接口 | `jina` |
 
 ## API 使用
@@ -88,9 +89,9 @@ API key。无需密码，登录链接会发到你的邮箱。
 
 | 套餐 | 月额度 | 浏览器渲染 | proxy / engine 选择 |
 |------|--------|------------|---------------------|
-| **匿名**（无 key） | — | ❌ 只有缓存 + readability | ❌ |
-| **Free** | 1,000 credits | ✅ | ❌ |
-| **Pro** | 50,000 credits | ✅ | ✅（`engine=`、`no_cache=`、`force_browser=`） |
+| **匿名**（无 key） | — | ❌ 无浏览器渲染 | ✅ keyless `engine=jina` / `engine=firecrawl` |
+| **Free** | 1,000 credits | ✅ | ✅ keyless `engine=jina` / `engine=firecrawl` |
+| **Pro** | 50,000 credits | ✅ | ✅ 全部 engine + `no_cache=` + `force_browser=` |
 
 Credit 成本按**请求类型固定计算**，而不是按实际转换路径计费（这样即使某个
 站点悄悄地从静态 HTML 切换到需要浏览器渲染，你的账单依然可以预测）：
@@ -178,13 +179,28 @@ curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_bro
 
 ### Jina Reader 引擎
 
-使用 `engine=jina` 通过 [r.jina.ai](https://r.jina.ai) 转换，跳过内置流程。适用于浏览器渲染不可用时的 JS 重度页面。免费版限制：20 RPM、2 并发、按 IP 限流。
+使用 `engine=jina` 通过 [r.jina.ai](https://r.jina.ai) 转换，跳过内置流程。适用于浏览器渲染不可用时的 JS 重度页面。keyless/免费层限制：无 API key 时 20 RPM、按 IP 限流；配置 Jina key 后可获得更高额度。
 
 ```bash
 curl "https://md.genedai.me/https://example.com?raw=true&engine=jina"
 ```
 
 > 当 Readability 提取内容极少且无浏览器/代理路径时，Jina 也会作为最后兜底自动触发。
+
+### Firecrawl Keyless 兜底
+
+使用 `engine=firecrawl` 通过 Firecrawl v2 scrape 转换。如果未配置
+`FIRECRAWL_API_KEY`，Worker 不会发送 `Authorization` header，从而让
+Firecrawl 在上游接受时走 keyless 免费层。keyless 仍可能返回 `403` 或
+`429`；自动兜底会把它当作非致命失败，并继续尝试 Jina。
+
+```bash
+curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl"
+```
+
+> 当本地提取内容过薄，或目标是 PDF/Word/Excel 这类非文本 URL 时，系统也会在 Jina 前先尝试 Firecrawl。
+
+> `engine=jina` 和 `engine=firecrawl` 会对匿名用户开放，因为两个上游都提供 keyless/free reader 路径。`engine=cf` 这类消耗账号能力的引擎仍需要 Pro。
 
 ### 缓存控制
 
@@ -389,6 +405,7 @@ print(data["title"], data["method"])
 | `/<url>?selector=.class` | GET | 提取指定 CSS 选择器 |
 | `/<url>?force_browser=true` | GET | 强制浏览器渲染 |
 | `/<url>?engine=jina` | GET | 使用 Jina Reader API，并保留相同的输出格式接口 |
+| `/<url>?engine=firecrawl` | GET | 通过 Firecrawl scrape 转换；无 key 时使用 keyless 模式 |
 | `/<url>?no_cache=true` | GET | 跳过 KV 缓存 |
 | `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`），支持 `selector` / `force_browser` / `no_cache` / `engine` / `token` |
 | `/api/batch` | POST | 批量转换（最多 10 条） |
@@ -411,8 +428,8 @@ fallback 到 legacy 的 `API_TOKEN` / `PUBLIC_API_TOKEN` 单 token 模式。
 
 | 路由组 | 匿名 | Free (`mk_…`) | Pro (`mk_…`) |
 |---|---|---|---|
-| `GET /<url>` | ✅ 缓存 + readability | ✅ 完整管线 | ✅ + `engine`、`no_cache`、`force_browser` |
-| `GET /api/stream` | ✅ 缓存 + readability | ✅ 完整管线 | ✅ + 参数 |
+| `GET /<url>` | ✅ 缓存 + readability + keyless `engine=jina/firecrawl` | ✅ 完整管线 + keyless `engine=jina/firecrawl` | ✅ + 全部 engine、`no_cache`、`force_browser` |
+| `GET /api/stream` | ✅ 缓存 + readability + keyless `engine=jina/firecrawl` | ✅ 完整管线 + keyless `engine=jina/firecrawl` | ✅ + 参数 |
 | `POST /api/batch` | ❌ 401 | ✅ | ✅ |
 | `POST /api/extract` | ❌ 401 | ✅ | ✅ |
 | `POST /api/deepcrawl` | ❌ 401 | ✅ | ✅ |
@@ -434,7 +451,7 @@ batch / extract / deepcrawl / jobs 端点始终需要认证，因为它们要么
 | `X-Source-URL` | 原始目标 URL |
 | `X-Markdown-Tokens` | Token 数（仅原生 Markdown for Agents） |
 | `X-Markdown-Native` | 原生路径为 `"true"`，否则 `"false"` |
-| `X-Markdown-Method` | `"native"`、`"readability+turndown"`、`"browser+readability+turndown"`、`"jina"`、`"cf"` |
+| `X-Markdown-Method` | `"native"`、`"readability+turndown"`、`"browser+readability+turndown"`、`"jina"`、`"firecrawl"`、`"cf"` |
 | `X-Cache-Status` | `"HIT"` 或 `"MISS"` |
 | `X-Markdown-Fallbacks` | 逗号分隔的兜底链路（如有） |
 | `X-Browser-Rendered` | 使用浏览器渲染时为 `"true"` |

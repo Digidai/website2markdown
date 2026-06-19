@@ -534,7 +534,7 @@ export default {
       } else {
         // Auto-detect from Accept-Language header
         const acceptLang = request.headers.get("Accept-Language") || "";
-        if (acceptLang.match(/^zh\b/i) || acceptLang.includes("zh-CN") || acceptLang.includes("zh-TW")) {
+        if (/\bzh\b/i.test(acceptLang)) {
           landingLang = "zh";
         }
       }

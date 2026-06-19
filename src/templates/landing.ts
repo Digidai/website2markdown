@@ -22,18 +22,18 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         portalLabel: "获取 API Key",
         // Hero
         heroTitleHtml: "任意 URL 转 <em>Markdown</em>，即刻完成",
-        heroSubtitle: "将任意网页转为干净 Markdown，为 AI Agent、LLM 与开发者而生。开源、边缘部署、21 个平台适配器。",
+        heroSubtitle: "将任意网页转为干净 Markdown，为 AI Agent、LLM 与开发者而生。开源、边缘部署、16 个平台适配器。",
         inputPlaceholder: "粘贴任意 URL...",
         convertButton: "转换",
         convertingButton: "转换中",
         hintKeys: "format &middot; selector &middot; force_browser &middot; raw &middot; engine",
         // Why cards
         why1Title: "其他工具搞不定的，我们行",
-        why1Desc: "JS 驱动的 SPA、付费墙内容、反爬网站。21 个适配器覆盖国内外主流平台。",
+        why1Desc: "JS 驱动的 SPA、付费墙内容、反爬网站。16 个适配器覆盖国内外主流平台。",
         why2Title: "天生为 AI 而造",
         why2Desc: "MCP Server、Agent Skills、llms.txt 开箱即用。你的 AI Agent 直接就能用，不需要胶水代码。",
         why3Title: "生产环境就绪",
-        why3Desc: "568 项测试、5 层 fallback 管线、KV 缓存，部署在 Cloudflare Workers 边缘。",
+        why3Desc: "619 项测试、5 层 fallback 管线、KV 缓存，部署在 Cloudflare Workers 边缘。",
         // Use cases
         useCasesTitle: "覆盖每种工作流",
         uc1Title: "AI Agent",
@@ -48,25 +48,25 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         uc5Desc: "微信公众号、知乎、飞书、语雀、CSDN...",
         uc6Title: "结构化提取",
         uc6Desc: "CSS 选择器、XPath 或正则表达式",
-        platformsTitle: "21 个平台适配器",
+        platformsTitle: "16 个平台适配器",
         // How it works
         howTitle: "工作原理",
         step1Title: "添加前缀",
         step1Desc: "在任意网址前加上 md.genedai.me/",
         step2Title: "边缘处理",
-        step2Desc: "5 层 fallback：原生 &rarr; Readability &rarr; 浏览器 &rarr; CF REST &rarr; Jina",
+        step2Desc: "5 层 fallback：原生 &rarr; Readability &rarr; 浏览器/CF REST &rarr; Firecrawl &rarr; Jina",
         step3Title: "干净输出",
         step3Desc: "Markdown、JSON、HTML 或纯文本",
         // FAQ
         faqTitle: "常见问题",
         faq1Q: "什么是 Website2Markdown？",
-        faq1A: "一个免费、开源的 API，可将任意网页 URL 转为干净、可读的 Markdown。基于 Cloudflare Workers，5 层 fallback 管线：原生边缘 Markdown &rarr; Readability &rarr; 无头浏览器 &rarr; CF REST API &rarr; Jina Reader。",
+        faq1A: "一个免费、开源的 API，可将任意网页 URL 转为干净、可读的 Markdown。基于 Cloudflare Workers，5 层 fallback 管线：原生边缘 Markdown &rarr; Readability &rarr; 无头浏览器/CF REST &rarr; Firecrawl &rarr; Jina Reader。",
         faq2Q: "它是免费的吗？",
         faq2A: "是的，完全免费并以 Apache-2.0 开源。你可以自行部署，也可以使用 md.genedai.me 的托管服务。",
         faq3Q: "支持哪些平台？",
-        faq3A: "21 个内置适配器：微信公众号、知乎、飞书/Lark、语雀、掘金、CSDN、36氪、头条、微博、网易、Twitter/X、Reddit、Notion 等。任何公开 URL 都可通过通用 fallback 处理。",
+        faq3A: "16 个内置适配器：微信公众号、知乎、飞书/Lark、语雀、掘金、CSDN、36氪、头条、微博、网易、Twitter/X、Reddit、Notion、GitHub、Substack、Medium。任何公开 URL 都可通过通用 fallback 处理。",
         faq4Q: "如何处理 JS 渲染密集型页面？",
-        faq4A: "自动 5 层 fallback。原生提取失败后，依次升级到 Readability、Cloudflare 无头 Chrome 浏览器渲染，最后 Jina Reader 兜底。使用 ?force_browser=true 可直接跳到浏览器渲染。",
+        faq4A: "自动 5 层 fallback。原生提取失败后，依次升级到 Readability、Cloudflare 无头 Chrome 浏览器渲染，最后用 Firecrawl 和 Jina Reader 兜底。使用 ?force_browser=true 可直接跳到浏览器渲染。",
         faq5Q: "如何与 AI Agent 集成？",
         faq5A: "三种方式：(1) Agent Skills——Claude Code/OpenClaw 一条命令安装。(2) MCP Server——Claude Desktop、Cursor IDE。(3) llms.txt——所有 AI 系统自动发现。",
         faq6Q: "如何使用 API？",
@@ -94,7 +94,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         formatDesc: "输出格式",
         selectorDesc: "仅提取匹配的 CSS 选择器",
         forceBrowserDesc: "强制使用无头浏览器渲染",
-        engineDesc: "使用指定引擎转换（jina / cf）",
+        engineDesc: "使用指定引擎转换（jina / firecrawl / cf）",
         noCacheDesc: "绕过缓存，抓取最新内容",
         tokenDesc: "公开 API 令牌",
         authTitle: "鉴权",
@@ -118,7 +118,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         decisionNo: "否 &rarr; MCP Server",
         decisionAll: "所有 AI &rarr; llms.txt 自动发现",
         skillTitle: "Agent Skills",
-        skillDesc: "一条命令安装，Agent 自动发现。包含完整使用模式、错误处理和 21 个平台适配器指南。",
+        skillDesc: "一条命令安装，Agent 自动发现。包含完整使用模式、错误处理和 16 个平台适配器指南。",
         skillFor: "适用：Claude Code、Codex CLI、Gemini CLI、OpenClaw",
         skillClaudeCode: "Claude Code",
         skillClaudeCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown",
@@ -217,18 +217,18 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         portalLabel: "Get API Key",
         // Hero
         heroTitleHtml: "Any URL to <em>Markdown</em>, instantly",
-        heroSubtitle: "Convert any web page to clean Markdown for AI agents, LLMs, and developers. Open source, edge-deployed, 21 platform adapters.",
+        heroSubtitle: "Convert any web page to clean Markdown for AI agents, LLMs, and developers. Open source, edge-deployed, 16 platform adapters.",
         inputPlaceholder: "paste any url...",
         convertButton: "Convert",
         convertingButton: "Converting",
         hintKeys: "format &middot; selector &middot; force_browser &middot; raw &middot; engine",
         // Why cards
         why1Title: "Works where others fail",
-        why1Desc: "JS-heavy SPAs, paywalled content, anti-bot sites. 21 adapters for Chinese &amp; international platforms.",
+        why1Desc: "JS-heavy SPAs, paywalled content, anti-bot sites. 16 adapters for Chinese &amp; international platforms.",
         why2Title: "AI-native from day one",
         why2Desc: "MCP Server, Agent Skills, llms.txt built-in. Your AI agent just works -- no glue code needed.",
         why3Title: "Production ready",
-        why3Desc: "568 tests, 5-layer fallback pipeline, KV cache, edge-deployed on Cloudflare Workers.",
+        why3Desc: "619 tests, 5-layer fallback pipeline, KV cache, edge-deployed on Cloudflare Workers.",
         // Use cases
         useCasesTitle: "Built for every workflow",
         uc1Title: "AI Agents",
@@ -243,25 +243,25 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         uc5Desc: "WeChat, Zhihu, Feishu, Yuque, CSDN...",
         uc6Title: "Data Extraction",
         uc6Desc: "CSS selectors, XPath, or Regex",
-        platformsTitle: "21 Platform Adapters",
+        platformsTitle: "16 Platform Adapters",
         // How it works
         howTitle: "How it works",
         step1Title: "Prepend URL",
         step1Desc: "Add md.genedai.me/ before any web address",
         step2Title: "Edge Pipeline",
-        step2Desc: "5-layer fallback: Native &rarr; Readability &rarr; Browser &rarr; CF REST &rarr; Jina",
+        step2Desc: "5-layer fallback: Native &rarr; Readability &rarr; Browser/CF REST &rarr; Firecrawl &rarr; Jina",
         step3Title: "Clean Output",
         step3Desc: "Markdown, JSON, HTML, or plain text",
         // FAQ
         faqTitle: "Frequently asked questions",
         faq1Q: "What is Website2Markdown?",
-        faq1A: "A free, open-source API that converts any web page URL to clean Markdown. Built on Cloudflare Workers with 5-layer fallback: native edge Markdown &rarr; Readability &rarr; headless browser &rarr; CF REST API &rarr; Jina Reader.",
+        faq1A: "A free, open-source API that converts any web page URL to clean Markdown. Built on Cloudflare Workers with 5-layer fallback: native edge Markdown &rarr; Readability &rarr; headless browser/CF REST &rarr; Firecrawl &rarr; Jina Reader.",
         faq2Q: "Is it free?",
         faq2A: "Yes, completely free and open source under Apache-2.0. Self-host or use the managed service at md.genedai.me.",
         faq3Q: "Which platforms are supported?",
-        faq3A: "21 built-in adapters: WeChat, Zhihu, Feishu/Lark, Yuque, Juejin, CSDN, 36Kr, Toutiao, Weibo, NetEase, Twitter/X, Reddit, Notion, and more. Any public URL works via generic fallback.",
+        faq3A: "16 built-in adapters: WeChat, Zhihu, Feishu/Lark, Yuque, Juejin, CSDN, 36Kr, Toutiao, Weibo, NetEase, Twitter/X, Reddit, Notion, GitHub, Substack, and Medium. Any public URL works via generic fallback.",
         faq4Q: "How does it handle JS-heavy pages?",
-        faq4A: "Automatic 5-layer fallback. If native extraction fails, it escalates to Readability, then headless Chrome via Cloudflare Browser Rendering, then Jina Reader as last resort. Use ?force_browser=true to skip straight to browser rendering.",
+        faq4A: "Automatic 5-layer fallback. If native extraction fails, it escalates to Readability, then headless Chrome via Cloudflare Browser Rendering, then Firecrawl and Jina Reader as external fallbacks. Use ?force_browser=true to skip straight to browser rendering.",
         faq5Q: "How to integrate with my AI agent?",
         faq5A: "Three ways: (1) Agent Skills for Claude Code/OpenClaw -- one command install. (2) MCP Server for Claude Desktop/Cursor. (3) llms.txt for auto-discovery by any AI system.",
         faq6Q: "How to use the API?",
@@ -289,7 +289,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         formatDesc: "Output format",
         selectorDesc: "Extract only matching CSS selector",
         forceBrowserDesc: "Force headless browser rendering",
-        engineDesc: "Convert via specific engine (jina / cf)",
+        engineDesc: "Convert via specific engine (jina / firecrawl / cf)",
         noCacheDesc: "Bypass cache, fetch fresh content",
         tokenDesc: "Public API token",
         authTitle: "Authentication",
@@ -313,7 +313,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         decisionNo: "NO &rarr; MCP Server",
         decisionAll: "All AI &rarr; llms.txt auto-discovery",
         skillTitle: "Agent Skills",
-        skillDesc: "One command to install, auto-discovered by your agent. Includes full usage patterns, error handling, and guides for all 21 platform adapters.",
+        skillDesc: "One command to install, auto-discovered by your agent. Includes full usage patterns, error handling, and guides for all 16 platform adapters.",
         skillFor: "For: Claude Code, Codex CLI, Gemini CLI, OpenClaw",
         skillClaudeCode: "Claude Code",
         skillClaudeCmd: "git clone https://github.com/Digidai/website2markdown-skills ~/.claude/skills/website2markdown",
@@ -374,7 +374,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         mockupZhihuTitle: "How do you evaluate LLM adoption in enterprises?",
         mockupZhihuContent: "In recent years, with breakthroughs in large language model technology, more and more enterprises are exploring integrating AI into core business...",
         mockupLoginRequired: "Login to view full content",
-        mockupLoginRequiredSub: "Login to view full content",
+        mockupLoginRequiredSub: "Sign in required to continue reading",
         mockupLogin: "Login",
         mockupRegister: "Sign up",
         mockupZhihuAnswer: "How do you evaluate LLM adoption in enterprises?",
@@ -420,7 +420,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
         featureList: [
           "URL to Markdown conversion",
-          "21 platform adapters",
+          "16 platform adapters",
           "Batch API",
           "Structured extraction",
           "Deep crawl",
@@ -428,7 +428,6 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           "Agent Skills",
           "llms.txt",
         ],
-        softwareVersion: "1.0.0",
         license: "https://www.apache.org/licenses/LICENSE-2.0",
         codeRepository: "https://github.com/Digidai/website2markdown",
         sameAs: [
@@ -457,11 +456,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       },
       {
         "@type": "HowTo",
-        name: "How to convert a URL to Markdown",
+        name: isZh ? "如何将 URL 转换为 Markdown" : "How to convert a URL to Markdown",
         step: [
-          { "@type": "HowToStep", name: "Prepend URL", text: "Add md.genedai.me/ before any web address" },
-          { "@type": "HowToStep", name: "Edge Fetch", text: "Processed at the Cloudflare edge through 5-layer pipeline" },
-          { "@type": "HowToStep", name: "Get Output", text: "Receive clean Markdown, JSON, HTML, or plain text" },
+          { "@type": "HowToStep", name: t.step1Title, text: t.step1Desc.replace(/&rarr;/g, "->") },
+          { "@type": "HowToStep", name: t.step2Title, text: t.step2Desc.replace(/&rarr;/g, "->") },
+          { "@type": "HowToStep", name: t.step3Title, text: t.step3Desc },
         ],
       },
     ],
@@ -528,6 +527,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       --font-display: 'Instrument Serif', Georgia, serif;
       --font-body: 'DM Sans', system-ui, sans-serif;
       --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --accent-on: #0e3a4a;
       --radius: 4px;
       --max-w: 1280px;
       color-scheme: light dark;
@@ -625,7 +625,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       transition: all 0.2s ease; min-height: 36px;
     }
     .tab-btn:hover { color: var(--text-primary); background: var(--bg-surface); }
-    .tab-btn.active { color: #0e3a4a; background: var(--accent); font-weight: 600; }
+    .tab-btn.active { color: var(--accent-on); background: var(--accent); font-weight: 600; }
     .header-right { display: flex; align-items: center; gap: 8px; }
     .lang-switch {
       display: inline-flex; gap: 2px; padding: 3px;
@@ -637,12 +637,12 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       min-height: 36px; display: inline-flex; align-items: center; cursor: pointer;
     }
     .lang-link:hover { color: var(--text-primary); background: var(--bg-elevated); }
-    .lang-link.active { color: #0e3a4a; background: var(--accent); font-weight: 600; }
+    .lang-link.active { color: var(--accent-on); background: var(--accent); font-weight: 600; }
     .portal-link {
       display: inline-flex; align-items: center;
       padding: 6px 14px;
       font-size: 13px; font-weight: 500;
-      color: #0e3a4a;
+      color: var(--accent-on);
       background: var(--accent);
       border: 1px solid var(--accent);
       border-radius: var(--radius);
@@ -665,7 +665,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .tab-content.active { display: block; }
 
     /* ---- Section spacing ---- */
-    .section { padding: 44.8px 0; }
+    .section { padding: 72px 0; }
     .section-title {
       font-family: var(--font-display); font-size: 26px; font-weight: 400;
       letter-spacing: -0.325px; margin-bottom: 32px; color: var(--text-primary);
@@ -673,7 +673,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .section-title-center { text-align: center; }
 
     /* ---- Hero ---- */
-    .hero { padding: 80px 0 44.8px; text-align: center; }
+    .hero { padding: 96px 0 64px; text-align: center; }
     .hero h1 {
       font-family: var(--font-display); font-size: clamp(26px, 5vw, 42px);
       font-weight: 400; letter-spacing: -0.325px; line-height: 1.15;
@@ -713,7 +713,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .input-group input::placeholder { color: var(--text-muted); }
     .convert-btn {
       padding: 0 24px; background: var(--accent); border: none;
-      color: #0e3a4a; font-weight: 600; font-size: 13px;
+      color: var(--accent-on); font-weight: 600; font-size: 13px;
       font-family: var(--font-body); cursor: pointer; border-radius: 999px;
       margin: 6px; transition: background 0.2s, transform 0.1s; white-space: nowrap;
       min-height: 36px;
@@ -723,7 +723,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .convert-btn:disabled { opacity: 0.5; cursor: wait; }
     .btn-spinner {
       display: inline-block; width: 12px; height: 12px;
-      border: 2px solid rgba(0,0,0,0.2); border-top-color: #0e3a4a;
+      border: 2px solid rgba(0,0,0,0.2); border-top-color: var(--accent-on);
       border-radius: 50%; animation: spin 0.6s linear infinite;
       vertical-align: middle; margin-right: 4px;
     }
@@ -954,7 +954,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .accent-link:hover { text-decoration: underline; text-underline-offset: 4px; }
 
     /* ---- Footer ---- */
-    .site-footer { background: var(--bg-surface); padding: 48px 0 24px; margin-top: 44.8px; }
+    .site-footer { background: var(--bg-surface); padding: 48px 0 24px; margin-top: 64px; }
     .footer-grid {
       display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;
       margin-bottom: 40px;
@@ -1176,7 +1176,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .pipeline-result .mockup-success { font-weight: 700; }
 
     /* ---- Feature Sections (alternating text + mockup) ---- */
-    .feature-section { padding: 32px 0; }
+    .feature-section { padding: 56px 0; }
     .feature-grid {
       display: grid; grid-template-columns: 1fr 1.4fr; gap: 64px; align-items: center;
     }
@@ -1201,8 +1201,9 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
       .feature-grid, .feature-grid.reverse { grid-template-columns: 1fr; gap: 24px; }
       .feature-grid.reverse .feature-mockup { order: 2; }
       .feature-grid.reverse .feature-text { order: 1; }
-      .hero-stage { display: none !important; }
-      .feature-mockup { display: none !important; }
+      .hero-stage { display: none; }
+      .feature-mockup { display: none; }
+      .feature-mockup.mobile-show { display: block; }
       .footer-grid { grid-template-columns: 1fr; gap: 24px; }
       .header-nav { display: none; }
       .header-nav.open {
@@ -1228,10 +1229,10 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
   <header class="site-header" id="siteHeader">
     <div class="header-inner">
       <a href="/" class="site-name">${h}</a>
-      <nav class="header-nav" id="headerNav" aria-label="Main navigation">
-        <button class="tab-btn active" data-tab="home" onclick="switchTab('home')">${t.tabHome}</button>
-        <button class="tab-btn" data-tab="docs" onclick="switchTab('docs')">${t.tabDocs}</button>
-        <button class="tab-btn" data-tab="integration" onclick="switchTab('integration')">${t.tabIntegration}</button>
+      <nav class="header-nav" id="headerNav" role="tablist" aria-label="Main navigation">
+        <button class="tab-btn active" data-tab="home" role="tab" aria-selected="true" aria-controls="tab-home" onclick="switchTab('home')">${t.tabHome}</button>
+        <button class="tab-btn" data-tab="docs" role="tab" aria-selected="false" aria-controls="tab-docs" onclick="switchTab('docs')">${t.tabDocs}</button>
+        <button class="tab-btn" data-tab="integration" role="tab" aria-selected="false" aria-controls="tab-integration" onclick="switchTab('integration')">${t.tabIntegration}</button>
       </nav>
       <div class="header-right">
         <a href="/portal/" class="portal-link">${t.portalLabel}</a>
@@ -1240,7 +1241,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <a class="lang-link ${isZh ? "active" : ""}" href="/?lang=zh">中文</a>
         </nav>
         <a href="https://github.com/Digidai/website2markdown" target="_blank" class="github-link" aria-label="GitHub">${iconGithub}</a>
-        <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu" onclick="toggleMobileMenu()">
+        <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu" aria-expanded="false" onclick="toggleMobileMenu()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
@@ -1249,7 +1250,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
 
   <main>
     <!-- ==================== TAB 1: HOME ==================== -->
-    <div class="tab-content active" id="tab-home">
+    <div class="tab-content active" id="tab-home" role="tabpanel" aria-labelledby="tab-home-btn">
 
       <!-- Hero -->
       <section class="hero">
@@ -1258,6 +1259,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
           <p class="hero-subtitle reveal">${t.heroSubtitle}</p>
           <div class="input-wrapper reveal">
             <form class="input-group" id="urlForm" onsubmit="return handleSubmit(event)">
+              <label for="urlInput" class="sr-only">${isZh ? "输入要转换的 URL" : "Enter URL to convert"}</label>
               <div class="input-prefix">${h}/</div>
               <input type="text" id="urlInput" placeholder="${t.inputPlaceholder}" autocomplete="off" autofocus />
               <button type="submit" class="convert-btn">${t.convertButton}</button>
@@ -1448,7 +1450,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
               <div class="card-title">${t.why3Title}</div>
               <div class="card-desc">${t.why3Desc}</div>
             </div>
-            <div class="feature-mockup">
+            <div class="feature-mockup mobile-show">
               <div class="mockup-window">
                 <div class="mockup-titlebar">
                   <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
@@ -1486,8 +1488,8 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
                   <div class="pipeline-connector">&#9474; fail?</div>
 
                   <div class="pipeline-layer pipeline-layer-slow">
-                    <span class="pipeline-layer-name">Layer 5 &mdash; Jina Reader</span>
-                    <span class="pipeline-layer-detail">External fallback</span>
+                    <span class="pipeline-layer-name">Layer 5 &mdash; Firecrawl + Jina</span>
+                    <span class="pipeline-layer-detail">External keyless fallback</span>
                     <span class="pipeline-layer-speed">&#9889; 2-4s</span>
                   </div>
 
@@ -1616,7 +1618,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     </div>
 
     <!-- ==================== TAB 2: DOCS ==================== -->
-    <div class="tab-content" id="tab-docs">
+    <div class="tab-content" id="tab-docs" role="tabpanel" aria-labelledby="tab-docs-btn">
       <section class="section">
         <div class="docs-section">
 
@@ -1662,7 +1664,7 @@ curl -X POST https://${h}/api/batch \\
                 <tr><td><code>?format=</code></td><td>${t.formatDesc} (<code>markdown</code> | <code>html</code> | <code>text</code> | <code>json</code>)</td></tr>
                 <tr><td><code>?selector=.css</code></td><td>${t.selectorDesc}</td></tr>
                 <tr><td><code>?force_browser=true</code></td><td>${t.forceBrowserDesc}</td></tr>
-                <tr><td><code>?engine=jina</code></td><td>${t.engineDesc}</td></tr>
+                <tr><td><code>?engine=jina|firecrawl|cf</code></td><td>${t.engineDesc}</td></tr>
                 <tr><td><code>?no_cache=true</code></td><td>${t.noCacheDesc}</td></tr>
                 <tr><td><code>?token=</code></td><td>${t.tokenDesc}</td></tr>
               </tbody>
@@ -1717,7 +1719,7 @@ curl -X POST https://${h}/api/deepcrawl \\
     </div>
 
     <!-- ==================== TAB 3: INTEGRATION ==================== -->
-    <div class="tab-content" id="tab-integration">
+    <div class="tab-content" id="tab-integration" role="tabpanel" aria-labelledby="tab-integration-btn">
       <section class="section">
         <div class="integration-section">
 
@@ -1800,7 +1802,7 @@ curl -X POST https://${h}/api/deepcrawl \\
       <div class="footer-grid">
         <div class="footer-col">
           <div class="footer-col-title">${t.footerProduct}</div>
-          <a href="/#">API</a>
+          <a href="/#docs" onclick="switchTab('docs');return false;">API</a>
           <a href="/#" onclick="switchTab('docs');return false;">Batch</a>
           <a href="/#" onclick="switchTab('docs');return false;">Extract</a>
           <a href="/#" onclick="switchTab('docs');return false;">Deep Crawl</a>
@@ -1823,7 +1825,7 @@ curl -X POST https://${h}/api/deepcrawl \\
         </div>
       </div>
       <div class="footer-bottom">
-        <span>&copy; 2026 Digidai</span>
+        <span>&copy; <script>document.write(new Date().getFullYear())</script> Digidai</span>
         <div class="theme-toggle" id="themeToggle">
           <button class="theme-btn" data-theme="light" onclick="setTheme('light')">${t.footerThemeLight}</button>
           <button class="theme-btn" data-theme="dark" onclick="setTheme('dark')">${t.footerThemeDark}</button>
@@ -1838,11 +1840,11 @@ curl -X POST https://${h}/api/deepcrawl \\
     /* ---- Tab switching ---- */
     function switchTab(name) {
       document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
-      document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); });
+      document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); el.setAttribute('aria-selected', 'false'); });
       var target = document.getElementById('tab-' + name);
       if (target) target.classList.add('active');
       var btn = document.querySelector('.tab-btn[data-tab="' + name + '"]');
-      if (btn) btn.classList.add('active');
+      if (btn) { btn.classList.add('active'); btn.setAttribute('aria-selected', 'true'); }
       history.replaceState(null, '', '#' + name);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -1949,7 +1951,11 @@ curl -X POST https://${h}/api/deepcrawl \\
     /* ---- Mobile menu toggle ---- */
     function toggleMobileMenu() {
       var nav = document.getElementById('headerNav');
-      if (nav) nav.classList.toggle('open');
+      var btn = document.getElementById('mobileMenuBtn');
+      if (nav) {
+        nav.classList.toggle('open');
+        if (btn) btn.setAttribute('aria-expanded', nav.classList.contains('open') ? 'true' : 'false');
+      }
     }
   </script>
 </body>
