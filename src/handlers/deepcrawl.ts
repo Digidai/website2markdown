@@ -40,7 +40,8 @@ import {
   isCfEligible,
 } from "./convert";
 import { sseResponse } from "./stream";
-import { authorizeApiTokenRequest } from "./jobs";
+import { authorizeApiAccess, type ApiAccessContext, sessionProfileScopeForAuth } from "../middleware/api-access";
+import { checkPolicy } from "../middleware/tier-gate";
 
 // ─── 常量 ────────────────────────────────────────────────────
 
@@ -487,6 +488,7 @@ export async function executeDeepCrawl(
   payload: DeepCrawlNormalizedPayload,
   signal: AbortSignal | undefined,
   onNode?: (node: DeepCrawlNode) => Promise<void>,
+  access?: ApiAccessContext,
 ): Promise<DeepCrawlExecutionResult> {
   let initialState: DeepCrawlStateSnapshot | undefined;
   let resumed = false;
@@ -556,6 +558,15 @@ export async function executeDeepCrawl(
     if (!isValidUrl(url) || !isSafeUrl(url)) {
       throw new Error("Invalid or blocked URL.");
     }
+    const policyError = access
+      ? checkPolicy(access.policy, {
+        forceBrowser: payload.forceBrowser,
+        noCache: payload.noCache,
+      })
+      : null;
+    if (policyError) {
+      throw new DeepCrawlRequestError(policyError, 401);
+    }
 
     let cfAttempted = false;
     const needsRender = payload.forceBrowser || alwaysNeedsBrowser(url);
@@ -583,7 +594,12 @@ export async function executeDeepCrawl(
 
     const converted = await convertUrlWithMetrics(
       url, env, host, "html", payload.selector, payload.forceBrowser, payload.noCache,
-      undefined, context.signal, cfAttempted ? "local" : undefined,
+      undefined,
+      context.signal,
+      cfAttempted ? "local" : undefined,
+      access?.policy.browserAllowed ?? true,
+      access ? access.auth.tier !== "anonymous" : true,
+      sessionProfileScopeForAuth(access?.auth),
     );
 
     let markdown: string | undefined;
@@ -632,8 +648,8 @@ export async function handleDeepCrawl(
   env: Env,
   host: string,
 ): Promise<Response> {
-  const authError = await authorizeApiTokenRequest(request, env);
-  if (authError) return authError;
+  const access = await authorizeApiAccess(request, env, "deepcrawl");
+  if (access instanceof Response) return access;
 
   const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
   if (contentLength > DEEPCRAWL_BODY_MAX_BYTES) {
@@ -693,7 +709,7 @@ export async function handleDeepCrawl(
 
         const result = await executeDeepCrawl(env, host, payload, streamSignal, async (node) => {
           await send("node", node);
-        });
+        }, access);
 
         await send("done", {
           crawlId: result.crawlId, resumed: result.resumed, startedAt: result.startedAt,
@@ -718,7 +734,7 @@ export async function handleDeepCrawl(
   }
 
   try {
-    const result = await executeDeepCrawl(env, host, payload, request.signal);
+    const result = await executeDeepCrawl(env, host, payload, request.signal, undefined, access);
     logMetric("deepcrawl.completed", {
       crawlId: result.crawlId, strategy: payload.strategy, stream: false,
       resumed: result.resumed, crawled: result.stats.crawledPages,

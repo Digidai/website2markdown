@@ -273,13 +273,13 @@ function resolveCachedSourceContentType(method: string, sourceContentType?: stri
   return "text/html";
 }
 
-function getFirecrawlConfig(env: Env): FirecrawlConfig {
+function getFirecrawlConfig(env: Env, allowApiKey: boolean = true): FirecrawlConfig {
   const parsedTimeout = Number(env.FIRECRAWL_TIMEOUT_MS);
   const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout > 0
     ? Math.min(Math.max(parsedTimeout, 5_000), 60_000)
     : 20_000;
   return {
-    apiKey: env.FIRECRAWL_API_KEY,
+    apiKey: allowApiKey ? env.FIRECRAWL_API_KEY : undefined,
     apiUrl: env.FIRECRAWL_API_URL,
     timeoutMs,
   };
@@ -299,6 +299,8 @@ export async function convertUrl(
   abortSignal?: AbortSignal,
   engine?: string,
   browserAllowed: boolean = true,
+  providerApiKeysAllowed: boolean = true,
+  sessionProfileScope?: string,
 ): Promise<ConvertResult> {
   const progress = onProgress || (() => {});
   throwIfAborted(abortSignal);
@@ -309,9 +311,10 @@ export async function convertUrl(
 
   // Anonymous tier: forceBrowser is ineffective when browser is not allowed
   const effectiveForceBrowser = browserAllowed ? forceBrowser : false;
+  const cacheAllowed = !noCache && !effectiveForceBrowser;
 
   // 1. 缓存
-  if (!noCache) {
+  if (cacheAllowed) {
     const cached = await getCached(env, targetUrl, format, selector, engine);
     if (cached) {
       return {
@@ -336,27 +339,37 @@ export async function convertUrl(
 
   // 2a. Firecrawl 快速路径 — engine=firecrawl 时跳过所有其他转换
   if (engine === "firecrawl") {
-    return tryFirecrawlFastPath(targetUrl, env, format, selector, noCache, engine, progress, abortSignal);
+    return tryFirecrawlFastPath(
+      targetUrl,
+      env,
+      format,
+      selector,
+      !cacheAllowed,
+      engine,
+      progress,
+      abortSignal,
+      providerApiKeysAllowed,
+    );
   }
 
   // 2b. Jina 快速路径 — engine=jina 时跳过所有其他转换
   if (engine === "jina") {
-    return tryJinaFastPath(targetUrl, env, format, selector, noCache, engine, progress, abortSignal);
+    return tryJinaFastPath(targetUrl, env, format, selector, !cacheAllowed, engine, progress, abortSignal);
   }
 
   // 2c. CF Markdown 快速路径 (allowed for anonymous — it's a CF-internal API, low cost)
   if (engine === "cf" || ((!engine || engine === "auto") && await isCfEligible(targetUrl, env))) {
     const cfResult = await tryCfRestApi(
-      targetUrl, env, format, selector, effectiveForceBrowser, noCache, engine, fallbacks, progress, abortSignal,
+      targetUrl, env, format, selector, effectiveForceBrowser, !cacheAllowed, engine, fallbacks, progress, abortSignal,
     );
     if (cfResult) return cfResult;
   }
 
   // 3. Fetch & parse
   return tryFetchAndParse(
-    targetUrl, env, host, format, selector, effectiveForceBrowser, noCache, engine,
+    targetUrl, env, host, format, selector, effectiveForceBrowser, !cacheAllowed, engine,
     fallbacks, browserRendered, paywallDetected, sourceContentType,
-    progress, abortSignal, browserAllowed,
+    progress, abortSignal, browserAllowed, providerApiKeysAllowed, sessionProfileScope,
   );
 }
 
@@ -371,11 +384,12 @@ async function tryFirecrawlFastPath(
   engine: string | undefined,
   progress: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
+  providerApiKeysAllowed: boolean = true,
 ): Promise<ConvertResult> {
   await progress("fetch", "Fetching via Firecrawl");
   const firecrawlResult = await fetchViaFirecrawl(
     targetUrl,
-    getFirecrawlConfig(env),
+    getFirecrawlConfig(env, providerApiKeysAllowed),
     abortSignal,
   );
   const sourceContentType = "text/markdown";
@@ -464,13 +478,14 @@ async function tryExternalMarkdownEarlyReturn(
   engine: string | undefined,
   fallbacks: Set<string>,
   abortSignal?: AbortSignal,
+  providerApiKeysAllowed: boolean = true,
 ): Promise<ConvertResult | null> {
   let firecrawlFailed = false;
 
   try {
     const firecrawlResult = await fetchViaFirecrawl(
       targetUrl,
-      getFirecrawlConfig(env),
+      getFirecrawlConfig(env, providerApiKeysAllowed),
       abortSignal,
     );
     fallbacks.add("firecrawl_fallback");
@@ -653,6 +668,8 @@ async function tryFetchAndParse(
   progress: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
   browserAllowed: boolean = true,
+  providerApiKeysAllowed: boolean = true,
+  sessionProfileScope?: string,
 ): Promise<ConvertResult> {
   let finalHtml = "";
   let method: ConvertMethod = "readability+turndown";
@@ -686,7 +703,13 @@ async function tryFetchAndParse(
 
   if (!finalHtml && requiresBrowser && browserAllowed) {
     const result = await tryBrowserRendering(
-      targetUrl, env, host, fallbacks, abortSignal, progress,
+      targetUrl,
+      env,
+      host,
+      fallbacks,
+      abortSignal,
+      progress,
+      sessionProfileScope,
     );
     finalHtml = result.html;
     if (result.rendered) {
@@ -702,6 +725,7 @@ async function tryFetchAndParse(
         targetUrl, env, host, format, selector, forceBrowser, noCache, engine,
         fallbacks, browserRendered, paywallDetected, sourceContentType,
         resolvedUrl, method, progress, abortSignal, browserAllowed,
+        providerApiKeysAllowed, sessionProfileScope,
       );
       if (staticResult.earlyReturn) {
         return staticResult.earlyReturn;
@@ -751,6 +775,7 @@ async function tryFetchAndParse(
       targetUrl, env, host, format, selector, forceBrowser, noCache, engine,
       fallbacks, browserRendered, paywallDetected, sourceContentType,
       resolvedUrl, method, progress, abortSignal, browserAllowed,
+      providerApiKeysAllowed, sessionProfileScope,
     );
     if (staticResult.earlyReturn) {
       return staticResult.earlyReturn;
@@ -901,7 +926,7 @@ async function tryFetchAndParse(
     try {
       const firecrawlResult = await fetchViaFirecrawl(
         conversionUrl,
-        getFirecrawlConfig(env),
+        getFirecrawlConfig(env, providerApiKeysAllowed),
         abortSignal,
       );
       if (firecrawlResult.markdown.length > markdown.length) {
@@ -1002,12 +1027,19 @@ async function tryBrowserRendering(
   fallbacks: Set<string>,
   abortSignal?: AbortSignal,
   progress?: (step: string, label: string) => void | Promise<void>,
+  sessionProfileScope?: string,
 ): Promise<{ html: string; rendered: boolean }> {
   const _progress = progress || (() => {});
   throwIfAborted(abortSignal);
   await _progress("browser", "Rendering with browser");
   try {
-    const html = await fetchWithBrowser(targetUrl, env, host, abortSignal);
+    const html = await fetchWithBrowser(
+      targetUrl,
+      env,
+      host,
+      abortSignal,
+      { sessionProfileScope },
+    );
     fallbacks.add("always_browser");
     return { html, rendered: true };
   } catch (error) {
@@ -1245,6 +1277,8 @@ async function tryStaticFetch(
   progress: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
   browserAllowed: boolean = true,
+  providerApiKeysAllowed: boolean = true,
+  sessionProfileScope?: string,
 ): Promise<StaticFetchResult> {
   let finalHtml = "";
 
@@ -1325,7 +1359,13 @@ async function tryStaticFetch(
     throwIfAborted(abortSignal);
     await progress("browser", "Rendering with browser");
     try {
-      finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
+      finalHtml = await fetchWithBrowser(
+        targetUrl,
+        env,
+        host,
+        abortSignal,
+        { sessionProfileScope },
+      );
       method = "browser+readability+turndown";
       browserRendered = true;
       fallbacks.add("browser_after_static_failure");
@@ -1358,6 +1398,7 @@ async function tryStaticFetch(
         engine,
         fallbacks,
         abortSignal,
+        providerApiKeysAllowed,
       );
       if (externalResult) {
         return {
@@ -1463,7 +1504,13 @@ async function tryStaticFetch(
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {
-        finalHtml = await fetchWithBrowser(targetUrl, env, host, abortSignal);
+        finalHtml = await fetchWithBrowser(
+          targetUrl,
+          env,
+          host,
+          abortSignal,
+          { sessionProfileScope },
+        );
         method = "browser+readability+turndown";
         browserRendered = true;
         fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");

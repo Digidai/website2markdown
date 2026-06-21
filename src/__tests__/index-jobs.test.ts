@@ -6,7 +6,7 @@ vi.mock("cloudflare:sockets", () => ({
 
 import worker from "../index";
 import { jobStorageKey } from "../dispatcher/model";
-import { createMockEnv, mockCtx } from "./test-helpers";
+import { createApiKeyAuthD1, createMockEnv, mockCtx } from "./test-helpers";
 import { createMockJobCoordinatorNamespace } from "./job-coordinator-test-helpers";
 
 afterEach(() => {
@@ -62,6 +62,21 @@ describe("POST /api/jobs", () => {
 
     expect(res.status).toBe(401);
     expect(payload.error).toBe("Unauthorized");
+  });
+
+  it("accepts D1 mk API keys for job creation without legacy API_TOKEN", async () => {
+    const { env } = createJobEnv({ AUTH_DB: createApiKeyAuthD1() });
+    const req = jobsRequest({
+      type: "crawl",
+      tasks: ["https://example.com/a"],
+    }, "mk_valid_jobs_key");
+
+    const res = await worker.fetch(req, env, mockCtx());
+    const payload = await res.json() as { jobId?: string; status?: string };
+
+    expect(res.status).toBe(202);
+    expect(payload.jobId).toBeTruthy();
+    expect(payload.status).toBe("queued");
   });
 
   it("returns 400 for invalid payload", async () => {

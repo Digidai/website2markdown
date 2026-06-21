@@ -312,6 +312,27 @@ export async function cleanupExpiredDebugTraces(env: Env): Promise<number> {
   }
 }
 
+export async function cleanupExpiredOperationalRows(env: Env): Promise<number> {
+  if (!env.AUTH_DB) return 0;
+  const now = new Date().toISOString();
+  let total = await cleanupExpiredDebugTraces(env);
+  for (const table of ["sessions", "magic_link_tokens", "rate_limits"]) {
+    try {
+      const result = await env.AUTH_DB.prepare(`
+        DELETE FROM ${table}
+        WHERE expires_at <= ?
+      `).bind(now).run();
+      const meta = result.meta as { changes?: number } | undefined;
+      if (typeof meta?.changes === "number") {
+        total += meta.changes;
+      }
+    } catch (error) {
+      console.error("Operational cleanup failed:", sanitizeErrorMessage(`${table}: ${errorMessage(error)}`));
+    }
+  }
+  return total;
+}
+
 async function upsertConversionAggregate(
   env: Env,
   event: SanitizedConversionEvent,
@@ -689,14 +710,15 @@ function clampString(value: string, maxLength: number): string {
 function containsSensitiveIdentifier(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
-  return (
-    /https?:\/\//i.test(trimmed) ||
-    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(trimmed) ||
-    /\bBearer\s+[A-Za-z0-9._~+/-]+=*/i.test(trimmed) ||
-    /\b(?:sk|pk|mk|fc|ghp|gho|ghu|ghs|xoxb|xoxp)[_-][A-Za-z0-9_-]{8,}\b/i.test(trimmed) ||
-    /\b(?:access_token|refresh_token|api_key|apikey|authorization|bearer|token|secret|password|passwd|session|cookie|csrf|xsrf|jwt|signature)\b/i.test(trimmed) ||
-    /[A-Za-z0-9_-]{40,}/.test(trimmed)
-  );
+	return (
+	  /https?:\/\//i.test(trimmed) ||
+	  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(trimmed) ||
+	  /\bBearer\s+[A-Za-z0-9._~+/-]+=*/i.test(trimmed) ||
+	  /\b(?:sk|pk|mk|fc|ghp|gho|ghu|ghs|xoxb|xoxp)[_-][A-Za-z0-9_-]{8,}\b/i.test(trimmed) ||
+	  /\b(?:access_token|refresh_token|api_key|apikey|authorization|bearer|token|secret|password|passwd|session|cookie|csrf|xsrf|jwt|signature)\b/i.test(trimmed) ||
+	  /(?:^|[^A-Za-z0-9])(?:access_token|refresh_token|api_key|apikey|auth|authorization|bearer|token|secret|password|passwd|session|cookie|csrf|xsrf|jwt|sid|signature|sig)[_-][A-Za-z0-9_-]{8,}/i.test(trimmed) ||
+	  /[A-Za-z0-9_-]{40,}/.test(trimmed)
+	);
 }
 
 function redactSensitiveText(value: string): string {

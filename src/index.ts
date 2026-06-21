@@ -34,7 +34,8 @@ import {
 } from "./runtime-state";
 import { isAuthorizedByToken } from "./middleware/auth";
 import { resolveAuth } from "./middleware/auth-d1";
-import { buildPolicy, checkPolicy, policyHeaders } from "./middleware/tier-gate";
+import { buildPolicy, checkPolicy, isPublicKeylessEngine, policyHeaders } from "./middleware/tier-gate";
+import { sessionProfileScopeForAuth } from "./middleware/api-access";
 import { consumeRateLimit, rateLimitedResponse } from "./middleware/rate-limit";
 import { recordUsage, flushUsage, shouldFlush, handleUsage, handleUsageForAccount } from "./handlers/usage";
 import { resolveSession } from "./middleware/session";
@@ -83,7 +84,7 @@ import { handleLlmsTxt } from "./handlers/llms-txt";
 import { handleRobotsTxt, handleSitemap } from "./handlers/seo";
 import {
   buildDebugTraceDecision,
-  cleanupExpiredDebugTraces,
+  cleanupExpiredOperationalRows,
   debugTraceHeaders,
   recordConversionEvent,
   resolveRequestId,
@@ -168,7 +169,7 @@ export default {
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
-    ctx.waitUntil(cleanupExpiredDebugTraces(env));
+    ctx.waitUntil(cleanupExpiredOperationalRows(env));
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -443,6 +444,7 @@ export default {
         );
       }
 
+      let legacyStreamAuthorized = false;
       // Legacy auth fallback (when no D1)
       if (!streamAuth) {
         if (env.PUBLIC_API_TOKEN) {
@@ -453,7 +455,12 @@ export default {
               { status: 401, headers: CORS_HEADERS },
             );
           }
-        } else if (streamNoCache || streamEngine || streamForceBrowser) {
+          legacyStreamAuthorized = true;
+        } else if (
+          streamNoCache ||
+          streamForceBrowser ||
+          (streamEngine && !isPublicKeylessEngine(streamEngine))
+        ) {
           return Response.json(
             { error: "Unauthorized", message: "Parameters no_cache, engine, and force_browser require a valid token." },
             { status: 401, headers: CORS_HEADERS },
@@ -474,6 +481,7 @@ export default {
         : {};
       const streamRequestId = resolveRequestId(request);
       const streamDebugTrace = buildDebugTraceDecision(request, streamAuth, env);
+      const streamSessionProfileScope = sessionProfileScopeForAuth(streamAuth);
       return handleStream(
         request,
         env,
@@ -486,6 +494,10 @@ export default {
           ctx,
           requestId: streamRequestId,
           debugTrace: streamDebugTrace,
+          creditCost: streamPolicy?.creditCost,
+          quotaRemaining: streamPolicy?.quotaRemaining,
+          providerApiKeysAllowed: streamAuth ? streamAuth.tier !== "anonymous" : legacyStreamAuthorized,
+          sessionProfileScope: streamSessionProfileScope,
         },
       );
     }
@@ -722,6 +734,7 @@ export default {
       eventAuth = auth;
       eventPolicy = policy;
       eventDebugTrace = buildDebugTraceDecision(request, auth, env);
+      const sessionProfileScope = sessionProfileScopeForAuth(auth);
 
       // Check policy for restricted parameters
       const policyError = checkPolicy(policy, { forceBrowser, noCache, engine });
@@ -733,6 +746,18 @@ export default {
       }
 
       const browserAllowed = policy.browserAllowed;
+
+      if (isDocumentNav && queryToken && !env.AUTH_DB && env.PUBLIC_API_TOKEN) {
+        return withExtraHeaders(
+          errorResponse(
+            "Unauthorized",
+            "Document navigation with token= is not supported. Use an Authorization header for API requests.",
+            401,
+            jsonErrors,
+          ),
+          { "X-Request-ID": requestId },
+        );
+      }
 
       const rawRequestPath = buildRawRequestPath(targetUrl, {
         selector,
@@ -773,7 +798,7 @@ export default {
       // ── Browser document navigation → loading experience with SSE ──
       if (!wantsRaw && format === "markdown" && isDocumentNav) {
         // Check cache for instant display
-        if (!noCache) {
+        if (!noCache && !forceBrowser) {
           const cached = await getCached(env, targetUrl, "markdown", selector, engine);
           if (cached) {
             incrementCounter("conversionsTotal");
@@ -806,6 +831,15 @@ export default {
               quotaRemaining: policy.quotaRemaining,
               debugTrace: eventDebugTrace,
             }));
+            recordUsage(
+              auth,
+              policy.creditCost,
+              cached.method === "browser+readability+turndown",
+              true,
+            );
+            if (shouldFlush()) {
+              ctx.waitUntil(flushUsage(env));
+            }
             const resp = buildResponse(
               cached.content, targetUrl, host,
               cached.method as ConvertMethod, "markdown",
@@ -821,6 +855,9 @@ export default {
             for (const [k, v] of Object.entries(debugTraceHeaders(eventDebugTrace))) {
               resp.headers.set(k, v);
             }
+            for (const [k, v] of Object.entries(policyHeaders(policy, auth))) {
+              resp.headers.set(k, v);
+            }
             resp.headers.set("X-Request-ID", requestId);
             return resp;
           }
@@ -831,7 +868,6 @@ export default {
         if (selector) streamParams.set("selector", selector);
         if (forceBrowser) streamParams.set("force_browser", "true");
         if (noCache) streamParams.set("no_cache", "true");
-        if (queryToken) streamParams.set("token", queryToken);
         if (engine) streamParams.set("engine", engine);
         if (eventDebugTrace.requested) streamParams.set("debug_trace", "true");
         const sp = streamParams.toString();
@@ -856,7 +892,9 @@ export default {
       // ── Quota check with graceful degradation ──
       if (policy.tier !== "anonymous" && policy.quotaRemaining <= 0) {
         // Quota exceeded: try to serve cached content
-        const cachedFallback = await getCached(env, targetUrl, format, selector, engine);
+        const cachedFallback = (!noCache && !forceBrowser)
+          ? await getCached(env, targetUrl, format, selector, engine)
+          : null;
         if (cachedFallback) {
           incrementCounter("conversionsTotal");
           incrementCounter("cacheHits");
@@ -913,6 +951,8 @@ export default {
       const result = await convertUrlWithMetrics(
         targetUrl, env, host, format, selector, forceBrowser, noCache,
         undefined, undefined, engine, browserAllowed,
+        auth.tier !== "anonymous",
+        sessionProfileScope,
       );
 
       incrementCounter("conversionsTotal");

@@ -30,7 +30,8 @@ import { incrementCounter, logMetric } from "../runtime-state";
 import { recordJobCreated, recordJobRun } from "../observability/metrics";
 import { ConvertError } from "../helpers/response";
 import { sha256Hex, stableStringify } from "../helpers/crypto";
-import { timingSafeEqual } from "../middleware/auth";
+import { authorizeApiAccess, type ApiAccessContext, sessionProfileScopeForAuth } from "../middleware/api-access";
+import { checkPolicy } from "../middleware/tier-gate";
 import { errorMessage } from "../utils";
 import {
   convertUrlWithMetrics,
@@ -68,6 +69,7 @@ interface JobCreateCoordinatorInput {
 interface JobRunCoordinatorInput {
   jobId: string;
   host: string;
+  access?: ApiAccessContext;
 }
 
 interface JobIdempotencyCoordinatorRecord {
@@ -88,20 +90,8 @@ export async function authorizeApiTokenRequest(
   request: Request,
   env: Env,
 ): Promise<Response | null> {
-  if (!env.API_TOKEN) {
-    return Response.json(
-      { error: "Service misconfigured", message: "API_TOKEN not set" },
-      { status: 503, headers: CORS_HEADERS },
-    );
-  }
-
-  const auth = request.headers.get("Authorization") || "";
-  if (!auth.startsWith("Bearer ") || !(await timingSafeEqual(auth.slice(7), env.API_TOKEN))) {
-    return Response.json(
-      { error: "Unauthorized", message: "Valid Bearer token required" },
-      { status: 401, headers: CORS_HEADERS },
-    );
-  }
+  const access = await authorizeApiAccess(request, env, "jobs");
+  if (access instanceof Response) return access;
   return null;
 }
 
@@ -380,6 +370,7 @@ export async function executeJobRun(
   host: string,
   jobId: string,
   signal?: AbortSignal,
+  access?: ApiAccessContext,
 ): Promise<Response> {
   const job = await loadStoredJobRecord(env, jobId);
   if (!job) {
@@ -445,13 +436,26 @@ export async function executeJobRun(
         const selector = typeof crawlInput === "object" ? crawlInput?.selector : undefined;
         const forceBrowser = !!(typeof crawlInput === "object" && crawlInput?.force_browser);
         const noCache = !!(typeof crawlInput === "object" && crawlInput?.no_cache);
+        const policyError = access
+          ? checkPolicy(access.policy, { forceBrowser, noCache })
+          : null;
+        if (policyError) {
+          return { success: false, statusCode: 401, error: policyError };
+        }
 
         try {
           const converted = await convertUrlWithMetrics(
             targetUrl, env, host,
             VALID_FORMATS.has(format) ? format : "markdown",
             typeof selector === "string" ? selector : undefined,
-            forceBrowser, noCache, undefined, signal,
+            forceBrowser,
+            noCache,
+            undefined,
+            signal,
+            undefined,
+            access?.policy.browserAllowed ?? true,
+            access ? access.auth.tier !== "anonymous" : true,
+            sessionProfileScopeForAuth(access?.auth),
           );
           return {
             success: true,
@@ -475,6 +479,15 @@ export async function executeJobRun(
         return { success: false, statusCode: 400, error: normalized.error.message };
       }
       const item = normalized.item!;
+      const policyError = access
+        ? checkPolicy(access.policy, {
+          forceBrowser: item.forceBrowser,
+          noCache: item.noCache,
+        })
+        : null;
+      if (policyError) {
+        return { success: false, statusCode: 401, error: policyError };
+      }
       let html = item.html || "";
 
       try {
@@ -482,7 +495,12 @@ export async function executeJobRun(
           const converted = await convertUrlWithMetrics(
             item.url || "", env, host, "html",
             item.selector, item.forceBrowser, item.noCache,
-            undefined, signal,
+            undefined,
+            signal,
+            undefined,
+            access?.policy.browserAllowed ?? true,
+            access ? access.auth.tier !== "anonymous" : true,
+            sessionProfileScopeForAuth(access?.auth),
           );
           html = converted.content;
         }
@@ -565,15 +583,15 @@ export async function handleRunJob(
   host: string,
   jobId: string,
 ): Promise<Response> {
-  const authError = await authorizeApiTokenRequest(request, env);
-  if (authError) return authError;
+  const access = await authorizeApiAccess(request, env, "jobs");
+  if (access instanceof Response) return access;
 
   const stub = getJobCoordinatorStub(env, buildRunCoordinatorName(jobId));
   if (!stub) return missingJobCoordinatorResponse();
 
   return proxyCoordinatorRequest(
     stub, "/run",
-    { jobId, host } satisfies JobRunCoordinatorInput,
+    { jobId, host, access } satisfies JobRunCoordinatorInput,
     request.signal,
   );
 }
@@ -582,8 +600,8 @@ export async function handleJobs(
   request: Request,
   env: Env,
 ): Promise<Response> {
-  const authError = await authorizeApiTokenRequest(request, env);
-  if (authError) return authError;
+  const access = await authorizeApiAccess(request, env, "jobs");
+  if (access instanceof Response) return access;
 
   const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
   if (contentLength > JOBS_BODY_MAX_BYTES) {
@@ -833,7 +851,7 @@ export class JobCoordinator {
     }, JOB_RUN_LOCK_RENEW_MS);
 
     try {
-      return await executeJobRun(this.env, body.host, body.jobId, request.signal);
+      return await executeJobRun(this.env, body.host, body.jobId, request.signal, body.access);
     } finally {
       clearInterval(renewTimer);
       await this.releaseRunLock(token);

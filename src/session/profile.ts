@@ -61,6 +61,14 @@ function profileOriginFromUrl(url: string): string | null {
   }
 }
 
+function normalizeProfileScope(scope?: string | null): string | null {
+  const normalized = String(scope || "")
+    .trim()
+    .replace(/[^A-Za-z0-9._:-]/g, "_")
+    .slice(0, 128);
+  return normalized.length > 0 ? normalized : null;
+}
+
 function normalizeSameSite(value: unknown): SessionCookieSameSite | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.toLowerCase();
@@ -131,10 +139,12 @@ function normalizeSnapshot(snapshot: SessionProfileSnapshot): SessionProfileSnap
   };
 }
 
-export function sessionProfileKey(url: string): string | null {
+export function sessionProfileKey(url: string, scope?: string | null): string | null {
   const host = profileHostFromUrl(url);
   if (!host) return null;
-  return `${SESSION_PROFILE_KEY_PREFIX}${host}`;
+  const normalizedScope = normalizeProfileScope(scope);
+  if (!normalizedScope) return null;
+  return `${SESSION_PROFILE_KEY_PREFIX}${normalizedScope}:${host}`;
 }
 
 function isSessionProfileDisabled(profile: SessionProfile, nowMs: number = Date.now()): boolean {
@@ -187,8 +197,12 @@ function parseProfile(raw: string): SessionProfile | null {
   }
 }
 
-async function loadRawSessionProfile(env: Env, url: string): Promise<SessionProfile | null> {
-  const key = sessionProfileKey(url);
+async function loadRawSessionProfile(
+  env: Env,
+  url: string,
+  scope?: string | null,
+): Promise<SessionProfile | null> {
+  const key = sessionProfileKey(url, scope);
   if (!key) return null;
   const raw = await env.CACHE_KV.get(key, "text");
   if (!raw) return null;
@@ -200,8 +214,9 @@ async function putSessionProfile(
   url: string,
   profile: SessionProfile,
   ttlSeconds: number,
+  scope?: string | null,
 ): Promise<void> {
-  const key = sessionProfileKey(url);
+  const key = sessionProfileKey(url, scope);
   if (!key) return;
   await env.CACHE_KV.put(
     key,
@@ -215,8 +230,9 @@ async function putSessionProfile(
 export async function loadSessionProfile(
   env: Env,
   url: string,
+  scope?: string | null,
 ): Promise<SessionProfile | null> {
-  const profile = await loadRawSessionProfile(env, url);
+  const profile = await loadRawSessionProfile(env, url, scope);
   if (!profile) return null;
   if (isSessionProfileDisabled(profile)) {
     return null;
@@ -341,12 +357,13 @@ export async function saveSessionProfileSnapshot(
   url: string,
   snapshot: SessionProfileSnapshot,
   ttlSeconds: number = SESSION_PROFILE_DEFAULT_TTL_SECONDS,
+  scope?: string | null,
 ): Promise<SessionProfile | null> {
   const host = profileHostFromUrl(url);
-  if (!host) return null;
+  if (!host || !normalizeProfileScope(scope)) return null;
 
   const normalizedSnapshot = normalizeSnapshot(snapshot);
-  const existing = await loadRawSessionProfile(env, url);
+  const existing = await loadRawSessionProfile(env, url, scope);
   const now = new Date().toISOString();
 
   const profile: SessionProfile = {
@@ -359,15 +376,19 @@ export async function saveSessionProfileSnapshot(
     updatedAt: now,
   };
 
-  await putSessionProfile(env, url, profile, ttlSeconds);
+  await putSessionProfile(env, url, profile, ttlSeconds, scope);
   return profile;
 }
 
-export async function markSessionProfileFailure(env: Env, url: string): Promise<void> {
+export async function markSessionProfileFailure(
+  env: Env,
+  url: string,
+  scope?: string | null,
+): Promise<void> {
   const host = profileHostFromUrl(url);
-  if (!host) return;
+  if (!host || !normalizeProfileScope(scope)) return;
 
-  const existing = await loadRawSessionProfile(env, url);
+  const existing = await loadRawSessionProfile(env, url, scope);
   if (!existing) return;
 
   const nowMs = Date.now();
@@ -385,11 +406,15 @@ export async function markSessionProfileFailure(env: Env, url: string): Promise<
     updated.disabledUntil = new Date(nowMs + SESSION_DISABLE_SECONDS * 1000).toISOString();
   }
 
-  await putSessionProfile(env, url, updated, SESSION_PROFILE_DEFAULT_TTL_SECONDS);
+  await putSessionProfile(env, url, updated, SESSION_PROFILE_DEFAULT_TTL_SECONDS, scope);
 }
 
-export async function clearSessionProfileFailure(env: Env, url: string): Promise<void> {
-  const existing = await loadRawSessionProfile(env, url);
+export async function clearSessionProfileFailure(
+  env: Env,
+  url: string,
+  scope?: string | null,
+): Promise<void> {
+  const existing = await loadRawSessionProfile(env, url, scope);
   if (!existing) return;
 
   const updated: SessionProfile = {
@@ -398,7 +423,7 @@ export async function clearSessionProfileFailure(env: Env, url: string): Promise
     updatedAt: new Date().toISOString(),
   };
   delete updated.disabledUntil;
-  await putSessionProfile(env, url, updated, SESSION_PROFILE_DEFAULT_TTL_SECONDS);
+  await putSessionProfile(env, url, updated, SESSION_PROFILE_DEFAULT_TTL_SECONDS, scope);
 }
 
 const SESSION_EXPIRED_HTML_HINTS = [

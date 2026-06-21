@@ -6,7 +6,7 @@ vi.mock("cloudflare:sockets", () => ({
 
 import worker from "../index";
 import { setCache } from "../cache";
-import { createMockEnv, mockCtx } from "./test-helpers";
+import { createApiKeyAuthD1, createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -24,9 +24,9 @@ function deepcrawlRequest(body: unknown, token?: string): Request {
   });
 }
 
-function setupInMemoryKv() {
+function setupInMemoryKv(overrides: Parameters<typeof createMockEnv>[0] = { API_TOKEN: "token" }) {
   const store = new Map<string, string>();
-  const { env, mocks } = createMockEnv({ API_TOKEN: "token" });
+  const { env, mocks } = createMockEnv(overrides);
   mocks.kvGet.mockImplementation(async (key: string) => store.get(key) ?? null);
   mocks.kvPut.mockImplementation(async (key: string, value: string) => {
     store.set(key, value);
@@ -142,6 +142,27 @@ describe("POST /api/deepcrawl", () => {
     expect(payload.stats?.crawledPages).toBeGreaterThan(0);
     expect(payload.stats?.succeededPages).toBeGreaterThan(0);
     expect(store.has("deepcrawl:v1:crawl-1")).toBe(true);
+  });
+
+  it("accepts D1 mk API keys without requiring legacy API_TOKEN", async () => {
+    stubGraphFetch(graph);
+    const { env } = setupInMemoryKv({ AUTH_DB: createApiKeyAuthD1() });
+
+    const req = deepcrawlRequest({
+      seed,
+      max_depth: 0,
+      max_pages: 1,
+    }, "mk_valid_deepcrawl_key");
+
+    const res = await worker.fetch(req, env, mockCtx());
+    const payload = await res.json() as {
+      results?: Array<{ url?: string }>;
+      stats?: { succeededPages?: number };
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.results?.[0]?.url).toBe(seed);
+    expect(payload.stats?.succeededPages).toBeGreaterThanOrEqual(1);
   });
 
   it("does not persist checkpoint state unless checkpoint options are provided", async () => {

@@ -32,6 +32,7 @@ import {
   SESSION_COOKIE_NAME,
 } from "../middleware/session";
 import { bumpLimit } from "../middleware/rate-limit-d1";
+import { sanitizeErrorMessage } from "../observability/conversion-events";
 
 const TOKEN_TTL_MINUTES = 15;
 const EMAIL_RATE_LIMIT_PER_HOUR = 3;
@@ -124,7 +125,7 @@ export async function handleSendMagicLink(
       now.toISOString(),
     ).run();
   } catch (err) {
-    console.error("Magic link insert failed:", err);
+    console.error("Magic link insert failed:", sanitizeErrorMessage(err));
     return Response.json({ error: "Internal Error" }, { status: 500, headers: CORS_HEADERS });
   }
 
@@ -137,7 +138,7 @@ export async function handleSendMagicLink(
     try {
       await sendMagicLinkEmail(env, email, verifyUrl);
     } catch (err) {
-      console.error("Resend send failed:", err);
+      console.error("Resend send failed:", sanitizeErrorMessage(err));
       // Don't leak the error to the client, but log it
     }
   } else {
@@ -238,10 +239,14 @@ export async function handleVerifyMagicLink(
       return Response.redirect(`https://${host}/portal/?error=link_expired`, 302);
     }
 
-    // Mark token as used (single-use)
-    await env.AUTH_DB.prepare(
-      `UPDATE magic_link_tokens SET used_at = ? WHERE id = ?`
+    // Mark token as used atomically (single-use), closing the concurrent replay window.
+    const markUsed = await env.AUTH_DB.prepare(
+      `UPDATE magic_link_tokens SET used_at = ? WHERE id = ? AND used_at IS NULL`
     ).bind(now.toISOString(), row.id).run();
+    const markUsedChanges = (markUsed.meta as { changes?: number } | undefined)?.changes;
+    if (typeof markUsedChanges === "number" && markUsedChanges < 1) {
+      return Response.redirect(`https://${host}/portal/?error=link_already_used`, 302);
+    }
 
     // Find or create account
     const email = row.email;
@@ -275,7 +280,7 @@ export async function handleVerifyMagicLink(
       },
     });
   } catch (err) {
-    console.error("Magic link verify failed:", err);
+    console.error("Magic link verify failed:", sanitizeErrorMessage(err));
     return Response.redirect(`https://${host}/portal/?error=internal_error`, 302);
   }
 }

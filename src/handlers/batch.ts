@@ -10,7 +10,8 @@ import {
 import { isSafeUrl, isValidUrl } from "../security";
 import { incrementCounter, logMetric } from "../runtime-state";
 import { ConvertError } from "../helpers/response";
-import { timingSafeEqual } from "../middleware/auth";
+import { authorizeApiAccess, sessionProfileScopeForAuth } from "../middleware/api-access";
+import { checkPolicy } from "../middleware/tier-gate";
 import {
   convertUrlWithMetrics,
   readBodyWithLimit,
@@ -126,22 +127,8 @@ export async function handleBatch(
   host: string,
 ): Promise<Response> {
   incrementCounter("batchRequests");
-  // Require API_TOKEN
-  if (!env.API_TOKEN) {
-    return Response.json(
-      { error: "Service misconfigured", message: "API_TOKEN not set" },
-      { status: 503, headers: CORS_HEADERS },
-    );
-  }
-
-  // Timing-safe authentication
-  const auth = request.headers.get("Authorization") || "";
-  if (!auth.startsWith("Bearer ") || !(await timingSafeEqual(auth.slice(7), env.API_TOKEN))) {
-    return Response.json(
-      { error: "Unauthorized", message: "Valid Bearer token required" },
-      { status: 401, headers: CORS_HEADERS },
-    );
-  }
+  const access = await authorizeApiAccess(request, env, "batch");
+  if (access instanceof Response) return access;
 
   // Body size limit
   const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
@@ -205,6 +192,20 @@ export async function handleBatch(
         { status: 400, headers: CORS_HEADERS },
       );
     }
+    for (const item of items) {
+      const policyError = checkPolicy(access.policy, {
+        forceBrowser: item.forceBrowser,
+        noCache: item.noCache,
+        engine: item.engine,
+      });
+      if (policyError) {
+        return Response.json(
+          { error: "Unauthorized", message: policyError },
+          { status: 401, headers: CORS_HEADERS },
+        );
+      }
+    }
+    const sessionProfileScope = sessionProfileScopeForAuth(access.auth);
 
     const tasks = items.map((item, index) => async () => {
       if (!isValidUrl(item.url) || !isSafeUrl(item.url)) {
@@ -222,6 +223,9 @@ export async function handleBatch(
           undefined,
           request.signal,
           item.engine,
+          access.policy.browserAllowed,
+          access.auth.tier !== "anonymous",
+          sessionProfileScope,
         );
         incrementCounter("conversionsTotal");
         if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");

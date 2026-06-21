@@ -4,6 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://localhost:8787}"
 API_TOKEN="${API_TOKEN:-}"
 TARGET_URL="${TARGET_URL:-https://example.com/}"
+EXPECT_AUTH_DB="${EXPECT_AUTH_DB:-true}"
 
 if [[ -z "$API_TOKEN" ]]; then
   echo "API_TOKEN is required. Example: BASE_URL=https://your-worker API_TOKEN=token npm run smoke:api"
@@ -45,7 +46,9 @@ encoded_target_url() {
 }
 
 echo "[1/7] /api/health"
-health_json="$(curl -fsS "${BASE_URL}/api/health")"
+health_json="$(curl -fsS \
+  -H "Authorization: Bearer ${API_TOKEN}" \
+  "${BASE_URL}/api/health?full=1")"
 printf '%s' "$health_json" | node -e '
 let data = "";
 process.stdin.on("data", (c) => data += c);
@@ -113,7 +116,9 @@ let data = "";
 process.stdin.on("data", (c) => data += c);
 process.stdin.on("end", () => {
   const payload = JSON.parse(data);
-  if (!payload.status) process.exit(1);
+  if (payload.status !== "succeeded") process.exit(1);
+  if (payload.executedTasks !== 1) process.exit(1);
+  if (payload.failedTasksInRun !== 0) process.exit(1);
 });
 '
 
@@ -130,6 +135,8 @@ process.stdin.on("data", (c) => data += c);
 process.stdin.on("end", () => {
   const payload = JSON.parse(data);
   if (!payload.crawlId || !payload.stats) process.exit(1);
+  if (!Array.isArray(payload.results) || payload.results.length < 1) process.exit(1);
+  if ((payload.stats.succeededPages || 0) < 1) process.exit(1);
 });
 '
 
@@ -147,8 +154,15 @@ if [[ "$debug_status" -lt 200 || "$debug_status" -ge 300 ]]; then
   rm -f "$debug_headers" "$debug_body"
   exit 1
 fi
-if ! grep -Eiq '^x-debug-trace: (not-authorized|not-available)' "$debug_headers"; then
-  echo "Expected X-Debug-Trace to be not-authorized or not-available"
+if [[ "$EXPECT_AUTH_DB" == "true" ]]; then
+  expected_debug_pattern='^x-debug-trace: not-authorized'
+  expected_debug_message="not-authorized"
+else
+  expected_debug_pattern='^x-debug-trace: (not-authorized|not-available)'
+  expected_debug_message="not-authorized or not-available"
+fi
+if ! grep -Eiq "$expected_debug_pattern" "$debug_headers"; then
+  echo "Expected X-Debug-Trace to be ${expected_debug_message}"
   cat "$debug_headers"
   rm -f "$debug_headers" "$debug_body"
   exit 1

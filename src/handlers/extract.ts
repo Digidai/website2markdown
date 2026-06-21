@@ -22,7 +22,8 @@ import {
 } from "../extraction/strategies";
 import { logMetric } from "../runtime-state";
 import { ConvertError } from "../helpers/response";
-import { timingSafeEqual } from "../middleware/auth";
+import { authorizeApiAccess, sessionProfileScopeForAuth } from "../middleware/api-access";
+import { checkPolicy } from "../middleware/tier-gate";
 import { errorMessage } from "../utils";
 import {
   convertUrlWithMetrics,
@@ -363,29 +364,8 @@ export async function handleExtract(
   env: Env,
   host: string,
 ): Promise<Response> {
-  // Require API_TOKEN for extraction API.
-  if (!env.API_TOKEN) {
-    return Response.json(
-      {
-        error: "Service misconfigured",
-        code: "INVALID_REQUEST",
-        message: "API_TOKEN not set",
-      },
-      { status: 503, headers: CORS_HEADERS },
-    );
-  }
-
-  const auth = request.headers.get("Authorization") || "";
-  if (!auth.startsWith("Bearer ") || !(await timingSafeEqual(auth.slice(7), env.API_TOKEN))) {
-    return Response.json(
-      {
-        error: "Unauthorized",
-        code: "INVALID_REQUEST",
-        message: "Valid Bearer token required",
-      },
-      { status: 401, headers: CORS_HEADERS },
-    );
-  }
+  const access = await authorizeApiAccess(request, env, "extract");
+  if (access instanceof Response) return access;
 
   const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
   if (contentLength > EXTRACT_BODY_MAX_BYTES) {
@@ -431,6 +411,19 @@ export async function handleExtract(
     return extractErrorResponse(normalized.error, 400);
   }
   const { payload } = normalized;
+  for (const item of payload!.items) {
+    const policyError = checkPolicy(access.policy, {
+      forceBrowser: item.forceBrowser,
+      noCache: item.noCache,
+    });
+    if (policyError) {
+      return Response.json(
+        { error: "Unauthorized", code: "INVALID_REQUEST", message: policyError },
+        { status: 401, headers: CORS_HEADERS },
+      );
+    }
+  }
+  const sessionProfileScope = sessionProfileScopeForAuth(access.auth);
 
   const tasks = payload!.items.map((item) => async () => {
     const sourceUrl = item.url || "";
@@ -450,6 +443,10 @@ export async function handleExtract(
           item.noCache,
           undefined,
           request.signal,
+          undefined,
+          access.policy.browserAllowed,
+          access.auth.tier !== "anonymous",
+          sessionProfileScope,
         );
         html = converted.content;
         title = converted.title;

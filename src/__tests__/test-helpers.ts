@@ -67,3 +67,34 @@ export function createByteStream(
     },
   });
 }
+
+export function createApiKeyAuthD1(
+  overrides: Record<string, unknown> = {},
+): D1Database {
+  const prepare = vi.fn((sql: string) => {
+    const stmt = {
+      bind: vi.fn(() => stmt),
+      first: vi.fn(async () => {
+        if (sql.includes("FROM api_keys")) {
+          return {
+            key_id: "key_test_123",
+            account_id: "acct_test_123",
+            revoked_at: null,
+            tier: "pro",
+            monthly_credits_used: 0,
+            monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+            ...overrides,
+          };
+        }
+        return null;
+      }),
+      all: vi.fn(async () => ({ results: [] })),
+      run: vi.fn(async () => ({ success: true, meta: { changes: 1 } })),
+    };
+    return stmt;
+  });
+  const batch = vi.fn(async (items: Array<{ run: () => Promise<unknown> }>) =>
+    Promise.all(items.map((item) => item.run()))
+  );
+  return { prepare, batch } as unknown as D1Database;
+}

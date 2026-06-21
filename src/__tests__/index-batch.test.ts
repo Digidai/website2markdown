@@ -5,7 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
-import { createMockEnv, mockCtx } from "./test-helpers";
+import { createApiKeyAuthD1, createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -46,6 +46,26 @@ describe("POST /api/batch", () => {
 
     expect(res.status).toBe(401);
     expect(payload.error).toBe("Unauthorized");
+  });
+
+  it("accepts D1 mk API keys without requiring legacy API_TOKEN", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("# hello from source", {
+        status: 200,
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+      }),
+    ));
+
+    const { env } = createMockEnv({ AUTH_DB: createApiKeyAuthD1() });
+    const req = batchRequest({ urls: ["https://example.com/a"] }, "mk_valid_test_key");
+    const res = await worker.fetch(req, env, mockCtx());
+    const payload = await res.json() as {
+      results?: Array<{ markdown?: string; error?: string }>;
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.results?.[0].markdown).toContain("hello from source");
+    expect(payload.results?.[0].error).toBeUndefined();
   });
 
   it("returns 413 for oversized request body via Content-Length", async () => {
@@ -253,7 +273,7 @@ describe("POST /api/batch", () => {
     ));
 
     const { env } = createMockEnv({ API_TOKEN: "token" });
-    const req = batchRequest({ urls: ["https://example.com/a"] }, "token");
+    const req = batchRequest({ urls: ["https://example.com/batch-valid-source"] }, "token");
     const res = await worker.fetch(req, env, mockCtx());
     const payload = await res.json() as {
       results?: Array<{
@@ -267,7 +287,7 @@ describe("POST /api/batch", () => {
 
     expect(res.status).toBe(200);
     expect(payload.results?.length).toBe(1);
-    expect(payload.results?.[0].url).toBe("https://example.com/a");
+    expect(payload.results?.[0].url).toBe("https://example.com/batch-valid-source");
     expect(payload.results?.[0].markdown).toContain("hello from source");
     expect(payload.results?.[0].method).toBe("native");
     expect(payload.results?.[0].cached).toBe(false);

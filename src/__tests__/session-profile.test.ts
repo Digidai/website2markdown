@@ -23,6 +23,8 @@ function createKvBackedEnv() {
 }
 
 describe("session profile", () => {
+  const scope = "account:acct_test";
+
   it("saves/loads profile and applies cookies + localStorage to page", async () => {
     const { env } = createKvBackedEnv();
     const url = "https://crawl.example.com/article";
@@ -41,9 +43,9 @@ describe("session profile", () => {
       localStorage: {
         token: "ls-token",
       },
-    });
+    }, undefined, scope);
 
-    const profile = await loadSessionProfile(env, url);
+    const profile = await loadSessionProfile(env, url, scope);
     expect(profile).toBeTruthy();
     expect(profile?.cookies).toHaveLength(1);
 
@@ -99,17 +101,17 @@ describe("session profile", () => {
     await saveSessionProfileSnapshot(env, url, {
       cookies: [{ name: "sid", value: "x" }],
       localStorage: {},
-    });
+    }, undefined, scope);
 
-    await markSessionProfileFailure(env, url);
-    await markSessionProfileFailure(env, url);
-    await markSessionProfileFailure(env, url);
+    await markSessionProfileFailure(env, url, scope);
+    await markSessionProfileFailure(env, url, scope);
+    await markSessionProfileFailure(env, url, scope);
 
-    const blocked = await loadSessionProfile(env, url);
+    const blocked = await loadSessionProfile(env, url, scope);
     expect(blocked).toBeNull();
 
-    await clearSessionProfileFailure(env, url);
-    const restored = await loadSessionProfile(env, url);
+    await clearSessionProfileFailure(env, url, scope);
+    const restored = await loadSessionProfile(env, url, scope);
     expect(restored).toBeTruthy();
   });
 
@@ -119,9 +121,10 @@ describe("session profile", () => {
   });
 
   it("normalizes session key host and rejects unsupported URL schemes", () => {
-    expect(sessionProfileKey("https://WWW.Example.com/path")).toBe("session:profile:v1:www.example.com");
-    expect(sessionProfileKey("ftp://example.com/file")).toBeNull();
-    expect(sessionProfileKey("not-a-url")).toBeNull();
+    expect(sessionProfileKey("https://WWW.Example.com/path", scope)).toBe("session:profile:v1:account:acct_test:www.example.com");
+    expect(sessionProfileKey("https://WWW.Example.com/path")).toBeNull();
+    expect(sessionProfileKey("ftp://example.com/file", scope)).toBeNull();
+    expect(sessionProfileKey("not-a-url", scope)).toBeNull();
   });
 
   it("truncates oversized localStorage values when saving profile snapshots", async () => {
@@ -131,7 +134,7 @@ describe("session profile", () => {
       localStorage: {
         token: "a".repeat(5000),
       },
-    });
+    }, undefined, scope);
 
     expect(profile).toBeTruthy();
     expect(profile?.localStorage.token.length).toBeLessThanOrEqual(4096);
@@ -139,7 +142,7 @@ describe("session profile", () => {
 
   it("returns null for disabled profiles until disabled window expires", async () => {
     const { env, store } = createKvBackedEnv();
-    const key = "session:profile:v1:crawl.example.com";
+    const key = "session:profile:v1:account:acct_test:crawl.example.com";
     store.set(key, JSON.stringify({
       version: 1,
       host: "crawl.example.com",
@@ -151,7 +154,7 @@ describe("session profile", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     }));
 
-    const blocked = await loadSessionProfile(env, "https://crawl.example.com/article");
+    const blocked = await loadSessionProfile(env, "https://crawl.example.com/article", scope);
     expect(blocked).toBeNull();
 
     store.set(key, JSON.stringify({
@@ -164,7 +167,40 @@ describe("session profile", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     }));
-    const restored = await loadSessionProfile(env, "https://crawl.example.com/article");
+    const restored = await loadSessionProfile(env, "https://crawl.example.com/article", scope);
     expect(restored).toBeTruthy();
+  });
+
+  it("does not save or load browser session state without an explicit scope", async () => {
+    const { env, store } = createKvBackedEnv();
+    const saved = await saveSessionProfileSnapshot(env, "https://crawl.example.com/x", {
+      cookies: [{ name: "sid", value: "x" }],
+      localStorage: { token: "secret" },
+    });
+
+    expect(saved).toBeNull();
+    expect(store.size).toBe(0);
+    await expect(loadSessionProfile(env, "https://crawl.example.com/x")).resolves.toBeNull();
+  });
+
+  it("isolates session profiles by caller scope", async () => {
+    const { env } = createKvBackedEnv();
+    const url = "https://crawl.example.com/account";
+    await saveSessionProfileSnapshot(env, url, {
+      cookies: [{ name: "sid", value: "account-a" }],
+      localStorage: {},
+    }, undefined, "account:a");
+
+    await saveSessionProfileSnapshot(env, url, {
+      cookies: [{ name: "sid", value: "account-b" }],
+      localStorage: {},
+    }, undefined, "account:b");
+
+    await expect(loadSessionProfile(env, url, "account:a")).resolves.toMatchObject({
+      cookies: [expect.objectContaining({ value: "account-a" })],
+    });
+    await expect(loadSessionProfile(env, url, "account:b")).resolves.toMatchObject({
+      cookies: [expect.objectContaining({ value: "account-b" })],
+    });
   });
 });

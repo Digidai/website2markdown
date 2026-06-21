@@ -124,6 +124,10 @@ interface QueueEntry {
   resolve: (release: PermitRelease) => void;
 }
 
+export interface BrowserRenderOptions {
+  sessionProfileScope?: string | null;
+}
+
 /**
  * Global in-memory concurrency gate for browser rendering.
  * Shared across requests within the same worker isolate.
@@ -283,9 +287,10 @@ async function applyStoredSessionProfile(
   env: Env,
   page: any,
   url: string,
+  scope?: string | null,
 ): Promise<boolean> {
   try {
-    const profile = await loadSessionProfile(env, url);
+    const profile = await loadSessionProfile(env, url, scope);
     if (!profile) return false;
     return applySessionProfileToPage(page, url, profile);
   } catch (error) {
@@ -300,10 +305,12 @@ async function persistSessionProfileAfterRender(
   url: string,
   html: string,
   profileWasApplied: boolean,
+  scope?: string | null,
 ): Promise<void> {
   try {
+    if (!scope) return;
     if (profileWasApplied && isLikelySessionExpiredHtml(html)) {
-      await markSessionProfileFailure(env, url);
+      await markSessionProfileFailure(env, url, scope);
       return;
     }
 
@@ -313,12 +320,12 @@ async function persistSessionProfileAfterRender(
       Object.keys(snapshot.localStorage).length === 0
     ) {
       if (profileWasApplied) {
-        await clearSessionProfileFailure(env, url);
+        await clearSessionProfileFailure(env, url, scope);
       }
       return;
     }
 
-    await saveSessionProfileSnapshot(env, url, snapshot);
+    await saveSessionProfileSnapshot(env, url, snapshot, undefined, scope);
   } catch (error) {
     console.warn("Session profile persist failed:", errorMessage(error));
   }
@@ -365,13 +372,14 @@ export async function fetchWithBrowser(
   env: Env,
   host: string,
   abortSignal?: AbortSignal,
+  options: BrowserRenderOptions = {},
 ): Promise<string> {
   return browserCapacityGate.run(async () => {
     throwIfAborted(abortSignal);
     if (feishuAdapter.match(url)) {
-      return fetchWithBrowserFeishu(url, env, host, abortSignal);
+      return fetchWithBrowserFeishu(url, env, host, abortSignal, options);
     }
-    return fetchWithBrowserAdapter(url, env, abortSignal);
+    return fetchWithBrowserAdapter(url, env, abortSignal, options);
   }, url);
 }
 
@@ -386,6 +394,7 @@ async function fetchWithBrowserFeishu(
   env: Env,
   host: string,
   abortSignal?: AbortSignal,
+  options: BrowserRenderOptions = {},
 ): Promise<string> {
   let browser: any | null = null;
   try {
@@ -397,7 +406,7 @@ async function fetchWithBrowserFeishu(
     await page.setExtraHTTPHeaders({
       "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     });
-    const profileApplied = await applyStoredSessionProfile(env, page, url);
+    const profileApplied = await applyStoredSessionProfile(env, page, url, options.sessionProfileScope);
 
     // SSRF protection — set up handler before enabling interception
     page.on("request", handleInterceptedRequest);
@@ -834,7 +843,7 @@ async function fetchWithBrowserFeishu(
         })
         .join("\n");
       html += `</body></html>`;
-      await persistSessionProfileAfterRender(env, page, url, html, profileApplied);
+      await persistSessionProfileAfterRender(env, page, url, html, profileApplied, options.sessionProfileScope);
       return html;
     }
 
@@ -845,7 +854,7 @@ async function fetchWithBrowserFeishu(
       "Browser page content read timed out.",
       abortSignal,
     );
-    await persistSessionProfileAfterRender(env, page, url, html, profileApplied);
+    await persistSessionProfileAfterRender(env, page, url, html, profileApplied, options.sessionProfileScope);
     return html;
   } catch (error) {
     throw new Error(`Browser rendering failed: ${redactLegacyProxyRetryMessage(errorMessage(error))}`);
@@ -861,6 +870,7 @@ async function fetchWithBrowserAdapter(
   url: string,
   env: Env,
   abortSignal?: AbortSignal,
+  options: BrowserRenderOptions = {},
 ): Promise<string> {
   const adapter = getAdapter(url);
   const capturedImages = new Map<string, string>();
@@ -876,7 +886,7 @@ async function fetchWithBrowserAdapter(
 
     // Configure page for this site
     await adapter.configurePage(page, capturedImages);
-    const profileApplied = await applyStoredSessionProfile(env, page, url);
+    const profileApplied = await applyStoredSessionProfile(env, page, url, options.sessionProfileScope);
 
     // SSRF protection — set up handler before enabling interception
     page.on("request", handleInterceptedRequest);
@@ -918,7 +928,7 @@ async function fetchWithBrowserAdapter(
       abortSignal,
     );
     if (result?.html) {
-      await persistSessionProfileAfterRender(env, page, url, result.html, profileApplied);
+      await persistSessionProfileAfterRender(env, page, url, result.html, profileApplied, options.sessionProfileScope);
       return result.html;
     }
 
@@ -929,7 +939,7 @@ async function fetchWithBrowserAdapter(
       "Browser page content read timed out.",
       abortSignal,
     );
-    await persistSessionProfileAfterRender(env, page, url, html, profileApplied);
+    await persistSessionProfileAfterRender(env, page, url, html, profileApplied, options.sessionProfileScope);
     return html;
   } catch (error) {
     throw new Error(`Browser rendering failed: ${errorMessage(error)}`);

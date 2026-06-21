@@ -7,6 +7,33 @@ vi.mock("cloudflare:sockets", () => ({
 import worker from "../index";
 import { createMockEnv, mockCtx } from "./test-helpers";
 
+function createAuthDbMock(): D1Database {
+  const prepare = vi.fn((sql: string) => {
+    const stmt = {
+      bind: vi.fn(() => stmt),
+      first: vi.fn(async () => {
+        if (sql.includes("FROM api_keys")) {
+          return {
+            key_id: "key_force_browser",
+            account_id: "acct_force_browser",
+            revoked_at: null,
+            tier: "pro",
+            monthly_credits_used: 0,
+            monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+          };
+        }
+        return null;
+      }),
+      run: vi.fn(async () => ({ success: true })),
+    };
+    return stmt;
+  });
+  const batch = vi.fn(async (items: Array<{ run: () => Promise<unknown> }>) =>
+    Promise.all(items.map((item) => item.run()))
+  );
+  return { prepare, batch } as unknown as D1Database;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -103,6 +130,28 @@ describe("index conversion/stream/og routes", () => {
     expect(res.headers.get("Content-Security-Policy")).toContain("connect-src 'self'");
     expect(html).toContain("Converting");
     expect(html).toContain("/api/stream?url=");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not render legacy query tokens into document loading pages", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const req = new Request("https://md.example.com/https://example.com/nav?token=public-token", {
+      headers: {
+        Accept: "text/html",
+        "Sec-Fetch-Dest": "document",
+      },
+    });
+    const res = await worker.fetch(
+      req,
+      createMockEnv({ PUBLIC_API_TOKEN: "public-token" }).env,
+      mockCtx(),
+    );
+    const body = await res.text();
+
+    expect(res.status).toBe(401);
+    expect(body).not.toContain("public-token");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -415,8 +464,35 @@ describe("index conversion/stream/og routes", () => {
 
     expect(res.status).toBe(200);
     expect(body).toContain(
-      "\"rawUrl\":\"/https%3A%2F%2Fexample.com%2Fstream?raw=true&selector=.main&force_browser=true&no_cache=true&engine=jina&token=public-token\"",
+      "\"rawUrl\":\"/https%3A%2F%2Fexample.com%2Fstream?raw=true&selector=.main&force_browser=true&no_cache=true&engine=jina\"",
     );
+    expect(body).not.toContain("public-token");
+  });
+
+  it("allows keyless Jina stream without legacy PUBLIC_API_TOKEN", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        code: 200,
+        data: {
+          url: "https://example.com/stream",
+          title: "Stream Title",
+          content: "# stream markdown",
+        },
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      }),
+    ));
+
+    const req = new Request(
+      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&engine=jina",
+    );
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+    const body = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(body).toContain("event: done");
+    expect(body).toContain("\"method\":\"jina\"");
   });
 
   it("streams fail event when conversion throws ConvertError", async () => {
@@ -448,5 +524,51 @@ describe("index conversion/stream/og routes", () => {
     expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
     expect(body).toContain("<svg");
     expect(body).toContain("This is a long title");
+  });
+
+  it("does not serve a normal cache entry for force_browser requests", async () => {
+    const store = new Map<string, string>();
+    const { env, mocks } = createMockEnv({ AUTH_DB: createAuthDbMock() });
+    mocks.kvGet.mockImplementation(async (key: string) => store.get(key) ?? null);
+    mocks.kvPut.mockImplementation(async (key: string, value: string) => {
+      store.set(key, value);
+    });
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("# Cached Source", {
+        status: 200,
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+      }))
+      .mockResolvedValueOnce(new Response("# Fresh Forced Source", {
+        status: 200,
+        headers: { "Content-Type": "text/markdown; charset=utf-8" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = await worker.fetch(
+      new Request("https://md.example.com/https://example.com/force-cache?raw=true", {
+        headers: { Accept: "text/markdown" },
+      }),
+      env,
+      mockCtx(),
+    );
+    expect(await first.text()).toContain("Cached Source");
+
+    const forced = await worker.fetch(
+      new Request("https://md.example.com/https://example.com/force-cache?raw=true&force_browser=true", {
+        headers: {
+          Accept: "text/markdown",
+          Authorization: "Bearer mk_force_browser_test",
+        },
+      }),
+      env,
+      mockCtx(),
+    );
+    const forcedBody = await forced.text();
+
+    expect(forced.status).toBe(200);
+    expect(forcedBody).toContain("Fresh Forced Source");
+    expect(forcedBody).not.toContain("Cached Source");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

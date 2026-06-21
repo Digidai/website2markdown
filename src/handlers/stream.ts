@@ -11,6 +11,7 @@ import {
   RequestAbortedError,
   SseStreamClosedError,
 } from "./convert";
+import { flushUsage, recordUsage, shouldFlush } from "./usage";
 import {
   createRequestId,
   debugTraceHeaders,
@@ -24,6 +25,10 @@ export interface StreamObservabilityOptions {
   ctx?: ExecutionContext;
   requestId?: string;
   debugTrace?: DebugTraceDecision;
+  creditCost?: number;
+  quotaRemaining?: number;
+  providerApiKeysAllowed?: boolean;
+  sessionProfileScope?: string;
 }
 
 export function sseResponse(
@@ -149,14 +154,12 @@ export function handleStream(
   }
   const forceBrowser = url.searchParams.get("force_browser") === "true";
   const noCache = url.searchParams.get("no_cache") === "true";
-  const queryToken = url.searchParams.get("token");
   const engine = url.searchParams.get("engine") || undefined;
   const rawRequestPath = buildRawRequestPath(targetUrl, {
     selector,
     forceBrowser,
     noCache,
     engine,
-    token: queryToken || undefined,
   });
   const sseHeaders = {
     ...baseSseHeaders,
@@ -171,6 +174,8 @@ export function handleStream(
         streamSignal,
         engine,
         browserAllowed,
+        observability.providerApiKeysAllowed ?? true,
+        observability.sessionProfileScope,
       );
       await send("done", {
         rawUrl: rawRequestPath,
@@ -194,6 +199,17 @@ export function handleStream(
         cached: result.cached,
         fallbacks: result.diagnostics.fallbacks,
       });
+      if (observability.auth) {
+        recordUsage(
+          observability.auth,
+          observability.creditCost ?? 0,
+          result.diagnostics.browserRendered || result.method === "browser+readability+turndown",
+          result.cached || result.diagnostics.cacheHit,
+        );
+        if (shouldFlush()) {
+          observability.ctx?.waitUntil(flushUsage(env));
+        }
+      }
       observability.ctx?.waitUntil(recordConversionEvent(env, {
         request,
         requestId,
@@ -209,6 +225,8 @@ export function handleStream(
         selector,
         forceBrowser,
         noCache,
+        creditCost: observability.creditCost,
+        quotaRemaining: observability.quotaRemaining,
         debugTrace: observability.debugTrace,
       }));
     } catch (err) {

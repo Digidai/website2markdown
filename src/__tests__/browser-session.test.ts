@@ -81,18 +81,24 @@ describe("browser session profile integration", () => {
     await saveSessionProfileSnapshot(env, url, {
       cookies: [{ name: "sid", value: "old-cookie", domain: "www.163.com" }],
       localStorage: { sessionToken: "old-token" },
-    });
+    }, undefined, "account:acct_browser");
 
     const mock = createBrowserMock("<html><body>page content</body></html>");
     vi.mocked(puppeteer.launch).mockResolvedValue(mock.browser as any);
 
-    const result = await fetchWithBrowser(url, env, "md.example.com");
+    const result = await fetchWithBrowser(
+      url,
+      env,
+      "md.example.com",
+      undefined,
+      { sessionProfileScope: "account:acct_browser" },
+    );
 
     expect(result).toContain("page content");
     expect(mock.page.setCookie).toHaveBeenCalled();
     expect(mock.page.evaluateOnNewDocument).toHaveBeenCalled();
 
-    const saved = await loadSessionProfile(env, url);
+    const saved = await loadSessionProfile(env, url, "account:acct_browser");
     expect(saved).toBeTruthy();
     expect(saved?.cookies[0]?.value).toBe("new-cookie");
     expect(saved?.localStorage.sessionToken).toBe("from-local-storage");

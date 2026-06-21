@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   isSafeUrl,
   isValidUrl,
@@ -6,6 +6,7 @@ import {
   extractTargetUrl,
   buildRawRequestPath,
   escapeHtml,
+  fetchWithSafeRedirects,
 } from "../security";
 
 describe("isSafeUrl", () => {
@@ -139,6 +140,22 @@ describe("isSafeUrl", () => {
   it("returns false for invalid URLs", () => {
     expect(isSafeUrl("not a url")).toBe(false);
     expect(isSafeUrl("")).toBe(false);
+  });
+});
+
+describe("fetchWithSafeRedirects", () => {
+  it("blocks unsafe first-hop URLs before fetch is called", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    try {
+      await expect(
+        fetchWithSafeRedirects("http://169.254.169.254/latest/meta-data/", {}),
+      ).rejects.toThrow("SSRF protection");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

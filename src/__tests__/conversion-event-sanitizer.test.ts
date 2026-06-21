@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSanitizedConversionEvent,
+  buildDebugTraceDecision,
   detectTargetPlatform,
   resolveRequestId,
   sanitizeErrorMessage,
@@ -10,6 +11,42 @@ import {
 import type { AuthContext, Env } from "../types";
 
 describe("conversion event sanitizer", () => {
+  it("resolves debug trace decisions by request source, auth, and D1 availability", () => {
+    const auth: AuthContext = {
+      tier: "pro",
+      accountId: "acct_123",
+      keyId: "key_123",
+      quotaLimit: 50_000,
+      quotaUsed: 0,
+    };
+    const anonymous: AuthContext = {
+      tier: "anonymous",
+      accountId: null,
+      keyId: null,
+      quotaLimit: 0,
+      quotaUsed: 0,
+    };
+    const envWithD1 = { AUTH_DB: {} as D1Database } as Env;
+
+    expect(buildDebugTraceDecision(
+      new Request("https://md.example.com/?debug_trace=true"),
+      auth,
+      envWithD1,
+    )).toMatchObject({ requested: true, allowed: true, source: "query", headerValue: "accepted" });
+
+    expect(buildDebugTraceDecision(
+      new Request("https://md.example.com/", { headers: { "X-Debug-Trace": "true" } }),
+      anonymous,
+      envWithD1,
+    )).toMatchObject({ requested: true, allowed: false, source: "header", headerValue: "not-authorized" });
+
+    expect(buildDebugTraceDecision(
+      new Request("https://md.example.com/?debug_trace=true", { headers: { "X-Debug-Trace": "true" } }),
+      auth,
+      {} as Env,
+    )).toMatchObject({ requested: true, allowed: false, source: "both", headerValue: "not-available" });
+  });
+
   it("classifies platforms and user agents without retaining raw user agent text", () => {
     expect(detectTargetPlatform("https://mp.weixin.qq.com/s/abc")).toBe("wechat");
     expect(detectTargetPlatform("https://zhuanlan.zhihu.com/p/123")).toBe("zhihu");
@@ -30,6 +67,27 @@ describe("conversion event sanitizer", () => {
       headers: { "X-Request-ID": " req-1234567890<script> " },
     });
     expect(resolveRequestId(req)).toBe("req-1234567890script");
+  });
+
+  it("replaces sensitive caller supplied request ids", () => {
+    const sensitiveIds = [
+      "user@example.com",
+      "Bearer mk_secret_request_token",
+      "mk_secret_request_token",
+      "session_abcdefghijklmnopqrstuvwxyz",
+    ];
+
+    for (const id of sensitiveIds) {
+      const req = new Request("https://md.example.com/", {
+        headers: { "X-Request-ID": id },
+      });
+      const resolved = resolveRequestId(req);
+      expect(resolved).not.toBe(id);
+      expect(resolved).not.toContain("example.com");
+      expect(resolved).not.toContain("mk_secret_request_token");
+      expect(resolved).not.toContain("session_abcdefghijklmnopqrstuvwxyz");
+      expect(resolved.length).toBeGreaterThanOrEqual(8);
+    }
   });
 
   it("builds a sanitized event without raw url, auth, cookie, or selector data", async () => {
@@ -93,6 +151,32 @@ describe("conversion event sanitizer", () => {
     expect(serialized).not.toContain("target_secret");
     expect(serialized).not.toContain("example.com");
     expect(serialized).not.toContain(".private-profile");
+  });
+
+  it("records only allow-listed engine labels in sanitized events", async () => {
+    const baseInput = {
+      request: new Request("https://md.example.com/"),
+      requestId: "req-engine-123",
+      route: "convert" as const,
+      targetUrl: "https://example.com/a",
+      outcome: "success" as const,
+      statusCode: 200,
+      latencyMs: 10,
+    };
+
+    await expect(
+      buildSanitizedConversionEvent({ ANALYTICS_SALT: "test-salt" } as Env, {
+        ...baseInput,
+        engineRequested: "firecrawl",
+      }),
+    ).resolves.toMatchObject({ engine_requested: "firecrawl" });
+
+    await expect(
+      buildSanitizedConversionEvent({ ANALYTICS_SALT: "test-salt" } as Env, {
+        ...baseInput,
+        engineRequested: "sk_live_secret_engine",
+      }),
+    ).resolves.toMatchObject({ engine_requested: "custom" });
   });
 
   it("does not compute durable hashes without ANALYTICS_SALT", async () => {

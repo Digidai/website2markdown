@@ -15,7 +15,10 @@ vi.mock("../handlers/convert", async (importOriginal) => {
 import worker from "../index";
 import { ConvertError } from "../helpers/response";
 import { convertUrlWithMetrics, type ConvertResult } from "../handlers/convert";
-import { cleanupExpiredDebugTraces } from "../observability/conversion-events";
+import {
+  cleanupExpiredDebugTraces,
+  cleanupExpiredOperationalRows,
+} from "../observability/conversion-events";
 import { createMockEnv, mockCtx } from "./test-helpers";
 
 interface D1StatementCall {
@@ -102,6 +105,10 @@ function aggregateStatements(statements: D1StatementCall[]): D1StatementCall[] {
 
 function debugTraceStatements(statements: D1StatementCall[]): D1StatementCall[] {
   return statements.filter((statement) => statement.sql.includes("conversion_debug_traces"));
+}
+
+function usageStatements(statements: D1StatementCall[]): D1StatementCall[] {
+  return statements.filter((statement) => statement.sql.includes("usage_daily"));
 }
 
 function serialize(value: unknown): string {
@@ -380,6 +387,9 @@ describe("conversion observability", () => {
     expect(binds).not.toContain("target_secret");
     expect(binds).not.toContain("raw_token");
     expect(binds).not.toContain("mk_secret_test");
+    const usage = usageStatements(statements)[0];
+    expect(usage?.binds).toContain("key_raw_123");
+    expect(usage?.binds).toContain(1);
   });
 
   it("rejects anonymous stream restricted engine before conversion", async () => {
@@ -748,5 +758,22 @@ describe("conversion observability", () => {
     );
     expect(cleanup).toBeTruthy();
     expect(cleanup?.binds[0]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("cleans up expired operational rows on scheduled maintenance", async () => {
+    const { db, statements } = createD1Mock();
+    const { env } = createMockEnv({ AUTH_DB: db });
+
+    await cleanupExpiredOperationalRows(env);
+
+    const deletes = statements
+      .filter((statement) => statement.sql.includes("DELETE FROM"))
+      .map((statement) => statement.sql.replace(/\s+/g, " ").trim());
+    expect(deletes).toEqual([
+      expect.stringContaining("DELETE FROM conversion_debug_traces"),
+      expect.stringContaining("DELETE FROM sessions"),
+      expect.stringContaining("DELETE FROM magic_link_tokens"),
+      expect.stringContaining("DELETE FROM rate_limits"),
+    ]);
   });
 });

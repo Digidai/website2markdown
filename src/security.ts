@@ -452,6 +452,10 @@ export async function fetchWithSafeRedirects(
   const redirectHopLimit = Math.max(0, Math.floor(maxHops));
 
   for (let hops = 0; hops <= redirectHopLimit; hops++) {
+    if (!isSafeUrl(currentUrl)) {
+      throw new Error("Redirect target blocked by SSRF protection");
+    }
+
     try {
       response = await fetchWithRetry(
         currentUrl,

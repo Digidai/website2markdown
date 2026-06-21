@@ -39,6 +39,32 @@ describe("Firecrawl integration", () => {
     expect(outboundInit.headers).not.toHaveProperty("Authorization");
   });
 
+  it("does not spend the server Firecrawl key for anonymous engine=firecrawl requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        success: true,
+        data: {
+          markdown: "# Anonymous Keyless\n\nConverted through keyless Firecrawl.",
+          metadata: { title: "Anonymous Keyless" },
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { env } = createMockEnv({ FIRECRAWL_API_KEY: "fc_server_secret" });
+    const req = new Request(
+      "https://md.example.com/https://example.com/anonymous-keyless?raw=true&engine=firecrawl",
+      { headers: { Accept: "text/markdown" } },
+    );
+    const res = await worker.fetch(req, env, mockCtx());
+    await res.text();
+
+    expect(res.status).toBe(200);
+    const outboundInit = fetchMock.mock.calls[0][1];
+    expect(outboundInit.headers).not.toHaveProperty("Authorization");
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("fc_server_secret");
+  });
+
   it("uses Firecrawl for explicit engine=firecrawl without forwarding the app Bearer token", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       Response.json({

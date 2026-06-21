@@ -95,8 +95,11 @@ function createMockD1(): {
         if (sql.includes("UPDATE magic_link_tokens SET used_at")) {
           const [used_at, id] = binds;
           const t = tables.magic_link_tokens.get(id);
-          if (t) t.used_at = used_at;
-          return {};
+          if (!t || t.used_at) {
+            return { meta: { changes: 0 } };
+          }
+          t.used_at = used_at;
+          return { meta: { changes: 1 } };
         }
         // INSERT accounts
         if (sql.includes("INSERT INTO accounts")) {

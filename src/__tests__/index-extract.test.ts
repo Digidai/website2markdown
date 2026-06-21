@@ -5,7 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
-import { createMockEnv, mockCtx } from "./test-helpers";
+import { createApiKeyAuthD1, createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -56,6 +56,25 @@ describe("POST /api/extract", () => {
 
     expect(res.status).toBe(401);
     expect(payload.error).toBe("Unauthorized");
+  });
+
+  it("accepts D1 mk API keys without requiring legacy API_TOKEN", async () => {
+    const { env } = createMockEnv({ AUTH_DB: createApiKeyAuthD1() });
+    const req = extractRequest({
+      strategy: "css",
+      html: "<article><h1>Hello</h1><p>World</p></article>",
+      schema: { fields: [{ name: "title", selector: "h1", type: "text" }] },
+    }, "mk_valid_extract_key");
+
+    const res = await worker.fetch(req, env, mockCtx());
+    const payload = await res.json() as {
+      success?: boolean;
+      data?: { title?: string };
+    };
+
+    expect(res.status).toBe(200);
+    expect(payload.success).toBe(true);
+    expect(payload.data?.title).toBe("Hello");
   });
 
   it("extracts from html input in single mode", async () => {
