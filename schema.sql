@@ -102,6 +102,48 @@ CREATE INDEX IF NOT EXISTS idx_conversion_events_daily_date ON conversion_events
 CREATE INDEX IF NOT EXISTS idx_conversion_events_daily_platform ON conversion_events_daily(date, target_platform);
 CREATE INDEX IF NOT EXISTS idx_conversion_events_daily_outcome ON conversion_events_daily(date, outcome, error_code);
 
+-- Short-lived, opt-in debug traces for page-level troubleshooting.
+-- Written only when an authenticated caller explicitly requests debug_trace.
+-- Values remain redacted and expire via the Worker scheduled cleanup.
+CREATE TABLE IF NOT EXISTS conversion_debug_traces (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  route TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  status_code INTEGER NOT NULL,
+  error_code TEXT NOT NULL DEFAULT '',
+  auth_tier TEXT NOT NULL,
+  account_hash TEXT NOT NULL DEFAULT '',
+  key_hash TEXT NOT NULL DEFAULT '',
+  target_platform TEXT NOT NULL,
+  target_url_hash TEXT NOT NULL DEFAULT '',
+  target_url_redacted TEXT NOT NULL,
+  user_agent_family TEXT NOT NULL DEFAULT '',
+  format TEXT NOT NULL,
+  engine_requested TEXT NOT NULL DEFAULT '',
+  method_used TEXT NOT NULL DEFAULT '',
+  cache_status TEXT NOT NULL,
+  browser_rendered INTEGER NOT NULL DEFAULT 0,
+  paywall_detected INTEGER NOT NULL DEFAULT 0,
+  fallbacks TEXT NOT NULL DEFAULT '[]',
+  source_content_type TEXT,
+  selector_present INTEGER NOT NULL DEFAULT 0,
+  selector_length_bucket TEXT NOT NULL DEFAULT 'none',
+  force_browser INTEGER NOT NULL DEFAULT 0,
+  no_cache INTEGER NOT NULL DEFAULT 0,
+  output_chars INTEGER,
+  output_excerpt TEXT,
+  error_message_short TEXT,
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  trace_source TEXT NOT NULL DEFAULT 'unknown'
+);
+CREATE INDEX IF NOT EXISTS idx_conversion_debug_traces_expires ON conversion_debug_traces(expires_at);
+CREATE INDEX IF NOT EXISTS idx_conversion_debug_traces_request ON conversion_debug_traces(request_id);
+CREATE INDEX IF NOT EXISTS idx_conversion_debug_traces_created ON conversion_debug_traces(created_at);
+CREATE INDEX IF NOT EXISTS idx_conversion_debug_traces_account ON conversion_debug_traces(account_hash, created_at);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id),

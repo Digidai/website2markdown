@@ -529,6 +529,7 @@ export function extractTargetUrl(
   targetSearchParams.delete("selector");
   targetSearchParams.delete("token");
   targetSearchParams.delete("engine");
+  targetSearchParams.delete("debug_trace");
   const remainingSearch = targetSearchParams.toString();
 
   if (remainingSearch) {

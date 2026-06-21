@@ -82,6 +82,9 @@ import { handleOgImage } from "./handlers/og-image";
 import { handleLlmsTxt } from "./handlers/llms-txt";
 import { handleRobotsTxt, handleSitemap } from "./handlers/seo";
 import {
+  buildDebugTraceDecision,
+  cleanupExpiredDebugTraces,
+  debugTraceHeaders,
   recordConversionEvent,
   resolveRequestId,
   sanitizeErrorMessage,
@@ -139,9 +142,35 @@ function isDocumentNavigationRequest(request: Request, acceptHeader: string): bo
         acceptHeader.includes("text/html")));
 }
 
+async function resolveStreamAuth(request: Request, env: Env): Promise<AuthContext | null> {
+  if (!env.AUTH_DB) return null;
+  const bearerAuth = await resolveAuth(request, env);
+  if (bearerAuth.tier !== "anonymous") return bearerAuth;
+
+  const session = await resolveSession(request, env);
+  if (!session) return bearerAuth;
+
+  const tier: Tier = session.tier === "pro" || session.tier === "enterprise" ? "pro" : "free";
+  return {
+    tier,
+    accountId: session.accountId,
+    keyId: null,
+    quotaLimit: TIER_QUOTAS[tier],
+    quotaUsed: 0,
+  };
+}
+
 // ─── 主 fetch handler ────────────────────────────────────────
 
 export default {
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(cleanupExpiredDebugTraces(env));
+  },
+
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const host = url.host;
@@ -391,7 +420,7 @@ export default {
       }
       // D1 auth path (preferred when AUTH_DB is configured)
       const streamAuth = env.AUTH_DB
-        ? await resolveAuth(request, env)
+        ? await resolveStreamAuth(request, env)
         : null;
       const streamPolicy = streamAuth
         ? buildPolicy(streamAuth, "stream")
@@ -431,6 +460,7 @@ export default {
         ? policyHeaders(streamPolicy, streamAuth)
         : {};
       const streamRequestId = resolveRequestId(request);
+      const streamDebugTrace = buildDebugTraceDecision(request, streamAuth, env);
       return handleStream(
         request,
         env,
@@ -438,7 +468,12 @@ export default {
         url,
         streamBrowserAllowed,
         streamResponseHeaders,
-        { auth: streamAuth, ctx, requestId: streamRequestId },
+        {
+          auth: streamAuth,
+          ctx,
+          requestId: streamRequestId,
+          debugTrace: streamDebugTrace,
+        },
       );
     }
 
@@ -601,6 +636,7 @@ export default {
     let eventEngine: string | undefined;
     let eventAuth: AuthContext | null = null;
     let eventPolicy: PolicyDecision | null = null;
+    let eventDebugTrace = buildDebugTraceDecision(request, null, env);
 
     try {
       // Parse request parameters
@@ -670,6 +706,7 @@ export default {
       }
       eventAuth = auth;
       eventPolicy = policy;
+      eventDebugTrace = buildDebugTraceDecision(request, auth, env);
 
       // Check policy for restricted parameters
       const policyError = checkPolicy(policy, { forceBrowser, noCache, engine });
@@ -750,6 +787,7 @@ export default {
               noCache,
               creditCost: policy.creditCost,
               quotaRemaining: policy.quotaRemaining,
+              debugTrace: eventDebugTrace,
             }));
             const resp = buildResponse(
               cached.content, targetUrl, host,
@@ -763,6 +801,9 @@ export default {
               },
               rawRequestPath,
             );
+            for (const [k, v] of Object.entries(debugTraceHeaders(eventDebugTrace))) {
+              resp.headers.set(k, v);
+            }
             resp.headers.set("X-Request-ID", requestId);
             return resp;
           }
@@ -775,6 +816,7 @@ export default {
         if (noCache) streamParams.set("no_cache", "true");
         if (queryToken) streamParams.set("token", queryToken);
         if (engine) streamParams.set("engine", engine);
+        if (eventDebugTrace.requested) streamParams.set("debug_trace", "true");
         const sp = streamParams.toString();
 
         return new Response(
@@ -809,6 +851,7 @@ export default {
             rawRequestPath,
           );
           resp.headers.set("X-Quota-Exceeded", "true");
+          for (const [k, v] of Object.entries(debugTraceHeaders(eventDebugTrace))) resp.headers.set(k, v);
           resp.headers.set("X-Request-ID", requestId);
           for (const [k, v] of Object.entries(policyHeaders(policy, auth))) resp.headers.set(k, v);
           ctx.waitUntil(recordConversionEvent(env, {
@@ -830,6 +873,7 @@ export default {
             noCache,
             creditCost: 0,
             quotaRemaining: policy.quotaRemaining,
+            debugTrace: eventDebugTrace,
           }));
           return resp;
         }
@@ -882,6 +926,7 @@ export default {
       );
       // Add rate limit + cost headers
       for (const [k, v] of Object.entries(policyHeaders(policy, auth))) resp.headers.set(k, v);
+      for (const [k, v] of Object.entries(debugTraceHeaders(eventDebugTrace))) resp.headers.set(k, v);
       resp.headers.set("X-Request-ID", requestId);
       ctx.waitUntil(recordConversionEvent(env, {
         request,
@@ -900,6 +945,7 @@ export default {
         noCache,
         creditCost: policy.creditCost,
         quotaRemaining: policy.quotaRemaining,
+        debugTrace: eventDebugTrace,
       }));
       return resp;
     } catch (err: unknown) {
@@ -927,10 +973,11 @@ export default {
           quotaRemaining: eventPolicy?.quotaRemaining,
           errorTitle: err.title,
           errorMessage: err.message,
+          debugTrace: eventDebugTrace,
         }));
         return withExtraHeaders(
           errorResponse(err.title, err.message, err.statusCode, jsonErrors),
-          { "X-Request-ID": requestId },
+          { ...debugTraceHeaders(eventDebugTrace), "X-Request-ID": requestId },
         );
       }
       const message = err instanceof Error ? err.message : String(err);
@@ -958,6 +1005,7 @@ export default {
         quotaRemaining: eventPolicy?.quotaRemaining,
         errorTitle: "Error",
         errorMessage: message,
+        debugTrace: eventDebugTrace,
       }));
       return withExtraHeaders(
         errorResponse(
@@ -966,7 +1014,7 @@ export default {
           500,
           jsonErrors,
         ),
-        { "X-Request-ID": requestId },
+        { ...debugTraceHeaders(eventDebugTrace), "X-Request-ID": requestId },
       );
     }
   },

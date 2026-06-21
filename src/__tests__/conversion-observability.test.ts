@@ -15,6 +15,7 @@ vi.mock("../handlers/convert", async (importOriginal) => {
 import worker from "../index";
 import { ConvertError } from "../helpers/response";
 import { convertUrlWithMetrics, type ConvertResult } from "../handlers/convert";
+import { cleanupExpiredDebugTraces } from "../observability/conversion-events";
 import { createMockEnv, mockCtx } from "./test-helpers";
 
 interface D1StatementCall {
@@ -44,7 +45,9 @@ function convertResult(overrides: Partial<ConvertResult> = {}): ConvertResult {
 
 function createD1Mock(options: {
   authRow?: Record<string, unknown> | null;
+  sessionRow?: Record<string, unknown> | null;
   rejectAggregate?: boolean;
+  rejectDebugTrace?: boolean;
 } = {}): { db: D1Database; statements: D1StatementCall[] } {
   const statements: D1StatementCall[] = [];
   const prepare = vi.fn((sql: string) => {
@@ -55,11 +58,17 @@ function createD1Mock(options: {
         if (sql.includes("FROM api_keys")) {
           return options.authRow ?? null;
         }
+        if (sql.includes("FROM sessions")) {
+          return options.sessionRow ?? null;
+        }
         return null;
       }),
       run: vi.fn(async () => {
         if (sql.includes("conversion_events_daily") && options.rejectAggregate) {
           throw new Error("D1 failed token=aggregate_secret");
+        }
+        if (sql.includes("conversion_debug_traces") && options.rejectDebugTrace) {
+          throw new Error("D1 failed token=debug_secret");
         }
         return { success: true };
       }),
@@ -89,6 +98,10 @@ async function flushWaitUntil(ctx: ExecutionContext): Promise<void> {
 
 function aggregateStatements(statements: D1StatementCall[]): D1StatementCall[] {
   return statements.filter((statement) => statement.sql.includes("conversion_events_daily"));
+}
+
+function debugTraceStatements(statements: D1StatementCall[]): D1StatementCall[] {
+  return statements.filter((statement) => statement.sql.includes("conversion_debug_traces"));
 }
 
 function serialize(value: unknown): string {
@@ -316,5 +329,324 @@ describe("conversion observability", () => {
     expect(aggregate.binds).toContain("hit");
     expect(serialize(aggregate.binds)).not.toContain("target_secret");
     expect(serialize(aggregate.binds)).not.toContain("example.com");
+  });
+
+  it("writes redacted debug trace for authenticated stream opt-in callers", async () => {
+    vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult({
+      method: "jina",
+      content: "# Stream\n\n[url](https://example.com/private?token=raw_token)",
+    }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { db, statements } = createD1Mock({
+      authRow: {
+        key_id: "key_raw_123",
+        account_id: "acct_raw_456",
+        revoked_at: null,
+        tier: "pro",
+        monthly_credits_used: 0,
+        monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+      },
+    });
+    const { env } = createMockEnv({
+      AUTH_DB: db,
+      ANALYTICS_SALT: "test-salt",
+    });
+    const ctx = mockCtx();
+
+    const req = new Request(
+      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream%3Ftoken%3Dtarget_secret&debug_trace=true&engine=jina",
+      {
+        headers: {
+          Authorization: "Bearer mk_secret_test",
+          "X-Request-ID": "req-stream-debug",
+        },
+      },
+    );
+    const res = await worker.fetch(req, env, ctx);
+    const body = await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Debug-Trace")).toBe("accepted");
+    expect(body).toContain("event: done");
+
+    const debug = debugTraceStatements(statements).find((statement) =>
+      statement.sql.includes("INSERT INTO conversion_debug_traces")
+    );
+    expect(debug).toBeTruthy();
+    const binds = serialize(debug?.binds);
+    expect(binds).toContain("stream");
+    expect(binds).toContain("req-stream-debug");
+    expect(binds).not.toContain("target_secret");
+    expect(binds).not.toContain("raw_token");
+    expect(binds).not.toContain("mk_secret_test");
+  });
+
+  it("does not write debug trace for anonymous callers that request it", async () => {
+    vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult());
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { db, statements } = createD1Mock();
+    const { env } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+    const ctx = mockCtx();
+
+    const req = new Request(
+      "https://md.example.com/https://example.com/a?raw=true&debug_trace=true&access_token=target_secret",
+      { headers: { Accept: "text/markdown" } },
+    );
+    const res = await worker.fetch(req, env, ctx);
+    await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Debug-Trace")).toBe("not-authorized");
+    expect(res.headers.get("Access-Control-Expose-Headers")).toContain("X-Debug-Trace");
+    expect(res.headers.get("Access-Control-Allow-Headers")).toContain("X-Debug-Trace");
+    expect(debugTraceStatements(statements)).toHaveLength(0);
+    expect(vi.mocked(convertUrlWithMetrics).mock.calls[0][0]).not.toContain("debug_trace");
+  });
+
+  it("carries document navigation debug trace into session-authenticated stream conversion", async () => {
+    vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult({
+      method: "jina",
+      content: "# Session stream\n\nBody",
+    }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { db, statements } = createD1Mock({
+      sessionRow: {
+        session_id: "sess_raw_123",
+        account_id: "acct_raw_456",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        email: "person@example.com",
+        tier: "pro",
+        github_id: null,
+      },
+    });
+    const { env } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+
+    const navReq = new Request("https://md.example.com/https://example.com/nav?debug_trace=true", {
+      headers: {
+        Accept: "text/html",
+        "Sec-Fetch-Dest": "document",
+        Cookie: "md_session=session_secret",
+      },
+    });
+    const navRes = await worker.fetch(navReq, env, mockCtx());
+    const html = await navRes.text();
+
+    expect(navRes.status).toBe(200);
+    expect(navRes.headers.get("X-Debug-Trace")).toBeNull();
+    expect(html).toContain("debug_trace=true");
+
+    const streamCtx = mockCtx();
+    const streamReq = new Request(
+      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fnav&debug_trace=true",
+      { headers: { Cookie: "md_session=session_secret" } },
+    );
+    const streamRes = await worker.fetch(streamReq, env, streamCtx);
+    const body = await streamRes.text();
+    await flushWaitUntil(streamCtx);
+
+    expect(streamRes.status).toBe(200);
+    expect(streamRes.headers.get("X-Debug-Trace")).toBe("accepted");
+    expect(body).toContain("event: done");
+
+    const debug = debugTraceStatements(statements).find((statement) =>
+      statement.sql.includes("INSERT INTO conversion_debug_traces")
+    );
+    expect(debug).toBeTruthy();
+    const binds = serialize(debug?.binds);
+    expect(binds).toContain("stream");
+    expect(binds).toContain("jina");
+    expect(binds).not.toContain("session_secret");
+    expect(binds).not.toContain("person@example.com");
+    expect(binds).not.toContain("acct_raw_456");
+  });
+
+  it("does not report accepted debug trace on pre-conversion policy rejection", async () => {
+    const { db, statements } = createD1Mock({
+      authRow: {
+        key_id: "key_raw_123",
+        account_id: "acct_raw_456",
+        revoked_at: null,
+        tier: "free",
+        monthly_credits_used: 0,
+        monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+      },
+    });
+    const { env } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+    const ctx = mockCtx();
+
+    const req = new Request(
+      "https://md.example.com/https://example.com/private?raw=true&no_cache=true&debug_trace=true",
+      {
+        headers: {
+          Accept: "text/markdown",
+          Authorization: "Bearer mk_free_policy_test",
+        },
+      },
+    );
+    const res = await worker.fetch(req, env, ctx);
+    await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(401);
+    expect(res.headers.get("X-Debug-Trace")).toBeNull();
+    expect(vi.mocked(convertUrlWithMetrics)).not.toHaveBeenCalled();
+    expect(debugTraceStatements(statements)).toHaveLength(0);
+  });
+
+  it("reports debug trace as unavailable when legacy auth has no D1 trace store", async () => {
+    vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult());
+    const { env } = createMockEnv({ PUBLIC_API_TOKEN: "public-token" });
+    const ctx = mockCtx();
+
+    const req = new Request("https://md.example.com/https://example.com/legacy?raw=true&debug_trace=true", {
+      headers: {
+        Accept: "text/markdown",
+        Authorization: "Bearer public-token",
+      },
+    });
+    const res = await worker.fetch(req, env, ctx);
+    const body = await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(200);
+    expect(body).toContain("# converted");
+    expect(res.headers.get("X-Debug-Trace")).toBe("not-available");
+  });
+
+  it("writes short-lived redacted debug trace for authenticated opt-in callers", async () => {
+    vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult({
+      content:
+        [
+          "# Private",
+          "Contact user@example.com at https://example.com/private?token=raw_token",
+          "secret=raw_secret",
+          "\"api_key\": \"json_secret\"",
+          "token: yaml_secret",
+          "Authorization: Basic basic_secret",
+          "Cookie: sid=session_cookie; cf_clearance=clearance_secret",
+        ].join("\n"),
+      method: "firecrawl",
+      sourceContentType: "text/html; charset=utf-8",
+      diagnostics: {
+        cacheHit: false,
+        browserRendered: false,
+        paywallDetected: true,
+        fallbacks: ["jina_fallback"],
+      },
+    }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { db, statements } = createD1Mock({
+      authRow: {
+        key_id: "key_raw_123",
+        account_id: "acct_raw_456",
+        revoked_at: null,
+        tier: "pro",
+        monthly_credits_used: 0,
+        monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+      },
+    });
+    const { env } = createMockEnv({
+      AUTH_DB: db,
+      ANALYTICS_SALT: "test-salt",
+      DEBUG_TRACE_RETENTION_DAYS: "3",
+      DEBUG_TRACE_MAX_CONTENT_CHARS: "512",
+    });
+    const ctx = mockCtx();
+
+    const req = new Request(
+      "https://md.example.com/https://example.com/private/123456789012?raw=true&debug_trace=true&access_token=target_secret&q=search",
+      {
+        headers: {
+          Accept: "text/markdown",
+          Authorization: "Bearer mk_secret_test",
+          Cookie: "md_session=session_secret",
+          "X-Request-ID": "req-debug-123",
+        },
+      },
+    );
+    const res = await worker.fetch(req, env, ctx);
+    await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Debug-Trace")).toBe("accepted");
+
+    const debug = debugTraceStatements(statements).find((statement) =>
+      statement.sql.includes("INSERT INTO conversion_debug_traces")
+    );
+    expect(debug).toBeTruthy();
+    const binds = serialize(debug?.binds);
+    expect(binds).toContain("req-debug-123");
+    expect(binds).toContain("firecrawl");
+    expect(binds).toContain("text/html; charset=utf-8");
+    expect(binds).toContain("jina_fallback");
+    expect(binds).toContain("https://example.com/[path:2]");
+    expect(binds).toContain("access_token");
+    expect(binds).toContain("q");
+    expect(binds).not.toContain("private/123456789012");
+    expect(binds).not.toContain("target_secret");
+    expect(binds).not.toContain("raw_token");
+    expect(binds).not.toContain("raw_secret");
+    expect(binds).not.toContain("json_secret");
+    expect(binds).not.toContain("yaml_secret");
+    expect(binds).not.toContain("basic_secret");
+    expect(binds).not.toContain("session_cookie");
+    expect(binds).not.toContain("clearance_secret");
+    expect(binds).not.toContain("user@example.com");
+    expect(binds).not.toContain("mk_secret_test");
+    expect(binds).not.toContain("session_secret");
+    expect(binds).not.toContain("acct_raw_456");
+    expect(binds).not.toContain("key_raw_123");
+  });
+
+  it("does not fail conversion when opt-in debug trace write fails", async () => {
+    vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult());
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { db } = createD1Mock({
+      authRow: {
+        key_id: "key_raw_123",
+        account_id: "acct_raw_456",
+        revoked_at: null,
+        tier: "free",
+        monthly_credits_used: 0,
+        monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+      },
+      rejectDebugTrace: true,
+    });
+    const { env } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+    const ctx = mockCtx();
+
+    const req = new Request("https://md.example.com/https://example.com/ok?raw=true&debug_trace=true", {
+      headers: {
+        Accept: "text/markdown",
+        Authorization: "Bearer mk_secret_test",
+      },
+    });
+    const res = await worker.fetch(req, env, ctx);
+    const body = await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(200);
+    expect(body).toContain("# converted");
+    const errors = serialize(consoleError.mock.calls);
+    expect(errors).toContain("Conversion event write failed");
+    expect(errors).toContain("token=[redacted]");
+    expect(errors).not.toContain("debug_secret");
+  });
+
+  it("cleans up expired debug traces without exposing raw values", async () => {
+    const { db, statements } = createD1Mock();
+    const { env } = createMockEnv({ AUTH_DB: db });
+
+    await cleanupExpiredDebugTraces(env);
+
+    const cleanup = debugTraceStatements(statements).find((statement) =>
+      statement.sql.includes("DELETE FROM conversion_debug_traces")
+    );
+    expect(cleanup).toBeTruthy();
+    expect(cleanup?.binds[0]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });

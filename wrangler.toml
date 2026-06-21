@@ -34,6 +34,9 @@ new_sqlite_classes = ["JobCoordinator"]
 [observability]
 enabled = true
 
+[triggers]
+crons = ["17 3 * * *"]
+
 # Built-in Worker code applies per-IP limits when cf-connecting-ip is present.
 # Keep Cloudflare WAF rate limiting enabled as an outer layer.
 

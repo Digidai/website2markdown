@@ -60,6 +60,17 @@ export const CF_BLOCKED_DOMAINS_TTL = 2 * 60 * 60;
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Accept, Content-Type, Authorization, Idempotency-Key",
+  "Access-Control-Allow-Headers": "Accept, Content-Type, Authorization, Idempotency-Key, X-Debug-Trace",
+  "Access-Control-Expose-Headers": [
+    "X-Debug-Trace",
+    "X-Request-ID",
+    "X-RateLimit-Limit",
+    "X-RateLimit-Remaining",
+    "X-Request-Cost",
+    "X-Cache",
+    "X-Method",
+    "X-Browser-Rendered",
+    "X-Paywall-Detected",
+  ].join(", "),
   "Access-Control-Max-Age": "86400",
 };

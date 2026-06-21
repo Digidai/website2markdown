@@ -13,6 +13,8 @@ import {
 } from "./convert";
 import {
   createRequestId,
+  debugTraceHeaders,
+  type DebugTraceDecision,
   recordConversionEvent,
   sanitizeErrorMessage,
 } from "../observability/conversion-events";
@@ -21,6 +23,7 @@ export interface StreamObservabilityOptions {
   auth?: AuthContext | null;
   ctx?: ExecutionContext;
   requestId?: string;
+  debugTrace?: DebugTraceDecision;
 }
 
 export function sseResponse(
@@ -120,6 +123,7 @@ export function handleStream(
   const startedAt = Date.now();
   const sseHeaders = {
     ...responseHeaders,
+    ...debugTraceHeaders(observability.debugTrace),
     "X-Request-ID": requestId,
   };
   const targetUrl = url.searchParams.get("url");
@@ -202,6 +206,7 @@ export function handleStream(
         selector,
         forceBrowser,
         noCache,
+        debugTrace: observability.debugTrace,
       }));
     } catch (err) {
       if (
@@ -229,6 +234,7 @@ export function handleStream(
           selector,
           forceBrowser,
           noCache,
+          debugTrace: observability.debugTrace,
         }));
         await send("fail", { title: err.title, message: err.message, status: err.statusCode });
       } else {
@@ -250,6 +256,7 @@ export function handleStream(
           selector,
           forceBrowser,
           noCache,
+          debugTrace: observability.debugTrace,
         }));
         await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 });
       }

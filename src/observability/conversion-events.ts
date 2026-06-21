@@ -34,6 +34,14 @@ export interface ConversionEventInput {
   quotaRemaining?: number;
   errorTitle?: string;
   errorMessage?: string;
+  debugTrace?: DebugTraceDecision;
+}
+
+export interface DebugTraceDecision {
+  requested: boolean;
+  allowed: boolean;
+  source: "header" | "query" | "both" | "none";
+  headerValue?: "accepted" | "not-authorized" | "not-available";
 }
 
 export interface SanitizedConversionEvent {
@@ -74,11 +82,25 @@ export interface SanitizedConversionEvent {
 const MAX_ERROR_MESSAGE_LENGTH = 240;
 const MAX_REQUEST_ID_LENGTH = 80;
 const MAX_FALLBACKS = 8;
+const MAX_DEBUG_URL_LENGTH = 512;
+const DEFAULT_DEBUG_TRACE_RETENTION_DAYS = 7;
+const MAX_DEBUG_TRACE_RETENTION_DAYS = 14;
+const DEFAULT_DEBUG_EXCERPT_CHARS = 2000;
+const MAX_DEBUG_EXCERPT_CHARS = 5000;
 
 const SECRET_KEY_RE =
   /\b(authorization|bearer|token|access_token|refresh_token|api_key|apikey|key|secret|password|passwd|session|cookie|code|signature)=([^&\s"'<>]+)/gi;
+const SECRET_ASSIGNMENT_RE =
+  /["']?\b([A-Za-z0-9_.-]*(?:access_token|refresh_token|api_key|apikey|authorization|bearer|token|secret|key|password|passwd|session|cookie|csrf|xsrf|jwt|sid|clearance|signature|sig|code)[A-Za-z0-9_.-]*)\b["']?\s*[:=]\s*["']?([^"'\s,;}<>]+)/gi;
+const AUTH_HEADER_RE = /\bAuthorization\s*:\s*(?:Bearer|Basic|Digest)\s+[A-Za-z0-9._~+/-]+=*/gi;
+const COOKIE_HEADER_RE = /\b(?:Cookie|Set-Cookie)\s*:\s*[^\r\n<>]+/gi;
 const BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const URL_RE = /https?:\/\/[^\s"'<>]+/gi;
+const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+const SENSITIVE_KEY_RE =
+  /^(access_token|auth|authorization|bearer|code|cookie|email|key|password|passwd|refresh_token|secret|session|signature|sig|token)$/i;
+const SENSITIVE_PATH_WORD_RE =
+  /(token|secret|key|auth|session|jwt|password|passwd|email|phone|login|signin|verify|reset|magic)/i;
 
 export function createRequestId(): string {
   if (typeof crypto.randomUUID === "function") {
@@ -112,13 +134,46 @@ export function resolveRequestId(request: Request): string {
 }
 
 export function sanitizeErrorMessage(message: unknown): string {
-  return errorMessage(message)
-    .replace(URL_RE, "[url]")
-    .replace(BEARER_RE, "Bearer [redacted]")
-    .replace(SECRET_KEY_RE, "$1=[redacted]")
+  return redactSensitiveText(errorMessage(message))
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, MAX_ERROR_MESSAGE_LENGTH);
+}
+
+export function buildDebugTraceDecision(
+  request: Request,
+  auth?: AuthContext | null,
+  env?: Env,
+): DebugTraceDecision {
+  const headerRequested = parseBooleanFlag(request.headers.get("X-Debug-Trace"));
+  let queryRequested = false;
+  try {
+    const url = new URL(request.url);
+    queryRequested = parseBooleanFlag(url.searchParams.get("debug_trace"));
+  } catch {
+    queryRequested = false;
+  }
+
+  const requested = headerRequested || queryRequested;
+  if (!requested) {
+    return { requested: false, allowed: false, source: "none" };
+  }
+  const hasTraceStore = Boolean(env?.AUTH_DB);
+  const hasAuthenticatedCaller = Boolean(auth && auth.tier !== "anonymous");
+  const allowed = hasTraceStore && hasAuthenticatedCaller;
+  return {
+    requested: true,
+    allowed,
+    source: headerRequested && queryRequested ? "both" : headerRequested ? "header" : "query",
+    headerValue: allowed ? "accepted" : hasTraceStore ? "not-authorized" : "not-available",
+  };
+}
+
+export function debugTraceHeaders(
+  decision?: DebugTraceDecision,
+): Record<string, string> {
+  if (!decision?.requested || !decision.headerValue) return {};
+  return { "X-Debug-Trace": decision.headerValue };
 }
 
 export function userAgentFamily(userAgent: string | null): string {
@@ -228,8 +283,26 @@ export async function recordConversionEvent(
     const event = await buildSanitizedConversionEvent(env, input);
     logMetric("conversion.event", { ...event });
     await upsertConversionAggregate(env, event);
+    if (input.debugTrace?.allowed) {
+      await insertConversionDebugTrace(env, input, event);
+    }
   } catch (error) {
     console.error("Conversion event write failed:", sanitizeErrorMessage(error));
+  }
+}
+
+export async function cleanupExpiredDebugTraces(env: Env): Promise<number> {
+  if (!env.AUTH_DB) return 0;
+  try {
+    const result = await env.AUTH_DB.prepare(`
+      DELETE FROM conversion_debug_traces
+      WHERE expires_at <= ?
+    `).bind(new Date().toISOString()).run();
+    const meta = result.meta as { changes?: number } | undefined;
+    return typeof meta?.changes === "number" ? meta.changes : 0;
+  } catch (error) {
+    console.error("Debug trace cleanup failed:", sanitizeErrorMessage(error));
+    return 0;
   }
 }
 
@@ -339,6 +412,96 @@ async function upsertConversionAggregate(
   ).run();
 }
 
+async function insertConversionDebugTrace(
+  env: Env,
+  input: ConversionEventInput,
+  event: SanitizedConversionEvent,
+): Promise<void> {
+  if (!env.AUTH_DB) return;
+
+  const now = new Date();
+  const createdAt = now.toISOString();
+  const expiresAt = new Date(
+    now.getTime() + resolveDebugTraceRetentionDays(env) * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  const outputExcerpt = input.result
+    ? sanitizeDebugText(input.result.content, resolveDebugExcerptLimit(env))
+    : null;
+  const errorShort = input.errorMessage
+    ? sanitizeErrorMessage(input.errorMessage)
+    : null;
+
+  await env.AUTH_DB.prepare(`
+    INSERT INTO conversion_debug_traces (
+      id,
+      created_at,
+      expires_at,
+      request_id,
+      route,
+      outcome,
+      status_code,
+      error_code,
+      auth_tier,
+      account_hash,
+      key_hash,
+      target_platform,
+      target_url_hash,
+      target_url_redacted,
+      user_agent_family,
+      format,
+      engine_requested,
+      method_used,
+      cache_status,
+      browser_rendered,
+      paywall_detected,
+      fallbacks,
+      source_content_type,
+      selector_present,
+      selector_length_bucket,
+      force_browser,
+      no_cache,
+      output_chars,
+      output_excerpt,
+      error_message_short,
+      duration_ms,
+      trace_source
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    createRequestId(),
+    createdAt,
+    expiresAt,
+    event.request_id,
+    event.route,
+    event.outcome,
+    event.status_code,
+    event.error_code,
+    event.auth_tier,
+    event.account_hash,
+    event.key_hash,
+    event.target_platform,
+    event.target_url_hash,
+    buildDebugTargetUrl(input.targetUrl),
+    event.user_agent_family,
+    event.format,
+    event.engine_requested,
+    event.method_used,
+    event.cache_status,
+    boolToInt(event.browser_rendered),
+    boolToInt(event.paywall_detected),
+    JSON.stringify(event.fallbacks),
+    input.result?.sourceContentType ?? null,
+    boolToInt(event.selector_present),
+    event.selector_length_bucket,
+    boolToInt(event.force_browser),
+    boolToInt(event.no_cache),
+    input.outputChars ?? (input.result ? input.result.content.length : null),
+    outputExcerpt,
+    errorShort,
+    event.duration_ms,
+    input.debugTrace?.source ?? "unknown",
+  ).run();
+}
+
 function parseTarget(targetUrl: string): { host: string; canonicalUrl: string } {
   try {
     const parsed = new URL(targetUrl);
@@ -350,6 +513,25 @@ function parseTarget(targetUrl: string): { host: string; canonicalUrl: string } 
     };
   } catch {
     return { host: "", canonicalUrl: "" };
+  }
+}
+
+function buildDebugTargetUrl(targetUrl: string): string {
+  try {
+    const parsed = new URL(targetUrl);
+    const params = new URLSearchParams();
+    for (const [rawKey] of parsed.searchParams) {
+      const key = sanitizeQueryKey(rawKey);
+      if (!key) continue;
+      params.append(key, SENSITIVE_KEY_RE.test(rawKey) ? "[redacted]" : "[value]");
+    }
+    const query = params.toString();
+    return clampString(
+      `${parsed.protocol}//${redactHost(parsed.hostname)}${redactPath(parsed.pathname)}${query ? `?${query}` : ""}`,
+      MAX_DEBUG_URL_LENGTH,
+    );
+  } catch {
+    return "[invalid-url]";
   }
 }
 
@@ -368,6 +550,13 @@ function normalizeErrorCode(
   if (outcome === "success") return "";
   const source = title || outcome || `status_${statusCode}`;
   return normalizeDimension(source).replace(/-/g, "_").slice(0, 80) || "error";
+}
+
+function sanitizeDebugText(value: string, maxLength: number): string {
+  return redactSensitiveText(value)
+    .replace(/\r/g, "")
+    .trim()
+    .slice(0, maxLength);
 }
 
 function normalizeDimension(value: unknown): string {
@@ -411,6 +600,90 @@ function quotaBucket(value: number | undefined): string {
   if (value <= 100) return "11_100";
   if (value <= 1000) return "101_1000";
   return "gt_1000";
+}
+
+function resolveDebugTraceRetentionDays(env: Env): number {
+  const parsed = Number(env.DEBUG_TRACE_RETENTION_DAYS);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_DEBUG_TRACE_RETENTION_DAYS;
+  return Math.min(Math.max(1, Math.floor(parsed)), MAX_DEBUG_TRACE_RETENTION_DAYS);
+}
+
+function resolveDebugExcerptLimit(env: Env): number {
+  const parsed = Number(env.DEBUG_TRACE_MAX_CONTENT_CHARS);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_DEBUG_EXCERPT_CHARS;
+  return Math.min(Math.max(256, Math.floor(parsed)), MAX_DEBUG_EXCERPT_CHARS);
+}
+
+function parseBooleanFlag(value: string | null): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function redactPath(pathname: string): string {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) return "/";
+  const extension = safePathExtension(segments[segments.length - 1]);
+  return `/[path:${Math.min(segments.length, 99)}]${extension}`;
+}
+
+function redactHost(hostname: string): string {
+  const host = hostname.toLowerCase();
+  if (
+    !host ||
+    host.includes("@") ||
+    SENSITIVE_PATH_WORD_RE.test(host) ||
+    /^[a-f0-9:.]+$/i.test(host)
+  ) {
+    return "[host]";
+  }
+  const labels = host.split(".").filter(Boolean);
+  if (labels.some((label) => label.length > 63 || /^[A-Za-z0-9_-]{24,}$/.test(label))) {
+    return "[host]";
+  }
+  if (labels.length <= 2) return host;
+  return `*.${labels.slice(-2).join(".")}`;
+}
+
+function safePathExtension(segment: string): string {
+  const decoded = safeDecodeURIComponent(segment).toLowerCase();
+  const match = decoded.match(/\.([a-z0-9]{1,8})$/);
+  if (!match) return "";
+  const extension = match[1];
+  if (!/^(html?|md|txt|pdf|docx?|xlsx?|csv|json)$/.test(extension)) return "";
+  return `.${extension}`;
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function sanitizeQueryKey(key: string): string {
+  return key
+    .trim()
+    .replace(/[^A-Za-z0-9_.:-]/g, "_")
+    .slice(0, 80);
+}
+
+function clampString(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  if (maxLength <= 3) return value.slice(0, maxLength);
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(URL_RE, "[url]")
+    .replace(AUTH_HEADER_RE, "Authorization: [redacted]")
+    .replace(COOKIE_HEADER_RE, (match) => `${match.split(":")[0]}: [redacted]`)
+    .replace(BEARER_RE, "Bearer [redacted]")
+    .replace(SECRET_KEY_RE, "$1=[redacted]")
+    .replace(SECRET_ASSIGNMENT_RE, "$1=[redacted]")
+    .replace(EMAIL_RE, "[email]");
 }
 
 function boolToInt(value: boolean): number {

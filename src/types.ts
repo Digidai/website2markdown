@@ -29,6 +29,10 @@ export interface Env {
   FIRECRAWL_TIMEOUT_MS?: string;
   /** Optional secret salt for analytics HMAC hashes. If omitted, hashes are not persisted. */
   ANALYTICS_SALT?: string;
+  /** Optional debug trace retention in days. Defaults to 7, capped to 14. */
+  DEBUG_TRACE_RETENTION_DAYS?: string;
+  /** Optional max redacted output excerpt characters for debug traces. Defaults to 2000. */
+  DEBUG_TRACE_MAX_CONTENT_CHARS?: string;
   /** Resend API key for sending magic-link emails */
   RESEND_API_KEY?: string;
   /** From address for auth emails, e.g. "md.genedai.me <noreply@mail.genedai.me>" */
