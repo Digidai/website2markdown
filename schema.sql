@@ -36,6 +36,72 @@ CREATE TABLE IF NOT EXISTS usage_daily (
   PRIMARY KEY (key_id, date)
 );
 
+-- Privacy-preserving conversion observability.
+-- This stores hourly aggregates only; raw target URLs, headers, selectors,
+-- response bodies, email addresses, and raw account/key ids are never persisted.
+-- account_hash/key_hash/target_host_hash are populated only when ANALYTICS_SALT
+-- is configured, and are HMAC-SHA256 hashes truncated by the Worker.
+CREATE TABLE IF NOT EXISTS conversion_events_daily (
+  date TEXT NOT NULL,
+  hour TEXT NOT NULL,
+  route TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  status_code INTEGER NOT NULL,
+  error_code TEXT NOT NULL DEFAULT '',
+  auth_tier TEXT NOT NULL,
+  account_hash TEXT NOT NULL DEFAULT '',
+  key_hash TEXT NOT NULL DEFAULT '',
+  target_platform TEXT NOT NULL,
+  target_host_hash TEXT NOT NULL DEFAULT '',
+  country TEXT NOT NULL DEFAULT '',
+  format TEXT NOT NULL,
+  engine_requested TEXT NOT NULL DEFAULT '',
+  method_used TEXT NOT NULL DEFAULT '',
+  cache_status TEXT NOT NULL,
+  browser_rendered INTEGER NOT NULL DEFAULT 0,
+  paywall_detected INTEGER NOT NULL DEFAULT 0,
+  duration_bucket TEXT NOT NULL,
+  output_size_bucket TEXT NOT NULL,
+  selector_present INTEGER NOT NULL DEFAULT 0,
+  selector_length_bucket TEXT NOT NULL DEFAULT 'none',
+  force_browser INTEGER NOT NULL DEFAULT 0,
+  no_cache INTEGER NOT NULL DEFAULT 0,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  error_count INTEGER NOT NULL DEFAULT 0,
+  duration_ms_sum INTEGER NOT NULL DEFAULT 0,
+  credit_cost_sum INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (
+    date,
+    hour,
+    route,
+    outcome,
+    status_code,
+    error_code,
+    auth_tier,
+    account_hash,
+    key_hash,
+    target_platform,
+    target_host_hash,
+    country,
+    format,
+    engine_requested,
+    method_used,
+    cache_status,
+    browser_rendered,
+    paywall_detected,
+    duration_bucket,
+    output_size_bucket,
+    selector_present,
+    selector_length_bucket,
+    force_browser,
+    no_cache
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_conversion_events_daily_date ON conversion_events_daily(date);
+CREATE INDEX IF NOT EXISTS idx_conversion_events_daily_platform ON conversion_events_daily(date, target_platform);
+CREATE INDEX IF NOT EXISTS idx_conversion_events_daily_outcome ON conversion_events_daily(date, outcome, error_code);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id),

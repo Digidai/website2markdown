@@ -141,7 +141,7 @@ export async function handleSendMagicLink(
       // Don't leak the error to the client, but log it
     }
   } else {
-    console.warn("RESEND_API_KEY not configured — magic link logged only:", verifyUrl);
+    console.warn("RESEND_API_KEY not configured; magic link email was not sent.");
   }
 
   return Response.json({

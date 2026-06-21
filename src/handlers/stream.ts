@@ -1,6 +1,6 @@
 // SSE 流式响应处理
 
-import type { Env } from "../types";
+import type { AuthContext, Env } from "../types";
 import { CORS_HEADERS, MAX_SELECTOR_LENGTH } from "../config";
 import { isSafeUrl, isValidUrl, buildRawRequestPath } from "../security";
 import { incrementCounter, logMetric } from "../runtime-state";
@@ -11,6 +11,17 @@ import {
   RequestAbortedError,
   SseStreamClosedError,
 } from "./convert";
+import {
+  createRequestId,
+  recordConversionEvent,
+  sanitizeErrorMessage,
+} from "../observability/conversion-events";
+
+export interface StreamObservabilityOptions {
+  auth?: AuthContext | null;
+  ctx?: ExecutionContext;
+  requestId?: string;
+}
 
 export function sseResponse(
   handler: (
@@ -72,7 +83,7 @@ export function sseResponse(
       ) {
         return;
       }
-      console.error("SSE handler error:", errorMessage(err));
+      console.error("SSE handler error:", sanitizeErrorMessage(err));
     })
     .finally(() => {
       if (requestSignal) {
@@ -103,17 +114,24 @@ export function handleStream(
   url: URL,
   browserAllowed: boolean = true,
   responseHeaders: Record<string, string> = {},
+  observability: StreamObservabilityOptions = {},
 ): Response {
+  const requestId = observability.requestId || createRequestId();
+  const startedAt = Date.now();
+  const sseHeaders = {
+    ...responseHeaders,
+    "X-Request-ID": requestId,
+  };
   const targetUrl = url.searchParams.get("url");
   if (!targetUrl || !isValidUrl(targetUrl)) {
     return sseResponse(async (send) => {
       await send("fail", { title: "Invalid URL", message: "Please provide a valid HTTP(S) URL.", status: 400 });
-    }, request.signal);
+    }, request.signal, sseHeaders);
   }
   if (!isSafeUrl(targetUrl)) {
     return sseResponse(async (send) => {
       await send("fail", { title: "Blocked", message: "Requests to internal or private addresses are not allowed.", status: 403 });
-    }, request.signal);
+    }, request.signal, sseHeaders);
   }
 
   const selector = url.searchParams.get("selector") || undefined;
@@ -124,7 +142,7 @@ export function handleStream(
         message: `selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
         status: 400,
       });
-    }, request.signal);
+    }, request.signal, sseHeaders);
   }
   const forceBrowser = url.searchParams.get("force_browser") === "true";
   const noCache = url.searchParams.get("no_cache") === "true";
@@ -169,6 +187,22 @@ export function handleStream(
         cached: result.cached,
         fallbacks: result.diagnostics.fallbacks,
       });
+      observability.ctx?.waitUntil(recordConversionEvent(env, {
+        request,
+        requestId,
+        route: "stream",
+        targetUrl,
+        auth: observability.auth,
+        format: "markdown",
+        engineRequested: engine,
+        outcome: "success",
+        statusCode: 200,
+        latencyMs: Date.now() - startedAt,
+        result,
+        selector,
+        forceBrowser,
+        noCache,
+      }));
     } catch (err) {
       if (
         err instanceof RequestAbortedError ||
@@ -179,12 +213,46 @@ export function handleStream(
       }
       if (err instanceof ConvertError) {
         incrementCounter("conversionFailures");
+        observability.ctx?.waitUntil(recordConversionEvent(env, {
+          request,
+          requestId,
+          route: "stream",
+          targetUrl,
+          auth: observability.auth,
+          format: "markdown",
+          engineRequested: engine,
+          outcome: "convert_error",
+          statusCode: err.statusCode,
+          latencyMs: Date.now() - startedAt,
+          errorTitle: err.title,
+          errorMessage: err.message,
+          selector,
+          forceBrowser,
+          noCache,
+        }));
         await send("fail", { title: err.title, message: err.message, status: err.statusCode });
       } else {
-        console.error("Stream conversion error:", err);
+        console.error("Stream conversion error:", sanitizeErrorMessage(err));
         incrementCounter("conversionFailures");
+        observability.ctx?.waitUntil(recordConversionEvent(env, {
+          request,
+          requestId,
+          route: "stream",
+          targetUrl,
+          auth: observability.auth,
+          format: "markdown",
+          engineRequested: engine,
+          outcome: "unexpected_error",
+          statusCode: 500,
+          latencyMs: Date.now() - startedAt,
+          errorTitle: "Error",
+          errorMessage: errorMessage(err),
+          selector,
+          forceBrowser,
+          noCache,
+        }));
         await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 });
       }
     }
-  }, request.signal, responseHeaders);
+  }, request.signal, sseHeaders);
 }

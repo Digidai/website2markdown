@@ -872,7 +872,7 @@ async function tryFetchAndParse(
         fallbacks.add("wayback_post_convert");
       }
     } else {
-      console.debug("Wayback fallback unavailable", { url: targetUrl });
+      console.debug("Wayback fallback unavailable", { stage: "post_convert" });
     }
 
     if (markdown.length < 500) {
@@ -890,7 +890,7 @@ async function tryFetchAndParse(
           fallbacks.add("archive_post_convert");
         }
       } else {
-        console.debug("Archive.today fallback unavailable", { url: targetUrl });
+        console.debug("Archive.today fallback unavailable", { stage: "post_convert" });
       }
     }
   }

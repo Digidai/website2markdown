@@ -161,6 +161,7 @@ describe("Magic Link: POST /api/auth/magic-link", () => {
   it("stores token hash and returns 200 for valid email", async () => {
     const d1 = createMockD1();
     const { env } = createMockEnv({ AUTH_DB: d1.db });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const req = new Request("https://md.example.com/api/auth/magic-link", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -175,6 +176,9 @@ describe("Magic Link: POST /api/auth/magic-link", () => {
     expect(stored.token_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(stored.email).toBe("user@example.com");
     expect(stored.used_at).toBeNull();
+    const warning = JSON.stringify(warnSpy.mock.calls);
+    expect(warning).not.toContain("/api/auth/verify?token=");
+    expect(warning).not.toContain(stored.token_hash);
   });
 
   it("normalizes email to lowercase", async () => {

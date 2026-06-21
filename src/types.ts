@@ -27,6 +27,8 @@ export interface Env {
   FIRECRAWL_API_URL?: string;
   /** Optional Firecrawl timeout in milliseconds. */
   FIRECRAWL_TIMEOUT_MS?: string;
+  /** Optional secret salt for analytics HMAC hashes. If omitted, hashes are not persisted. */
+  ANALYTICS_SALT?: string;
   /** Resend API key for sending magic-link emails */
   RESEND_API_KEY?: string;
   /** From address for auth emails, e.g. "md.genedai.me <noreply@mail.genedai.me>" */

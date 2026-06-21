@@ -59,6 +59,7 @@ import {
   wantsJsonError,
   errorResponse,
   buildResponse,
+  withExtraHeaders,
 } from "./helpers/response";
 import {
   convertUrlWithMetrics,
@@ -80,6 +81,11 @@ import {
 import { handleOgImage } from "./handlers/og-image";
 import { handleLlmsTxt } from "./handlers/llms-txt";
 import { handleRobotsTxt, handleSitemap } from "./handlers/seo";
+import {
+  recordConversionEvent,
+  resolveRequestId,
+  sanitizeErrorMessage,
+} from "./observability/conversion-events";
 
 // 重新导出 JobCoordinator 供 wrangler Durable Object 绑定使用
 export { JobCoordinator } from "./handlers/jobs";
@@ -424,7 +430,16 @@ export default {
       const streamResponseHeaders = streamAuth && streamPolicy
         ? policyHeaders(streamPolicy, streamAuth)
         : {};
-      return handleStream(request, env, host, url, streamBrowserAllowed, streamResponseHeaders);
+      const streamRequestId = resolveRequestId(request);
+      return handleStream(
+        request,
+        env,
+        host,
+        url,
+        streamBrowserAllowed,
+        streamResponseHeaders,
+        { auth: streamAuth, ctx, requestId: streamRequestId },
+      );
     }
 
     // R2 image proxy
@@ -550,25 +565,42 @@ export default {
       });
     }
 
+    const requestId = resolveRequestId(request);
+    const conversionStartedAt = Date.now();
+
     // Validate target URL
     if (!isValidUrl(targetUrl)) {
-      return errorResponse(
-        "Invalid URL",
-        "The URL is not valid. Please provide a valid HTTP(S) URL.",
-        400,
-        jsonErrors,
+      return withExtraHeaders(
+        errorResponse(
+          "Invalid URL",
+          "The URL is not valid. Please provide a valid HTTP(S) URL.",
+          400,
+          jsonErrors,
+        ),
+        { "X-Request-ID": requestId },
       );
     }
 
     // SSRF protection
     if (!isSafeUrl(targetUrl)) {
-      return errorResponse(
-        "Blocked",
-        "Requests to internal or private addresses are not allowed.",
-        403,
-        jsonErrors,
+      return withExtraHeaders(
+        errorResponse(
+          "Blocked",
+          "Requests to internal or private addresses are not allowed.",
+          403,
+          jsonErrors,
+        ),
+        { "X-Request-ID": requestId },
       );
     }
+
+    let eventFormat: OutputFormat | string = "markdown";
+    let eventSelector: string | undefined;
+    let eventForceBrowser = false;
+    let eventNoCache = false;
+    let eventEngine: string | undefined;
+    let eventAuth: AuthContext | null = null;
+    let eventPolicy: PolicyDecision | null = null;
 
     try {
       // Parse request parameters
@@ -580,27 +612,38 @@ export default {
 
       const rawFormat = url.searchParams.get("format") || "markdown";
       if (!VALID_FORMATS.has(rawFormat)) {
-        return errorResponse(
-          "Invalid Format",
-          `Unknown format "${rawFormat}". Valid values: markdown, html, text, json.`,
-          400,
-          jsonErrors,
+        return withExtraHeaders(
+          errorResponse(
+            "Invalid Format",
+            `Unknown format "${rawFormat}". Valid values: markdown, html, text, json.`,
+            400,
+            jsonErrors,
+          ),
+          { "X-Request-ID": requestId },
         );
       }
       const format = rawFormat as OutputFormat;
+      eventFormat = format;
       const selector = url.searchParams.get("selector") || undefined;
+      eventSelector = selector;
       if (selector && selector.length > MAX_SELECTOR_LENGTH) {
-        return errorResponse(
-          "Invalid Selector",
-          `selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
-          400,
-          jsonErrors,
+        return withExtraHeaders(
+          errorResponse(
+            "Invalid Selector",
+            `selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
+            400,
+            jsonErrors,
+          ),
+          { "X-Request-ID": requestId },
         );
       }
       const forceBrowser = url.searchParams.get("force_browser") === "true";
       const noCache = url.searchParams.get("no_cache") === "true";
       const queryToken = url.searchParams.get("token");
       const engine = url.searchParams.get("engine") || undefined;
+      eventForceBrowser = forceBrowser;
+      eventNoCache = noCache;
+      eventEngine = engine;
 
       // ── Auth: D1 path (preferred) or legacy token path ──
       let auth: AuthContext;
@@ -625,11 +668,16 @@ export default {
         };
         policy = buildPolicy(auth, "convert");
       }
+      eventAuth = auth;
+      eventPolicy = policy;
 
       // Check policy for restricted parameters
       const policyError = checkPolicy(policy, { forceBrowser, noCache, engine });
       if (policyError) {
-        return errorResponse("Unauthorized", policyError, 401, jsonErrors);
+        return withExtraHeaders(
+          errorResponse("Unauthorized", policyError, 401, jsonErrors),
+          { "X-Request-ID": requestId },
+        );
       }
 
       const browserAllowed = policy.browserAllowed;
@@ -650,18 +698,24 @@ export default {
           acceptHeader.includes("application/json") ||
           acceptHeader.includes("text/markdown");
         if (env.PUBLIC_API_TOKEN && isApiStyleRequest && auth.tier === "anonymous") {
-          return errorResponse(
-            "Unauthorized",
-            "Valid token required for API access.",
-            401,
-            true,
+          return withExtraHeaders(
+            errorResponse(
+              "Unauthorized",
+              "Valid token required for API access.",
+              401,
+              true,
+            ),
+            { "X-Request-ID": requestId },
           );
         }
       }
 
       const rateDecision = await consumeRateLimit(request, env, "convert");
       if (rateDecision?.exceeded) {
-        return rateLimitedResponse("convert", rateDecision, jsonErrors);
+        return withExtraHeaders(
+          rateLimitedResponse("convert", rateDecision, jsonErrors),
+          { "X-Request-ID": requestId },
+        );
       }
 
       // ── Browser document navigation → loading experience with SSE ──
@@ -676,7 +730,28 @@ export default {
               route: "document",
               method: cached.method,
             });
-            return buildResponse(
+            ctx.waitUntil(recordConversionEvent(env, {
+              request,
+              requestId,
+              route: "convert",
+              targetUrl,
+              auth,
+              format: "markdown",
+              engineRequested: engine,
+              outcome: "success",
+              statusCode: 200,
+              latencyMs: Date.now() - conversionStartedAt,
+              methodUsed: cached.method,
+              cacheHit: true,
+              browserRendered: cached.method === "browser+readability+turndown",
+              outputChars: cached.content.length,
+              selector,
+              forceBrowser,
+              noCache,
+              creditCost: policy.creditCost,
+              quotaRemaining: policy.quotaRemaining,
+            }));
+            const resp = buildResponse(
               cached.content, targetUrl, host,
               cached.method as ConvertMethod, "markdown",
               false, "", true, cached.title,
@@ -688,6 +763,8 @@ export default {
               },
               rawRequestPath,
             );
+            resp.headers.set("X-Request-ID", requestId);
+            return resp;
           }
         }
 
@@ -710,6 +787,7 @@ export default {
               "X-Frame-Options": "DENY",
               "X-Content-Type-Options": "nosniff",
               "Referrer-Policy": "strict-origin-when-cross-origin",
+              "X-Request-ID": requestId,
               ...CORS_HEADERS,
             },
           },
@@ -731,15 +809,39 @@ export default {
             rawRequestPath,
           );
           resp.headers.set("X-Quota-Exceeded", "true");
+          resp.headers.set("X-Request-ID", requestId);
           for (const [k, v] of Object.entries(policyHeaders(policy, auth))) resp.headers.set(k, v);
+          ctx.waitUntil(recordConversionEvent(env, {
+            request,
+            requestId,
+            route: "convert",
+            targetUrl,
+            auth,
+            format,
+            engineRequested: engine,
+            outcome: "success",
+            statusCode: 200,
+            latencyMs: Date.now() - conversionStartedAt,
+            methodUsed: cachedFallback.method,
+            cacheHit: true,
+            outputChars: cachedFallback.content.length,
+            selector,
+            forceBrowser,
+            noCache,
+            creditCost: 0,
+            quotaRemaining: policy.quotaRemaining,
+          }));
           return resp;
         }
         // No cache available
-        return errorResponse(
-          "Quota Exceeded",
-          `Monthly quota of ${auth.quotaLimit} credits exhausted. Upgrade your plan at /portal/.`,
-          429,
-          jsonErrors,
+        return withExtraHeaders(
+          errorResponse(
+            "Quota Exceeded",
+            `Monthly quota of ${auth.quotaLimit} credits exhausted. Upgrade your plan at /portal/.`,
+            429,
+            jsonErrors,
+          ),
+          { "X-Request-ID": requestId },
         );
       }
 
@@ -780,6 +882,25 @@ export default {
       );
       // Add rate limit + cost headers
       for (const [k, v] of Object.entries(policyHeaders(policy, auth))) resp.headers.set(k, v);
+      resp.headers.set("X-Request-ID", requestId);
+      ctx.waitUntil(recordConversionEvent(env, {
+        request,
+        requestId,
+        route: "convert",
+        targetUrl,
+        auth,
+        format,
+        engineRequested: engine,
+        outcome: "success",
+        statusCode: 200,
+        latencyMs: Date.now() - conversionStartedAt,
+        result,
+        selector,
+        forceBrowser,
+        noCache,
+        creditCost: policy.creditCost,
+        quotaRemaining: policy.quotaRemaining,
+      }));
       return resp;
     } catch (err: unknown) {
       if (err instanceof ConvertError) {
@@ -788,20 +909,64 @@ export default {
           title: err.title,
           status: err.statusCode,
         });
-        return errorResponse(err.title, err.message, err.statusCode, jsonErrors);
+        ctx.waitUntil(recordConversionEvent(env, {
+          request,
+          requestId,
+          route: "convert",
+          targetUrl,
+          auth: eventAuth,
+          format: eventFormat,
+          engineRequested: eventEngine,
+          outcome: "convert_error",
+          statusCode: err.statusCode,
+          latencyMs: Date.now() - conversionStartedAt,
+          selector: eventSelector,
+          forceBrowser: eventForceBrowser,
+          noCache: eventNoCache,
+          creditCost: eventPolicy?.creditCost,
+          quotaRemaining: eventPolicy?.quotaRemaining,
+          errorTitle: err.title,
+          errorMessage: err.message,
+        }));
+        return withExtraHeaders(
+          errorResponse(err.title, err.message, err.statusCode, jsonErrors),
+          { "X-Request-ID": requestId },
+        );
       }
       const message = err instanceof Error ? err.message : String(err);
-      console.error("Conversion error:", { url: targetUrl, error: message });
+      console.error("Conversion error:", sanitizeErrorMessage(message));
       incrementCounter("conversionFailures");
       logMetric("convert.failed", {
         title: "Error",
         status: 500,
       });
-      return errorResponse(
-        "Error",
-        "Failed to process the URL. Please try again later.",
-        500,
-        jsonErrors,
+      ctx.waitUntil(recordConversionEvent(env, {
+        request,
+        requestId,
+        route: "convert",
+        targetUrl,
+        auth: eventAuth,
+        format: eventFormat,
+        engineRequested: eventEngine,
+        outcome: "unexpected_error",
+        statusCode: 500,
+        latencyMs: Date.now() - conversionStartedAt,
+        selector: eventSelector,
+        forceBrowser: eventForceBrowser,
+        noCache: eventNoCache,
+        creditCost: eventPolicy?.creditCost,
+        quotaRemaining: eventPolicy?.quotaRemaining,
+        errorTitle: "Error",
+        errorMessage: message,
+      }));
+      return withExtraHeaders(
+        errorResponse(
+          "Error",
+          "Failed to process the URL. Please try again later.",
+          500,
+          jsonErrors,
+        ),
+        { "X-Request-ID": requestId },
       );
     }
   },

@@ -16,6 +16,7 @@ import {
   readBodyWithLimit,
   BodyTooLargeError,
 } from "./convert";
+import { sanitizeErrorMessage } from "../observability/conversion-events";
 
 const BATCH_BODY_MAX_BYTES = 100_000;
 
@@ -205,7 +206,7 @@ export async function handleBatch(
       );
     }
 
-    const tasks = items.map((item) => async () => {
+    const tasks = items.map((item, index) => async () => {
       if (!isValidUrl(item.url) || !isSafeUrl(item.url)) {
         return { url: item.url, format: item.format, error: "Invalid or blocked URL" };
       }
@@ -247,7 +248,10 @@ export async function handleBatch(
           return { url: item.url, format: item.format, error: e.message };
         }
         incrementCounter("conversionFailures");
-        console.error("Batch item failed:", item.url, e instanceof Error ? e.message : e);
+        console.error("Batch item failed:", {
+          index,
+          error: sanitizeErrorMessage(e),
+        });
         return { url: item.url, format: item.format, error: "Failed to process this URL." };
       }
     });
