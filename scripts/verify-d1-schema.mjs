@@ -8,16 +8,27 @@ const REQUIRED_INDEXES = [
 ];
 
 function runD1(command) {
-  const output = execFileSync(
-    "wrangler",
-    ["d1", "execute", "AUTH_DB", "--remote", "--json", "--command", command],
-    { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
-  );
-  const payload = JSON.parse(output);
-  if (!Array.isArray(payload) || payload.length === 0 || payload[0]?.success !== true) {
-    throw new Error(`D1 command failed: ${command}`);
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const output = execFileSync(
+        "wrangler",
+        ["d1", "execute", "AUTH_DB", "--remote", "--json", "--command", command],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+      );
+      const payload = JSON.parse(output);
+      if (!Array.isArray(payload) || payload.length === 0 || payload[0]?.success !== true) {
+        throw new Error(`D1 command failed: ${command}`);
+      }
+      return payload[0].results ?? [];
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        console.warn(`D1 verify attempt ${attempt} failed; retrying...`);
+      }
+    }
   }
-  return payload[0].results ?? [];
+  throw lastError;
 }
 
 const tables = runD1(
