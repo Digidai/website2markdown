@@ -15,7 +15,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "build": "node ./node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir dist",
-    "deploy": "wrangler deploy",
+    "db:migrate:remote": "wrangler d1 execute AUTH_DB --remote --file=schema.sql",
+    "db:verify:remote": "node scripts/verify-d1-schema.mjs",
+    "deploy": "npm run db:migrate:remote && npm run db:verify:remote && wrangler deploy",
+    "deploy:worker": "wrangler deploy",
     "tail": "wrangler tail",
     "smoke:api": "bash scripts/smoke-api.sh",
     "typecheck": "tsc --noEmit",

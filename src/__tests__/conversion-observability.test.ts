@@ -382,6 +382,54 @@ describe("conversion observability", () => {
     expect(binds).not.toContain("mk_secret_test");
   });
 
+  it("rejects anonymous stream restricted engine before conversion", async () => {
+    const { db, statements } = createD1Mock();
+    const { env } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+    const ctx = mockCtx();
+
+    const req = new Request(
+      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&engine=sk_live_secret_value&debug_trace=true",
+    );
+    const res = await worker.fetch(req, env, ctx);
+    const payload = await res.json() as { error?: string; message?: string };
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(401);
+    expect(payload.error).toBe("Unauthorized");
+    expect(payload.message).toContain("engine selection requires a Pro API key");
+    expect(res.headers.get("X-Debug-Trace")).toBeNull();
+    expect(vi.mocked(convertUrlWithMetrics)).not.toHaveBeenCalled();
+    expect(serialize(statements)).not.toContain("sk_live_secret_value");
+  });
+
+  it("does not report accepted debug trace for stream pre-validation failures", async () => {
+    const { db, statements } = createD1Mock({
+      authRow: {
+        key_id: "key_raw_123",
+        account_id: "acct_raw_456",
+        revoked_at: null,
+        tier: "pro",
+        monthly_credits_used: 0,
+        monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+      },
+    });
+    const { env } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+    const ctx = mockCtx();
+
+    const req = new Request("https://md.example.com/api/stream?url=not-a-url&debug_trace=true", {
+      headers: { Authorization: "Bearer mk_stream_invalid_test" },
+    });
+    const res = await worker.fetch(req, env, ctx);
+    const body = await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Debug-Trace")).toBeNull();
+    expect(body).toContain("event: fail");
+    expect(body).toContain("Invalid URL");
+    expect(debugTraceStatements(statements)).toHaveLength(0);
+  });
+
   it("does not write debug trace for anonymous callers that request it", async () => {
     vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult());
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -515,6 +563,55 @@ describe("conversion observability", () => {
     expect(res.headers.get("X-Debug-Trace")).toBe("not-available");
   });
 
+  it("writes session-authenticated document cache hit debug trace with redacted cached excerpt", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const { db, statements } = createD1Mock({
+      sessionRow: {
+        session_id: "sess_raw_123",
+        account_id: "acct_raw_456",
+        expires_at: "2099-01-01T00:00:00.000Z",
+        email: "person@example.com",
+        tier: "pro",
+        github_id: null,
+      },
+    });
+    const { env, mocks } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+    mocks.kvGet.mockResolvedValueOnce(JSON.stringify({
+      content: "# Cached\n\napi_key: cached_secret\nContact cached@example.com",
+      method: "native",
+      title: "Cached Debug",
+      sourceContentType: "text/markdown",
+    }));
+    const ctx = mockCtx();
+
+    const req = new Request("https://md.example.com/https://example.com/cached-debug?debug_trace=true", {
+      headers: {
+        Accept: "text/html",
+        "Sec-Fetch-Dest": "document",
+        Cookie: "md_session=session_secret",
+      },
+    });
+    const res = await worker.fetch(req, env, ctx);
+    const html = await res.text();
+    await flushWaitUntil(ctx);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Debug-Trace")).toBe("accepted");
+    expect(html).toContain("Cached Debug");
+
+    const debug = debugTraceStatements(statements).find((statement) =>
+      statement.sql.includes("INSERT INTO conversion_debug_traces")
+    );
+    expect(debug).toBeTruthy();
+    const binds = serialize(debug?.binds);
+    expect(binds).toContain("text/markdown");
+    expect(binds).toContain("Cached");
+    expect(binds).not.toContain("cached_secret");
+    expect(binds).not.toContain("cached@example.com");
+    expect(binds).not.toContain("session_secret");
+    expect(binds).not.toContain("acct_raw_456");
+  });
+
   it("writes short-lived redacted debug trace for authenticated opt-in callers", async () => {
     vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult({
       content:
@@ -556,13 +653,13 @@ describe("conversion observability", () => {
     const ctx = mockCtx();
 
     const req = new Request(
-      "https://md.example.com/https://example.com/private/123456789012?raw=true&debug_trace=true&access_token=target_secret&q=search",
+      "https://md.example.com/https://example.com/private/123456789012?raw=true&debug_trace=true&access_token=target_secret&q=search&sk_live_query_secret=value",
       {
         headers: {
           Accept: "text/markdown",
           Authorization: "Bearer mk_secret_test",
           Cookie: "md_session=session_secret",
-          "X-Request-ID": "req-debug-123",
+          "X-Request-ID": "mk_secret_request_id_value",
         },
       },
     );
@@ -578,14 +675,17 @@ describe("conversion observability", () => {
     );
     expect(debug).toBeTruthy();
     const binds = serialize(debug?.binds);
-    expect(binds).toContain("req-debug-123");
     expect(binds).toContain("firecrawl");
     expect(binds).toContain("text/html; charset=utf-8");
     expect(binds).toContain("jina_fallback");
     expect(binds).toContain("https://example.com/[path:2]");
-    expect(binds).toContain("access_token");
-    expect(binds).toContain("q");
+    expect(binds).toContain("redacted_1");
+    expect(binds).toContain("param_2");
+    expect(binds).toContain("redacted_3");
     expect(binds).not.toContain("private/123456789012");
+    expect(binds).not.toContain("mk_secret_request_id_value");
+    expect(binds).not.toContain("access_token");
+    expect(binds).not.toContain("sk_live_query_secret");
     expect(binds).not.toContain("target_secret");
     expect(binds).not.toContain("raw_token");
     expect(binds).not.toContain("raw_secret");

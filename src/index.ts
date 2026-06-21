@@ -418,6 +418,10 @@ export default {
       if (request.method !== "GET") {
         return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
       }
+      const streamToken = url.searchParams.get("token");
+      const streamNoCache = url.searchParams.get("no_cache") === "true";
+      const streamEngine = url.searchParams.get("engine") || undefined;
+      const streamForceBrowser = url.searchParams.get("force_browser") === "true";
       // D1 auth path (preferred when AUTH_DB is configured)
       const streamAuth = env.AUTH_DB
         ? await resolveStreamAuth(request, env)
@@ -425,13 +429,22 @@ export default {
       const streamPolicy = streamAuth
         ? buildPolicy(streamAuth, "stream")
         : null;
+      const streamPolicyError = streamPolicy
+        ? checkPolicy(streamPolicy, {
+          forceBrowser: streamForceBrowser,
+          noCache: streamNoCache,
+          engine: streamEngine,
+        })
+        : null;
+      if (streamPolicyError) {
+        return Response.json(
+          { error: "Unauthorized", message: streamPolicyError },
+          { status: 401, headers: CORS_HEADERS },
+        );
+      }
 
       // Legacy auth fallback (when no D1)
       if (!streamAuth) {
-        const streamToken = url.searchParams.get("token");
-        const streamNoCache = url.searchParams.get("no_cache") === "true";
-        const streamEngine = url.searchParams.get("engine");
-        const streamForceBrowser = url.searchParams.get("force_browser") === "true";
         if (env.PUBLIC_API_TOKEN) {
           const authorized = await isAuthorizedByToken(request, env.PUBLIC_API_TOKEN, streamToken);
           if (!authorized) {
@@ -687,7 +700,9 @@ export default {
 
       if (env.AUTH_DB) {
         // D1-backed auth — resolveAuth checks Bearer header
-        auth = await resolveAuth(request, env);
+        auth = isDocumentNav
+          ? (await resolveStreamAuth(request, env)) ?? await resolveAuth(request, env)
+          : await resolveAuth(request, env);
         policy = buildPolicy(auth, "convert");
       } else {
         // Legacy path: single-token auth (no D1 configured)
@@ -782,6 +797,8 @@ export default {
               cacheHit: true,
               browserRendered: cached.method === "browser+readability+turndown",
               outputChars: cached.content.length,
+              debugOutputContent: cached.content,
+              debugSourceContentType: cached.sourceContentType,
               selector,
               forceBrowser,
               noCache,
@@ -867,7 +884,10 @@ export default {
             latencyMs: Date.now() - conversionStartedAt,
             methodUsed: cachedFallback.method,
             cacheHit: true,
+            browserRendered: cachedFallback.method === "browser+readability+turndown",
             outputChars: cachedFallback.content.length,
+            debugOutputContent: cachedFallback.content,
+            debugSourceContentType: cachedFallback.sourceContentType,
             selector,
             forceBrowser,
             noCache,

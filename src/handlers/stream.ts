@@ -121,21 +121,20 @@ export function handleStream(
 ): Response {
   const requestId = observability.requestId || createRequestId();
   const startedAt = Date.now();
-  const sseHeaders = {
+  const baseSseHeaders = {
     ...responseHeaders,
-    ...debugTraceHeaders(observability.debugTrace),
     "X-Request-ID": requestId,
   };
   const targetUrl = url.searchParams.get("url");
   if (!targetUrl || !isValidUrl(targetUrl)) {
     return sseResponse(async (send) => {
       await send("fail", { title: "Invalid URL", message: "Please provide a valid HTTP(S) URL.", status: 400 });
-    }, request.signal, sseHeaders);
+    }, request.signal, baseSseHeaders);
   }
   if (!isSafeUrl(targetUrl)) {
     return sseResponse(async (send) => {
       await send("fail", { title: "Blocked", message: "Requests to internal or private addresses are not allowed.", status: 403 });
-    }, request.signal, sseHeaders);
+    }, request.signal, baseSseHeaders);
   }
 
   const selector = url.searchParams.get("selector") || undefined;
@@ -146,7 +145,7 @@ export function handleStream(
         message: `selector is too long (max ${MAX_SELECTOR_LENGTH} characters).`,
         status: 400,
       });
-    }, request.signal, sseHeaders);
+    }, request.signal, baseSseHeaders);
   }
   const forceBrowser = url.searchParams.get("force_browser") === "true";
   const noCache = url.searchParams.get("no_cache") === "true";
@@ -159,6 +158,10 @@ export function handleStream(
     engine,
     token: queryToken || undefined,
   });
+  const sseHeaders = {
+    ...baseSseHeaders,
+    ...debugTraceHeaders(observability.debugTrace),
+  };
 
   return sseResponse(async (send, streamSignal) => {
     try {

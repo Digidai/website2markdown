@@ -21,6 +21,8 @@ export interface ConversionEventInput {
   statusCode: number;
   latencyMs: number;
   result?: ConvertResult;
+  debugOutputContent?: string;
+  debugSourceContentType?: string;
   methodUsed?: ConvertMethod | string | null;
   fallbacks?: string[];
   browserRendered?: boolean;
@@ -87,6 +89,7 @@ const DEFAULT_DEBUG_TRACE_RETENTION_DAYS = 7;
 const MAX_DEBUG_TRACE_RETENTION_DAYS = 14;
 const DEFAULT_DEBUG_EXCERPT_CHARS = 2000;
 const MAX_DEBUG_EXCERPT_CHARS = 5000;
+const SAFE_ENGINE_VALUES = new Set(["native", "jina", "firecrawl", "cf"]);
 
 const SECRET_KEY_RE =
   /\b(authorization|bearer|token|access_token|refresh_token|api_key|apikey|key|secret|password|passwd|session|cookie|code|signature)=([^&\s"'<>]+)/gi;
@@ -124,10 +127,13 @@ export function resolveRequestId(request: Request): string {
   const incoming = request.headers.get("X-Request-ID") ||
     request.headers.get("X-Request-Id");
   if (incoming) {
+    const trimmed = incoming.trim();
+    if (containsSensitiveIdentifier(trimmed)) return createRequestId();
     const normalized = incoming
       .trim()
       .replace(/[^A-Za-z0-9._:-]/g, "")
       .slice(0, MAX_REQUEST_ID_LENGTH);
+    if (containsSensitiveIdentifier(normalized)) return createRequestId();
     if (normalized.length >= 8) return normalized;
   }
   return createRequestId();
@@ -257,7 +263,7 @@ export async function buildSanitizedConversionEvent(
     country: normalizeDimension(cf?.country ?? ""),
     colo: normalizeDimension(cf?.colo ?? ""),
     format: normalizeDimension(input.format ?? "markdown"),
-    engine_requested: normalizeDimension(input.engineRequested ?? ""),
+    engine_requested: normalizeEngineRequested(input.engineRequested),
     method_used: normalizeDimension(method),
     cache_status: input.noCache ? "bypass" : cacheHit ? "hit" : "miss",
     browser_rendered: input.browserRendered ?? diagnostics?.browserRendered ?? false,
@@ -424,8 +430,9 @@ async function insertConversionDebugTrace(
   const expiresAt = new Date(
     now.getTime() + resolveDebugTraceRetentionDays(env) * 24 * 60 * 60 * 1000,
   ).toISOString();
-  const outputExcerpt = input.result
-    ? sanitizeDebugText(input.result.content, resolveDebugExcerptLimit(env))
+  const debugContent = input.result?.content ?? input.debugOutputContent;
+  const outputExcerpt = debugContent
+    ? sanitizeDebugText(debugContent, resolveDebugExcerptLimit(env))
     : null;
   const errorShort = input.errorMessage
     ? sanitizeErrorMessage(input.errorMessage)
@@ -489,12 +496,12 @@ async function insertConversionDebugTrace(
     boolToInt(event.browser_rendered),
     boolToInt(event.paywall_detected),
     JSON.stringify(event.fallbacks),
-    input.result?.sourceContentType ?? null,
+    input.result?.sourceContentType ?? input.debugSourceContentType ?? null,
     boolToInt(event.selector_present),
     event.selector_length_bucket,
     boolToInt(event.force_browser),
     boolToInt(event.no_cache),
-    input.outputChars ?? (input.result ? input.result.content.length : null),
+    input.outputChars ?? (debugContent ? debugContent.length : null),
     outputExcerpt,
     errorShort,
     event.duration_ms,
@@ -520,10 +527,14 @@ function buildDebugTargetUrl(targetUrl: string): string {
   try {
     const parsed = new URL(targetUrl);
     const params = new URLSearchParams();
+    let paramIndex = 0;
     for (const [rawKey] of parsed.searchParams) {
-      const key = sanitizeQueryKey(rawKey);
-      if (!key) continue;
-      params.append(key, SENSITIVE_KEY_RE.test(rawKey) ? "[redacted]" : "[value]");
+      paramIndex += 1;
+      const sensitiveKey = SENSITIVE_KEY_RE.test(rawKey) || containsSensitiveIdentifier(rawKey);
+      params.append(
+        sensitiveKey ? `redacted_${paramIndex}` : `param_${paramIndex}`,
+        sensitiveKey ? "[redacted]" : "[value]",
+      );
     }
     const query = params.toString();
     return clampString(
@@ -550,6 +561,13 @@ function normalizeErrorCode(
   if (outcome === "success") return "";
   const source = title || outcome || `status_${statusCode}`;
   return normalizeDimension(source).replace(/-/g, "_").slice(0, 80) || "error";
+}
+
+function normalizeEngineRequested(value: string | undefined): string {
+  const normalized = normalizeDimension(value ?? "");
+  if (!normalized) return "";
+  if (SAFE_ENGINE_VALUES.has(normalized)) return normalized;
+  return "custom";
 }
 
 function sanitizeDebugText(value: string, maxLength: number): string {
@@ -662,17 +680,23 @@ function safeDecodeURIComponent(value: string): string {
   }
 }
 
-function sanitizeQueryKey(key: string): string {
-  return key
-    .trim()
-    .replace(/[^A-Za-z0-9_.:-]/g, "_")
-    .slice(0, 80);
-}
-
 function clampString(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   if (maxLength <= 3) return value.slice(0, maxLength);
   return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function containsSensitiveIdentifier(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return (
+    /https?:\/\//i.test(trimmed) ||
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i.test(trimmed) ||
+    /\bBearer\s+[A-Za-z0-9._~+/-]+=*/i.test(trimmed) ||
+    /\b(?:sk|pk|mk|fc|ghp|gho|ghu|ghs|xoxb|xoxp)[_-][A-Za-z0-9_-]{8,}\b/i.test(trimmed) ||
+    /\b(?:access_token|refresh_token|api_key|apikey|authorization|bearer|token|secret|password|passwd|session|cookie|csrf|xsrf|jwt|signature)\b/i.test(trimmed) ||
+    /[A-Za-z0-9_-]{40,}/.test(trimmed)
+  );
 }
 
 function redactSensitiveText(value: string): string {

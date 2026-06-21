@@ -40,7 +40,11 @@ request_json() {
   rm -f "$tmp_file"
 }
 
-echo "[1/5] /api/health"
+encoded_target_url() {
+  node -e 'process.stdout.write(encodeURIComponent(process.argv[1] || ""))' "$1"
+}
+
+echo "[1/7] /api/health"
 health_json="$(curl -fsS "${BASE_URL}/api/health")"
 printf '%s' "$health_json" | node -e '
 let data = "";
@@ -52,7 +56,7 @@ process.stdin.on("end", () => {
 });
 '
 
-echo "[2/5] /api/extract"
+echo "[2/7] /api/extract"
 extract_json="$(request_json "POST" "${BASE_URL}/api/extract" '{
   "strategy": "css",
   "html": "<article><h1>Smoke</h1><p>ok</p></article>",
@@ -72,7 +76,7 @@ process.stdin.on("end", () => {
 });
 '
 
-echo "[3/5] /api/jobs + /api/jobs/:id"
+echo "[3/7] /api/jobs + /api/jobs/:id"
 job_json="$(request_json "POST" "${BASE_URL}/api/jobs" "{
   \"type\": \"crawl\",
   \"tasks\": [\"${TARGET_URL}\"],
@@ -102,7 +106,7 @@ process.stdin.on("end", () => {
 });
 '
 
-echo "[4/5] /api/jobs/:id/run"
+echo "[4/7] /api/jobs/:id/run"
 job_run_json="$(request_json "POST" "${BASE_URL}/api/jobs/${job_id}/run")"
 printf '%s' "$job_run_json" | node -e '
 let data = "";
@@ -113,7 +117,7 @@ process.stdin.on("end", () => {
 });
 '
 
-echo "[5/5] /api/deepcrawl"
+echo "[5/7] /api/deepcrawl"
 deepcrawl_json="$(request_json "POST" "${BASE_URL}/api/deepcrawl" "{
   \"seed\": \"${TARGET_URL}\",
   \"max_depth\": 0,
@@ -128,5 +132,51 @@ process.stdin.on("end", () => {
   if (!payload.crawlId || !payload.stats) process.exit(1);
 });
 '
+
+encoded_target="$(encoded_target_url "$TARGET_URL")"
+
+echo "[6/7] public debug_trace headers"
+debug_headers="$(mktemp)"
+debug_body="$(mktemp)"
+debug_status="$(curl -sS -D "$debug_headers" -o "$debug_body" -w "%{http_code}" \
+  -H "Accept: text/markdown" \
+  "${BASE_URL}/${encoded_target}?raw=true&debug_trace=true")"
+if [[ "$debug_status" -lt 200 || "$debug_status" -ge 300 ]]; then
+  echo "debug_trace conversion failed (HTTP ${debug_status})"
+  cat "$debug_body"
+  rm -f "$debug_headers" "$debug_body"
+  exit 1
+fi
+if ! grep -Eiq '^x-debug-trace: (not-authorized|not-available)' "$debug_headers"; then
+  echo "Expected X-Debug-Trace to be not-authorized or not-available"
+  cat "$debug_headers"
+  rm -f "$debug_headers" "$debug_body"
+  exit 1
+fi
+if ! grep -Eiq '^access-control-expose-headers: .*X-Debug-Trace' "$debug_headers"; then
+  echo "Expected Access-Control-Expose-Headers to expose X-Debug-Trace"
+  cat "$debug_headers"
+  rm -f "$debug_headers" "$debug_body"
+  exit 1
+fi
+rm -f "$debug_headers" "$debug_body"
+
+echo "[7/7] /api/stream rejects restricted anonymous engine"
+stream_body="$(mktemp)"
+stream_status="$(curl -sS -o "$stream_body" -w "%{http_code}" \
+  "${BASE_URL}/api/stream?url=${encoded_target}&engine=sk_live_smoke_secret")"
+if [[ "$stream_status" != "401" ]]; then
+  echo "Expected /api/stream restricted engine to return 401, got HTTP ${stream_status}"
+  cat "$stream_body"
+  rm -f "$stream_body"
+  exit 1
+fi
+if ! grep -q "engine selection requires" "$stream_body"; then
+  echo "Expected restricted engine policy message"
+  cat "$stream_body"
+  rm -f "$stream_body"
+  exit 1
+fi
+rm -f "$stream_body"
 
 echo "Smoke checks passed for ${BASE_URL}"
