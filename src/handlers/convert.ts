@@ -820,7 +820,7 @@ async function tryFetchAndParse(
   }
 
   // 8.5. Paywall 绕过：移除 paywall 元素并提取 JSON-LD 回退
-  finalHtml = removePaywallElements(finalHtml);
+  finalHtml = removePaywallElements(finalHtml, getPaywallRule(resolvedUrl));
 
   // 8.6. 如果内容看起来被 paywall 挡住，尝试 AMP 版本
   const htmlLooksPaywalled = looksPaywalled(finalHtml);
@@ -886,7 +886,7 @@ async function tryFetchAndParse(
     const waybackHtml = await fetchWaybackSnapshot(conversionUrl, abortSignal);
     if (waybackHtml) {
       const wbResult = htmlToMarkdown(
-        removePaywallElements(waybackHtml),
+        removePaywallElements(waybackHtml, getPaywallRule(conversionUrl)),
         conversionUrl,
         selector,
       );
@@ -904,7 +904,7 @@ async function tryFetchAndParse(
       const archiveHtml = await fetchArchiveToday(conversionUrl, abortSignal);
       if (archiveHtml) {
         const arResult = htmlToMarkdown(
-          removePaywallElements(archiveHtml),
+          removePaywallElements(archiveHtml, getPaywallRule(conversionUrl)),
           conversionUrl,
           selector,
         );

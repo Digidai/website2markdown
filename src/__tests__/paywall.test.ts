@@ -515,6 +515,52 @@ describe("removePaywallElements", () => {
     expect(result).toContain("Truncated");
     expect(result).not.toContain("overflow");
   });
+
+  it("strips elements via the new data-qa / data-cy paywall attributes", () => {
+    const html = `<p>Keep</p><div data-qa="paywall"><p>QaWall</p></div><div data-cy="paywall"><p>CyWall</p></div>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("Keep");
+    expect(result).not.toContain("QaWall");
+    expect(result).not.toContain("CyWall");
+  });
+
+  it("applies a rule's site-specific removeSelectors", () => {
+    const html = `<article><p>Article body</p></article><div class="site-upsell"><p>Subscribe banner</p></div>`;
+    const rule = { domains: ["example.com"], removeSelectors: [".site-upsell"] };
+    const result = removePaywallElements(html, rule);
+    expect(result).toContain("Article body");
+    expect(result).not.toContain("Subscribe banner");
+  });
+
+  it("combines global and per-rule selectors", () => {
+    const html = `<article><p>Body</p></article><div class="paywall"><p>GlobalWall</p></div><div class="x-promo"><p>RulePromo</p></div>`;
+    const rule = { domains: ["example.com"], removeSelectors: [".x-promo"] };
+    const result = removePaywallElements(html, rule);
+    expect(result).toContain("Body");
+    expect(result).not.toContain("GlobalWall");
+    expect(result).not.toContain("RulePromo");
+  });
+
+  it("does NOT apply rule selectors when no rule is passed (field is rule-gated)", () => {
+    const html = `<article><p>Body</p></article><div class="x-promo"><p>RulePromo</p></div>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("RulePromo"); // global list does not contain .x-promo
+  });
+
+  it("does not over-remove unrelated content when a rule selector is present", () => {
+    const html = `<div class="content"><p>Real article</p></div><div class="site-upsell">Wall</div>`;
+    const rule = { domains: ["example.com"], removeSelectors: [".site-upsell"] };
+    const result = removePaywallElements(html, rule);
+    expect(result).toContain("Real article");
+    expect(result).toContain('class="content"');
+  });
+
+  it("treats an empty removeSelectors array as a no-op beyond the global list", () => {
+    const html = `<div class="content"><p>Kept</p></div>`;
+    const rule = { domains: ["example.com"], removeSelectors: [] };
+    const result = removePaywallElements(html, rule);
+    expect(result).toBe(html);
+  });
 });
 
 describe("looksPaywalled", () => {

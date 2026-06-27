@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.2] - 2026-06-28
+
+Paywall element stripping gets more precise: per-site rules can now actually
+remove their own overlay elements.
+
+### Fixed
+- Paywall rules' per-site `removeSelectors` are now applied. The field was
+  declared and parsed but never used, so any site-specific overlay selector
+  silently did nothing. `removePaywallElements` now strips both the global
+  paywall selectors and the matching rule's `removeSelectors`.
+
+### Added
+- Two more global paywall-overlay selectors (`[data-qa="paywall"]`,
+  `[data-cy="paywall"]`) alongside the existing `[data-testid="paywall"]`.
+
 ## [1.1.1] - 2026-06-27
 
 Twitter/X gets a browser-free fallback so a fxtwitter outage no longer

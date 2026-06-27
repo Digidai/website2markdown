@@ -248,6 +248,8 @@ const PAYWALL_SELECTORS = [
   "[data-paywall]",
   "[data-piano]",
   '[data-testid="paywall"]',
+  '[data-qa="paywall"]',
+  '[data-cy="paywall"]',
   ".tp-modal",
   ".tp-backdrop",
   "#piano-offer",
@@ -407,14 +409,13 @@ function escapeForHtml(s: string): string {
 }
 
 /**
- * Remove common paywall overlay/modal DOM elements from HTML.
- * Also strips CSS truncation tricks on article containers.
+ * Remove every element matching a list of simple class/id/attribute selectors.
+ * Shared by the global paywall list and per-rule `removeSelectors`.
  */
-export function removePaywallElements(html: string): string {
+function applySelectorRemoval(html: string, selectors: string[]): string {
   let result = html;
 
-  // Remove elements matching paywall selectors
-  for (const selector of PAYWALL_SELECTORS) {
+  for (const selector of selectors) {
     if (selector.startsWith(".")) {
       // Class-based: remove elements with this class
       const className = selector.slice(1);
@@ -448,6 +449,23 @@ export function removePaywallElements(html: string): string {
         result = result.replace(attrRegex, "");
       }
     }
+  }
+
+  return result;
+}
+
+/**
+ * Remove common paywall overlay/modal DOM elements from HTML.
+ * Also strips CSS truncation tricks on article containers.
+ *
+ * Applies the global PAYWALL_SELECTORS plus, when a matching paywall `rule`
+ * is supplied, that rule's site-specific `removeSelectors`.
+ */
+export function removePaywallElements(html: string, rule?: PaywallRule | null): string {
+  let result = applySelectorRemoval(html, PAYWALL_SELECTORS);
+
+  if (rule?.removeSelectors && rule.removeSelectors.length > 0) {
+    result = applySelectorRemoval(result, rule.removeSelectors);
   }
 
   // Remove style attributes with overflow:hidden or max-height on article containers
