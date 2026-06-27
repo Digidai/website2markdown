@@ -193,20 +193,36 @@ describe("adapter behavior", () => {
 
     expect(html).toContain("Alice (@alice)");
     expect(html).toContain("hello thread");
+    // fxtwitter supplies a retweet count — it stays rendered
+    expect(html).toContain("2 retweets");
     expect(fetchMock).toHaveBeenCalled();
   });
 
-  it("falls back to oEmbed when fxtwitter fails", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("{}", { status: 500 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        author_name: "Bob",
-        author_url: "https://x.com/bob",
-        html: "<blockquote>tweet body</blockquote>",
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+  it("falls back to oEmbed when fxtwitter and syndication both fail", async () => {
+    const fetchMock = vi.fn(async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.fxtwitter.com")) {
+        return new Response("{}", { status: 500 });
+      }
+      if (url.includes("cdn.syndication.twimg.com")) {
+        // tweet-result not-found returns an empty object
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("publish.twitter.com/oembed")) {
+        return new Response(JSON.stringify({
+          author_name: "Bob",
+          author_url: "https://x.com/bob",
+          html: "<blockquote>tweet body</blockquote>",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const html = await twitterAdapter.fetchDirect!(
@@ -215,6 +231,136 @@ describe("adapter behavior", () => {
 
     expect(html).toContain("Bob (@bob)");
     expect(html).toContain("tweet body");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the syndication CDN when fxtwitter is down", async () => {
+    const id = "1585341984679469056";
+    const fetchMock = vi.fn(async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.fxtwitter.com")) {
+        return new Response("{}", { status: 503 });
+      }
+      if (url.includes("cdn.syndication.twimg.com")) {
+        return new Response(JSON.stringify({
+          id_str: id,
+          text: "Entering Twitter HQ",
+          user: { name: "Elon", screen_name: "elonmusk" },
+          created_at: "2022-10-26T23:54:00.000Z",
+          favorite_count: 42,
+          conversation_count: 7,
+          mediaDetails: [
+            {
+              type: "photo",
+              media_url_https: "https://pbs.twimg.com/media/PHOTO.jpg",
+            },
+            {
+              type: "video",
+              media_url_https: "https://pbs.twimg.com/poster.jpg",
+              video_info: {
+                variants: [
+                  { content_type: "application/x-mpegURL", url: "https://video/hls.m3u8" },
+                  { bitrate: 256000, content_type: "video/mp4", url: "https://video/low.mp4" },
+                  { bitrate: 2176000, content_type: "video/mp4", url: "https://video/high.mp4" },
+                ],
+              },
+            },
+          ],
+          quoted_tweet: {
+            user: { name: "Quoted", screen_name: "quoted" },
+            text: "the quoted text",
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      // timeline walk-down unavailable
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const html = await twitterAdapter.fetchDirect!(
+      `https://x.com/elonmusk/status/${id}`,
+    );
+
+    expect(html).toContain("Elon (@elonmusk)");
+    expect(html).toContain("Entering Twitter HQ");
+    expect(html).toContain("https://pbs.twimg.com/media/PHOTO.jpg");
+    // highest-bitrate MP4 variant is selected; HLS and lower bitrates excluded
+    expect(html).toContain("https://video/high.mp4");
+    expect(html).not.toContain("https://video/low.mp4");
+    expect(html).not.toContain("hls.m3u8");
+    expect(html).toContain("Quoted (@quoted)");
+    expect(html).toContain("the quoted text");
+    expect(html).toContain("7 replies");
+    expect(html).toContain("42 likes");
+    // syndication has no retweet count — must not assert a false "0 retweets"
+    expect(html).not.toContain("retweets");
+  });
+
+  it("computes the syndication token client-side for the requested id", async () => {
+    const id = "20";
+    const expectedToken = ((Number(id) / 1e15) * Math.PI)
+      .toString(6 ** 2)
+      .replace(/(0+|\.)/g, "");
+    let syndicationUrl = "";
+    const fetchMock = vi.fn(async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.fxtwitter.com")) {
+        return new Response("{}", { status: 500 });
+      }
+      if (url.includes("cdn.syndication.twimg.com")) {
+        syndicationUrl = url;
+        return new Response(JSON.stringify({
+          id_str: id,
+          text: "just setting up my twttr",
+          user: { name: "jack", screen_name: "jack" },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await twitterAdapter.fetchDirect!(`https://x.com/jack/status/${id}`);
+
+    expect(syndicationUrl).toContain(`id=${id}`);
+    expect(syndicationUrl).toContain(`token=${expectedToken}`);
+  });
+
+  it("ignores a non-JSON syndication response (HTML error page)", async () => {
+    const fetchMock = vi.fn(async (input: any) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("api.fxtwitter.com")) {
+        return new Response("{}", { status: 500 });
+      }
+      if (url.includes("cdn.syndication.twimg.com")) {
+        return new Response("<!DOCTYPE html><html class=\"dog\"></html>", {
+          status: 404,
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+      if (url.includes("publish.twitter.com/oembed")) {
+        return new Response(JSON.stringify({
+          author_name: "Charlie",
+          author_url: "https://x.com/charlie",
+          html: "<blockquote>oembed fallback body</blockquote>",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const html = await twitterAdapter.fetchDirect!(
+      "https://x.com/charlie/status/300",
+    );
+
+    expect(html).toContain("(@charlie)");
+    expect(html).toContain("oembed fallback body");
   });
 });

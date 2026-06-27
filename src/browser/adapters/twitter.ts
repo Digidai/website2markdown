@@ -59,16 +59,121 @@ interface FxTweet {
   article?: FxArticle;
 }
 
-/** Fetch a single tweet from fxtwitter. Returns null on failure. */
+/**
+ * Fetch a single tweet.
+ *
+ * Primary: fxtwitter — full fidelity (X Articles, retweet counts).
+ * Fallback: Twitter's own syndication CDN (no third-party dependency, no auth).
+ *
+ * The fallback keeps us off the expensive Browser Rendering path when fxtwitter
+ * is down or rate-limiting us, instead of degrading to a JS-only SPA fetch.
+ * Returns null only when both fail.
+ */
 async function fetchTweet(user: string, id: string): Promise<FxTweet | null> {
   try {
     const resp = await fetch(`https://api.fxtwitter.com/${user}/status/${id}`, {
       headers: FETCH_OPTS.headers,
       signal: AbortSignal.timeout(8_000),
     });
+    if (resp.ok) {
+      const data = (await resp.json()) as any;
+      const tweet = data?.tweet ?? null;
+      if (tweet) return tweet;
+    }
+  } catch {
+    // fall through to syndication
+  }
+  return fetchTweetViaSyndication(id);
+}
+
+/**
+ * Compute the syndication CDN access token client-side (no round-trip).
+ * Algorithm from Twitter's own react-tweet embed library.
+ */
+function syndicationToken(id: string): string {
+  return ((Number(id) / 1e15) * Math.PI).toString(6 ** 2).replace(/(0+|\.)/g, "");
+}
+
+/** Pick the highest-bitrate MP4 variant from a syndication `video_info` block. */
+function pickBestVideoVariant(variants: unknown): string | undefined {
+  if (!Array.isArray(variants)) return undefined;
+  let best: { bitrate: number; url: string } | null = null;
+  for (const v of variants) {
+    if (v?.content_type !== "video/mp4" || typeof v?.url !== "string") continue;
+    const bitrate = typeof v.bitrate === "number" ? v.bitrate : 0;
+    if (!best || bitrate > best.bitrate) best = { bitrate, url: v.url };
+  }
+  return best?.url;
+}
+
+/** Reshape a syndication `tweet-result` JSON object into our FxTweet shape. */
+function reshapeSyndicationTweet(data: any): FxTweet | null {
+  // Not-found returns `{}` (no id_str); invalid IDs return an HTML error page.
+  if (!data || typeof data !== "object" || typeof data.id_str !== "string") {
+    return null;
+  }
+
+  const mediaDetails: any[] = Array.isArray(data.mediaDetails) ? data.mediaDetails : [];
+  const photos = mediaDetails
+    .filter((m) => m?.type === "photo" && typeof m?.media_url_https === "string")
+    .map((m) => ({ url: m.media_url_https as string }));
+  const videos = mediaDetails
+    .filter(
+      (m) => (m?.type === "video" || m?.type === "animated_gif") && m?.video_info,
+    )
+    .map((m) => ({
+      thumbnail_url:
+        typeof m.media_url_https === "string" ? m.media_url_https : undefined,
+      url: pickBestVideoVariant(m.video_info?.variants),
+    }));
+
+  const quoted = data.quoted_tweet;
+  const quote = quoted
+    ? {
+        author: {
+          name: quoted.user?.name,
+          screen_name: quoted.user?.screen_name,
+        },
+        text: quoted.text,
+      }
+    : undefined;
+
+  return {
+    id: data.id_str,
+    text: typeof data.text === "string" ? data.text : "",
+    author: { name: data.user?.name, screen_name: data.user?.screen_name },
+    created_at: data.created_at,
+    likes: data.favorite_count,
+    // tweet-result exposes `conversation_count` (≈ replies); no retweet count.
+    replies: data.conversation_count,
+    replying_to: data.in_reply_to_screen_name ?? null,
+    replying_to_status: data.in_reply_to_status_id_str ?? null,
+    media: { photos, videos },
+    quote,
+  };
+}
+
+/**
+ * Fetch a single tweet directly from Twitter's syndication CDN — no auth,
+ * no guest token, just an unauthenticated GET with a client-computed token.
+ * The cheapest, most reliable browser-free path for a single tweet.
+ */
+async function fetchTweetViaSyndication(id: string): Promise<FxTweet | null> {
+  if (!/^\d+$/.test(id)) return null;
+  try {
+    const token = syndicationToken(id);
+    const url =
+      `https://cdn.syndication.twimg.com/tweet-result?id=${id}` +
+      `&token=${token}&lang=en`;
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; website2markdown/1.0)" },
+      signal: AbortSignal.timeout(8_000),
+    });
     if (!resp.ok) return null;
+    const contentType = resp.headers.get("content-type") || "";
+    if (!contentType.includes("json")) return null; // 404 serves an HTML page
     const data = (await resp.json()) as any;
-    return data?.tweet ?? null;
+    return reshapeSyndicationTweet(data);
   } catch {
     return null;
   }
@@ -342,12 +447,16 @@ function buildThreadHtml(tweets: FxTweet[], user: string): string {
   // Stats from the first tweet (thread root)
   const timestamp = first.created_at || "";
   const likes = first.likes ?? 0;
-  const retweets = first.retweets ?? 0;
   const replies = first.replies ?? 0;
   html += `<footer>`;
   if (timestamp) html += `<time>${escapeHtml(timestamp)}</time> · `;
   if (isThread) html += `${tweets.length} tweets · `;
-  html += `${replies} replies · ${retweets} retweets · ${likes} likes`;
+  // The syndication CDN has no retweet count — omit the clause rather than
+  // assert a false "0 retweets" for a tweet whose count is merely unknown.
+  const stats = [`${replies} replies`];
+  if (first.retweets !== undefined) stats.push(`${first.retweets} retweets`);
+  stats.push(`${likes} likes`);
+  html += stats.join(" · ");
   html += `</footer>`;
 
   html += `</article></body></html>`;

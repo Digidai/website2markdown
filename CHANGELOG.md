@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.1] - 2026-06-27
+
+Twitter/X gets a browser-free fallback so a fxtwitter outage no longer
+degrades tweets to expensive browser rendering.
+
+### Added
+- **Twitter/X syndication-CDN fallback** — when fxtwitter is down or rate
+  limiting us, single tweets are now fetched directly from Twitter's own
+  `cdn.syndication.twimg.com/tweet-result` endpoint (no auth, no guest token,
+  client-computed token). Keeps Twitter conversion off the expensive
+  browser-rendering path and removes the hard third-party dependency for the
+  common single-tweet case. fxtwitter stays primary (full fidelity for
+  X Articles and retweet counts); oEmbed remains the final text-only fallback.
+
+### Fixed
+- Twitter footer no longer reports a false "0 retweets" for tweets fetched via
+  the syndication path, which has no retweet count — the clause is omitted when
+  the count is unknown rather than asserting zero.
+
 ## [1.1.0] - 2026-04-11
 
 Three-phase auth, metering, and portal launch. Everything anonymous users

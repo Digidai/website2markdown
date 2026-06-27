@@ -522,18 +522,31 @@ describe("twitter adapter thread behavior", () => {
     expect(html).toContain("hello from raw_text");
   });
 
-  it("returns null when both fxtwitter and oEmbed fail", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("{}", { status: 500 }))
-      .mockResolvedValueOnce(new Response("{}", {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
+  it("returns null when fxtwitter, syndication, and oEmbed all fail", async () => {
+    const fetchMock = vi.fn(async (input: any) => {
+      const reqUrl = typeof input === "string" ? input : input.url;
+      if (reqUrl.includes("api.fxtwitter.com")) {
+        return new Response("{}", { status: 500 });
+      }
+      if (reqUrl.includes("cdn.syndication.twimg.com")) {
+        // not-found returns an empty object — no id_str
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (reqUrl.includes("publish.twitter.com/oembed")) {
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const html = await twitterAdapter.fetchDirect!("https://twitter.com/alice/status/999");
 
     expect(html).toBeNull();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
