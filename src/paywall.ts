@@ -412,6 +412,15 @@ function escapeForHtml(s: string): string {
  * Remove every element matching a list of simple class/id/attribute selectors.
  * Shared by the global paywall list and per-rule `removeSelectors`.
  */
+// HTML attribute names and whitespace-delimited class tokens must be matched
+// whole. A bare `\b` treats the hyphen as a word boundary, so `.paywall` would
+// wrongly strip class="paywall-promo" and `[data-qa]` would match my-data-qa=.
+// These zero-width guards forbid an adjacent word char OR hyphen, so a match is
+// a complete attribute name / class token (CSS semantics) — preventing silent
+// removal of legitimate article content.
+const NOT_LEFT = "(?<![-\\w])"; // not preceded by a word char or hyphen
+const NOT_RIGHT = "(?![-\\w])"; // not followed by a word char or hyphen
+
 function applySelectorRemoval(html: string, selectors: string[]): string {
   let result = html;
 
@@ -421,7 +430,7 @@ function applySelectorRemoval(html: string, selectors: string[]): string {
       const className = selector.slice(1);
       // Match opening tag with this class through its closing tag or self-closing
       const classRegex = new RegExp(
-        `<([a-z][a-z0-9]*)\\b[^>]*\\bclass\\s*=\\s*["'][^"']*\\b${escapeRegex(className)}\\b[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+        `<([a-z][a-z0-9]*)\\b[^>]*${NOT_LEFT}class\\s*=\\s*["'][^"']*${NOT_LEFT}${escapeRegex(className)}${NOT_RIGHT}[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
         "gi",
       );
       result = result.replace(classRegex, "");
@@ -429,7 +438,7 @@ function applySelectorRemoval(html: string, selectors: string[]): string {
       // ID-based
       const id = selector.slice(1);
       const idRegex = new RegExp(
-        `<([a-z][a-z0-9]*)\\b[^>]*\\bid\\s*=\\s*["']${escapeRegex(id)}["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+        `<([a-z][a-z0-9]*)\\b[^>]*${NOT_LEFT}id\\s*=\\s*["']${escapeRegex(id)}["'][^>]*>[\\s\\S]*?<\\/\\1>`,
         "gi",
       );
       result = result.replace(idRegex, "");
@@ -440,8 +449,8 @@ function applySelectorRemoval(html: string, selectors: string[]): string {
         const attrName = attrMatch[1];
         const attrVal = attrMatch[2];
         const attrPattern = attrVal
-          ? `\\b${escapeRegex(attrName)}\\s*=\\s*["']${escapeRegex(attrVal)}["']`
-          : `\\b${escapeRegex(attrName)}(?:\\s*=\\s*["'][^"']*["'])?`;
+          ? `${NOT_LEFT}${escapeRegex(attrName)}\\s*=\\s*["']${escapeRegex(attrVal)}["']`
+          : `${NOT_LEFT}${escapeRegex(attrName)}${NOT_RIGHT}(?:\\s*=\\s*["'][^"']*["'])?`;
         const attrRegex = new RegExp(
           `<([a-z][a-z0-9]*)\\b[^>]*${attrPattern}[^>]*>[\\s\\S]*?<\\/\\1>`,
           "gi",
@@ -460,6 +469,14 @@ function applySelectorRemoval(html: string, selectors: string[]): string {
  *
  * Applies the global PAYWALL_SELECTORS plus, when a matching paywall `rule`
  * is supplied, that rule's site-specific `removeSelectors`.
+ *
+ * NOTE: removal is a surgical regex (it deletes from the opening tag to the
+ * FIRST matching closing tag of the same name). Target leaf-ish overlay
+ * elements, not wrappers that nest same-tag children — for a <div> wrapping
+ * other <div>s it would stop at the first inner </div>. Selectors must be a
+ * single `.class`, `#id`, or `[attr]`/`[attr="val"]` (compound/descendant
+ * selectors are silently ignored). Downstream linkedom parsing tolerates any
+ * unbalanced tags this may leave.
  */
 export function removePaywallElements(html: string, rule?: PaywallRule | null): string {
   let result = applySelectorRemoval(html, PAYWALL_SELECTORS);

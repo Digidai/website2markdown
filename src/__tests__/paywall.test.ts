@@ -561,6 +561,67 @@ describe("removePaywallElements", () => {
     const result = removePaywallElements(html, rule);
     expect(result).toBe(html);
   });
+
+  // ── Token-boundary precision: must NOT over-match hyphenated names ──
+
+  it("does NOT strip a class whose name merely contains a selector token", () => {
+    // .paywall (global) must not match class="paywall-promo" / "mypaywall" / "paywall2"
+    const html =
+      `<div class="paywall-promo"><p>Real article one</p></div>` +
+      `<div class="mypaywall"><p>Real article two</p></div>` +
+      `<div class="paywall2"><p>Real article three</p></div>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("Real article one");
+    expect(result).toContain("Real article two");
+    expect(result).toContain("Real article three");
+    expect(result).toBe(html);
+  });
+
+  it("still strips a class when it is a whole whitespace-delimited token", () => {
+    const html = `<div class="foo paywall bar"><p>Wall</p></div><p>Keep</p>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("Keep");
+    expect(result).not.toContain("Wall");
+  });
+
+  it("does NOT strip a per-rule class token embedded in a larger class name", () => {
+    const html = `<div class="x-promo-extended"><p>Real body</p></div>`;
+    const rule = { domains: ["example.com"], removeSelectors: [".x-promo"] };
+    const result = removePaywallElements(html, rule);
+    expect(result).toContain("Real body");
+    expect(result).toBe(html);
+  });
+
+  it("does NOT match a paywall attribute name embedded in a longer attribute", () => {
+    // [data-qa="paywall"] (global) must not match my-data-qa="paywall"
+    const html = `<div my-data-qa="paywall"><p>Article kept</p></div>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("Article kept");
+    expect(result).toBe(html);
+  });
+
+  it("still strips the exact paywall attribute", () => {
+    const html = `<div data-qa="paywall"><p>Wall</p></div><p>Keep</p>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("Keep");
+    expect(result).not.toContain("Wall");
+  });
+
+  it("does NOT match a value-less attr selector embedded in a longer attribute", () => {
+    // [data-paywall] (global, value-less) must not match data-paywall-disabled
+    const html = `<div data-paywall-disabled="true"><p>Article kept</p></div>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("Article kept");
+    expect(result).toBe(html);
+  });
+
+  it("does NOT match an id selector embedded in a longer attribute name", () => {
+    // #piano-offer (global) must not match data-id="piano-offer"
+    const html = `<div data-id="piano-offer"><p>Article kept</p></div>`;
+    const result = removePaywallElements(html);
+    expect(result).toContain("Article kept");
+    expect(result).toBe(html);
+  });
 });
 
 describe("looksPaywalled", () => {
