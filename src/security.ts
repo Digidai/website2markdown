@@ -491,13 +491,36 @@ export async function fetchWithSafeRedirects(
   return { response, finalUrl: currentUrl };
 }
 
+/** Max times to unwrap a self-referential target URL before giving up. */
+const MAX_SELF_UNWRAP_DEPTH = 5;
+
+/** Our own hostnames — a target on any of these would make the Worker fetch itself. */
+const KNOWN_SELF_HOSTS = ["md.genedai.me"];
+
+/** Is `host` one of our own hostnames (case-insensitive)? */
+function isSelfHost(host: string, selfHost: string): boolean {
+  const h = host.toLowerCase();
+  return (
+    h === selfHost.toLowerCase() ||
+    KNOWN_SELF_HOSTS.includes(h) ||
+    h.endsWith(".genedai.workers.dev")
+  );
+}
+
 /**
  * Extract target URL from request path.
  * Handles bare domains, http/https prefixed, and strips our own query params.
+ *
+ * When `selfHost` is provided, self-referential targets (e.g. a user pasting an
+ * md.genedai.me article URL back into the service, producing a doubled prefix)
+ * are unwrapped to the real inner URL. This prevents the Worker from fetching
+ * itself and nesting a full conversion, which otherwise times out (CF 522).
  */
 export function extractTargetUrl(
   path: string,
   search: string,
+  selfHost?: string,
+  depth: number = 0,
 ): string | null {
   let raw = path.slice(1); // Remove leading slash
   if (!raw) return null;
@@ -542,6 +565,25 @@ export function extractTargetUrl(
 
   // Length check
   if (raw.length > MAX_URL_LENGTH) return null;
+
+  // Unwrap self-references: a target on our own host (e.g. a doubled prefix,
+  // /https://<selfHost>/https://real...) makes the Worker call itself and nest
+  // a full conversion, which times out (Cloudflare 522). Strip our host and
+  // re-extract the real inner target. A bare self-reference, or nesting deeper
+  // than the cap, resolves to null so we NEVER return a self-host target.
+  if (selfHost) {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      parsed = null; // not parseable — leave raw untouched below
+    }
+    if (parsed && isSelfHost(parsed.host, selfHost)) {
+      return depth < MAX_SELF_UNWRAP_DEPTH
+        ? extractTargetUrl(parsed.pathname, parsed.search, selfHost, depth + 1)
+        : null;
+    }
+  }
 
   return raw;
 }

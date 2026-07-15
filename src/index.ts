@@ -595,8 +595,8 @@ export default {
       }
     }
 
-    // Extract target URL from path
-    const targetUrl = extractTargetUrl(path, url.search);
+    // Extract target URL from path (unwrapping self-references to our own host)
+    const targetUrl = extractTargetUrl(path, url.search, host);
 
     // No target URL → landing page
     if (!targetUrl) {

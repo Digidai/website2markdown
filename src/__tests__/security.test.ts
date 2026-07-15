@@ -278,6 +278,86 @@ describe("extractTargetUrl", () => {
   });
 });
 
+describe("extractTargetUrl — self-reference unwrapping", () => {
+  // Regression: a doubled prefix (user pastes an md.genedai.me URL back in)
+  // must NOT make the Worker fetch itself and time out (CF 522). It unwraps
+  // to the real inner URL. Without a selfHost the old behavior is preserved.
+  const SELF = "md.genedai.me";
+
+  it("unwraps a self-referential target to the real inner URL", () => {
+    expect(
+      extractTargetUrl(
+        "/https://md.genedai.me/https://mp.weixin.qq.com/s/slaS6E2AB8YZkK5_-kuFqg",
+        "",
+        SELF,
+      ),
+    ).toBe("https://mp.weixin.qq.com/s/slaS6E2AB8YZkK5_-kuFqg");
+  });
+
+  it("unwraps multiple nested self-references", () => {
+    expect(
+      extractTargetUrl(
+        "/https://md.genedai.me/https://md.genedai.me/https://x.com/a/b",
+        "",
+        SELF,
+      ),
+    ).toBe("https://x.com/a/b");
+  });
+
+  it("unwraps when self is the live request host (not just the known domain)", () => {
+    expect(
+      extractTargetUrl("/https://foo.example/https://x.com/a", "", "foo.example"),
+    ).toBe("https://x.com/a");
+  });
+
+  it("unwraps the workers.dev deployment host", () => {
+    expect(
+      extractTargetUrl(
+        "/https://website2markdown.genedai.workers.dev/https://x.com/a",
+        "",
+        SELF,
+      ),
+    ).toBe("https://x.com/a");
+  });
+
+  it("preserves the inner URL's own query string when unwrapping", () => {
+    expect(
+      extractTargetUrl("/https://md.genedai.me/https://x.com/a?id=1&z=2", "", SELF),
+    ).toBe("https://x.com/a?id=1&z=2");
+  });
+
+  it("resolves a bare self-reference (no inner URL) to null", () => {
+    expect(extractTargetUrl("/https://md.genedai.me", "", SELF)).toBeNull();
+  });
+
+  it("leaves non-self targets untouched", () => {
+    expect(extractTargetUrl("/https://x.com/a", "", SELF)).toBe("https://x.com/a");
+  });
+
+  it("is a no-op without selfHost (backward compatible)", () => {
+    expect(
+      extractTargetUrl("/https://md.genedai.me/https://x.com/a", ""),
+    ).toBe("https://md.genedai.me/https://x.com/a");
+  });
+
+  it("refuses pathologically deep self-nesting rather than self-fetching", () => {
+    const path = "/" + "https://md.genedai.me/".repeat(7) + "https://x.com/a";
+    expect(extractTargetUrl(path, "", SELF)).toBeNull();
+  });
+
+  it("does not let unwrapping bypass SSRF protection on the inner target", () => {
+    // Unwrapping still yields the inner URL, but the downstream isSafeUrl gate
+    // (applied in the handler) must still reject an internal address.
+    const inner = extractTargetUrl(
+      "/https://md.genedai.me/http://169.254.169.254/latest/meta-data",
+      "",
+      SELF,
+    );
+    expect(inner).toBe("http://169.254.169.254/latest/meta-data");
+    expect(isSafeUrl(inner as string)).toBe(false);
+  });
+});
+
 describe("buildRawRequestPath", () => {
   it("builds a stable raw path without optional params", () => {
     expect(buildRawRequestPath("https://example.com/page")).toBe(
