@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.3] - 2026-06-28
+
+### Fixed
+- **Self-referential URLs no longer hang.** Converting an md.genedai.me link that
+  itself wraps another md.genedai.me link (a doubled prefix — e.g. pasting a
+  converted-article URL back into the service) made the Worker fetch itself and
+  nest a full conversion, timing out with a Cloudflare 522. Such targets are now
+  unwrapped to the real inner URL before fetching; a bare self-reference falls
+  back to the landing page.
+- **Paywall selectors match whole tokens.** Class and attribute paywall selectors
+  used a `\b` boundary that treats hyphens as delimiters, so `.paywall` could strip
+  a legitimate `class="paywall-explainer"` article container and `[data-qa="paywall"]`
+  matched `my-data-qa="paywall"`. Matching now requires a full class token /
+  attribute name, preventing silent removal of real article content.
+
 ## [1.1.2] - 2026-06-28
 
 Paywall element stripping gets more precise: per-site rules can now actually
