@@ -23,7 +23,7 @@ import {
 import { logMetric } from "../runtime-state";
 import { ConvertError } from "../helpers/response";
 import { authorizeApiAccess, sessionProfileScopeForAuth } from "../middleware/api-access";
-import { checkPolicy } from "../middleware/tier-gate";
+import { browserAllowedForRequest, checkPolicy } from "../middleware/tier-gate";
 import { errorMessage } from "../utils";
 import {
   convertUrlWithMetrics,
@@ -422,6 +422,13 @@ export async function handleExtract(
         { status: 401, headers: CORS_HEADERS },
       );
     }
+    const browserGate = browserAllowedForRequest(access.policy, item.forceBrowser);
+    if (browserGate.error) {
+      return Response.json(
+        { error: "Quota Exceeded", message: browserGate.error },
+        { status: 429, headers: CORS_HEADERS },
+      );
+    }
   }
   const sessionProfileScope = sessionProfileScopeForAuth(access.auth);
 
@@ -444,7 +451,7 @@ export async function handleExtract(
           undefined,
           request.signal,
           undefined,
-          access.policy.browserAllowed,
+          browserAllowedForRequest(access.policy, item.forceBrowser).allowed,
           access.auth.tier !== "anonymous",
           sessionProfileScope,
         );

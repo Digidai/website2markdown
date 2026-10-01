@@ -31,7 +31,7 @@ import { recordJobCreated, recordJobRun } from "../observability/metrics";
 import { ConvertError } from "../helpers/response";
 import { sha256Hex, stableStringify } from "../helpers/crypto";
 import { authorizeApiAccess, type ApiAccessContext, sessionProfileScopeForAuth } from "../middleware/api-access";
-import { checkPolicy } from "../middleware/tier-gate";
+import { browserAllowedForRequest, checkPolicy } from "../middleware/tier-gate";
 import { errorMessage } from "../utils";
 import {
   convertUrlWithMetrics,
@@ -442,6 +442,12 @@ export async function executeJobRun(
         if (policyError) {
           return { success: false, statusCode: 401, error: policyError };
         }
+        const crawlBrowser = access
+          ? browserAllowedForRequest(access.policy, forceBrowser)
+          : { allowed: true, error: null };
+        if (crawlBrowser.error) {
+          return { success: false, statusCode: 429, error: crawlBrowser.error };
+        }
 
         try {
           const converted = await convertUrlWithMetrics(
@@ -453,7 +459,7 @@ export async function executeJobRun(
             undefined,
             signal,
             undefined,
-            access?.policy.browserAllowed ?? true,
+            crawlBrowser.allowed,
             access ? access.auth.tier !== "anonymous" : true,
             sessionProfileScopeForAuth(access?.auth),
           );
@@ -488,6 +494,12 @@ export async function executeJobRun(
       if (policyError) {
         return { success: false, statusCode: 401, error: policyError };
       }
+      const extractBrowser = access
+        ? browserAllowedForRequest(access.policy, item.forceBrowser)
+        : { allowed: true, error: null };
+      if (extractBrowser.error) {
+        return { success: false, statusCode: 429, error: extractBrowser.error };
+      }
       let html = item.html || "";
 
       try {
@@ -498,7 +510,7 @@ export async function executeJobRun(
             undefined,
             signal,
             undefined,
-            access?.policy.browserAllowed ?? true,
+            extractBrowser.allowed,
             access ? access.auth.tier !== "anonymous" : true,
             sessionProfileScopeForAuth(access?.auth),
           );

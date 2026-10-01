@@ -238,6 +238,16 @@ describe("extractTargetUrl", () => {
     expect(extractTargetUrl("/favicon.ico", "")).toBe("https://favicon.ico");
   });
 
+  it("does not promote scanner paths whose first segment is not a hostname", () => {
+    expect(extractTargetUrl("/laravel/.env", "")).toBeNull();
+    expect(extractTargetUrl("/static/.env", "")).toBeNull();
+    expect(extractTargetUrl("/backend/config", "")).toBeNull();
+  });
+
+  it("keeps a hostname path when a later segment looks like a probe", () => {
+    expect(extractTargetUrl("/example.com/.env", "")).toBe("https://example.com/.env");
+  });
+
   it("returns null for paths without dots", () => {
     expect(extractTargetUrl("/about", "")).toBeNull();
     expect(extractTargetUrl("/api", "")).toBeNull();

@@ -5,6 +5,7 @@ import { CORS_HEADERS, MAX_SELECTOR_LENGTH } from "../config";
 import { isSafeUrl, isValidUrl, buildRawRequestPath } from "../security";
 import { incrementCounter, logMetric } from "../runtime-state";
 import { ConvertError } from "../helpers/response";
+import { PRIVATE_ERROR_CACHE_CONTROL } from "../policy/anonymous-guards";
 import { errorMessage } from "../utils";
 import {
   convertUrlWithMetrics,
@@ -12,6 +13,7 @@ import {
   SseStreamClosedError,
 } from "./convert";
 import { flushUsage, recordUsage, shouldFlush } from "./usage";
+import { chargedCreditCost } from "../middleware/tier-gate";
 import {
   createRequestId,
   debugTraceHeaders,
@@ -29,6 +31,8 @@ export interface StreamObservabilityOptions {
   quotaRemaining?: number;
   providerApiKeysAllowed?: boolean;
   sessionProfileScope?: string;
+  /** Explicit anonymous identity. Do not infer this from provider or browser flags. */
+  anonymousCaller?: boolean;
 }
 
 export function sseResponse(
@@ -164,6 +168,9 @@ export function handleStream(
   const sseHeaders = {
     ...baseSseHeaders,
     ...debugTraceHeaders(observability.debugTrace),
+    ...(observability.anonymousCaller
+      ? { "Cache-Control": PRIVATE_ERROR_CACHE_CONTROL }
+      : {}),
   };
 
   return sseResponse(async (send, streamSignal) => {
@@ -176,7 +183,15 @@ export function handleStream(
         browserAllowed,
         observability.providerApiKeysAllowed ?? true,
         observability.sessionProfileScope,
+        observability.anonymousCaller === true,
       );
+      const cacheHit = result.cached || result.diagnostics.cacheHit;
+      const browserRendered = result.diagnostics.browserRendered
+        || result.method === "browser+readability+turndown";
+      const charged = chargedCreditCost(observability.creditCost ?? 0, {
+        browserRendered,
+        cacheHit,
+      });
       await send("done", {
         rawUrl: rawRequestPath,
         title: result.title,
@@ -184,10 +199,11 @@ export function handleStream(
         tokenCount: result.tokenCount,
         cached: result.cached,
         fallbacks: result.diagnostics.fallbacks,
+        creditCost: charged,
       });
       incrementCounter("conversionsTotal");
-      if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");
-      if (result.diagnostics.browserRendered || result.method === "browser+readability+turndown") {
+      if (cacheHit) incrementCounter("cacheHits");
+      if (browserRendered) {
         incrementCounter("browserRenderCalls");
       }
       if (result.diagnostics.paywallDetected) incrementCounter("paywallDetections");
@@ -202,9 +218,9 @@ export function handleStream(
       if (observability.auth) {
         recordUsage(
           observability.auth,
-          observability.creditCost ?? 0,
-          result.diagnostics.browserRendered || result.method === "browser+readability+turndown",
-          result.cached || result.diagnostics.cacheHit,
+          charged,
+          browserRendered && !cacheHit,
+          cacheHit,
         );
         if (shouldFlush()) {
           observability.ctx?.waitUntil(flushUsage(env));
@@ -225,7 +241,7 @@ export function handleStream(
         selector,
         forceBrowser,
         noCache,
-        creditCost: observability.creditCost,
+        creditCost: charged,
         quotaRemaining: observability.quotaRemaining,
         debugTrace: observability.debugTrace,
       }));

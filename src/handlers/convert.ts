@@ -26,7 +26,7 @@ import {
   extractLegacyProxyRetryCookies,
   extractProxyRetryToken,
 } from "../browser/proxy-retry";
-import { getCached, setCache } from "../cache";
+import { getCached, getNegativeCache, setCache, setNegativeCache } from "../cache";
 import { fetchViaJina } from "../jina";
 import { fetchViaFirecrawl, type FirecrawlConfig } from "../firecrawl";
 import {
@@ -37,6 +37,7 @@ import {
   ensureBrightDataAllowlisted,
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
+import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/wechat";
 import {
   applyPaywallHeaders,
   extractJsonLdArticle,
@@ -51,6 +52,13 @@ import {
 import { recordConversionLatency } from "../observability/metrics";
 import { errorMessage } from "../utils";
 import { ConvertError, type ConvertDiagnostics } from "../helpers/response";
+import {
+  GOV_EMPTY_SHELL_MESSAGE,
+  SEARCH_PAGE_API_KEY_MESSAGE,
+  isGovEmptyShell,
+  isNegativeOriginStatus,
+  isSearchResultPage,
+} from "../policy/anonymous-guards";
 import { formatOutput } from "../helpers/format";
 
 // ─── 错误类 ──────────────────────────────────────────────────
@@ -197,6 +205,17 @@ export function asFetchConvertError(error: unknown): ConvertError {
   );
 }
 
+/** Attach targetStatus only for origin statuses that anonymous callers may remember. */
+function originStatusError(response: Response): ConvertError {
+  const targetStatus = isNegativeOriginStatus(response.status) ? response.status : undefined;
+  return new ConvertError(
+    "Fetch Failed",
+    `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
+    502,
+    targetStatus,
+  );
+}
+
 export function isLikelyChallengeHtml(body: string): boolean {
   const lower = body.toLowerCase();
   return (
@@ -219,7 +238,35 @@ export function isWechatVerificationHtml(body: string): boolean {
   return (
     body.includes("wappoc_appmsgcaptcha") ||
     body.includes("当前环境异常") ||
-    body.includes("完成验证后即可继续访问")
+    body.includes("完成验证后即可继续访问") ||
+    /(?:请(?:先)?完成(?:安全)?验证|请进行(?:安全)?验证|拖动滑块|滑动验证|拼图验证|验证后(?:即可)?继续访问)/.test(body) ||
+    (/(?:安全验证|验证码|captcha|tcaptcha)/i.test(body) &&
+      (/(?:<title[^>]*>\s*[^<]*(?:验证|captcha)|\b(?:id|class|src|action)\s*=\s*["'][^"']*(?:captcha|verify))/i.test(body) ||
+        !hasWechatArticleBody(body)))
+  );
+}
+
+function isWechatVerificationUrl(url: string): boolean {
+  try {
+    return new URL(url).pathname.toLowerCase().includes("wappoc_appmsgcaptcha");
+  } catch {
+    return false;
+  }
+}
+
+function isWechatMarkdownShell(markdown: string, title: string): boolean {
+  const normalizedTitle = title.replace(/\s+/g, " ").trim();
+  const lines = markdown.split(/\r?\n/).map((line) =>
+    line.trim()
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^\*\*(.*?)\*\*$/, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .trim(),
+  ).filter(Boolean);
+  return lines.every((line) =>
+    line === normalizedTitle ||
+    /^(?:作者|发布时间)\s*[:：]/.test(line) ||
+    isWechatPageChrome(line),
   );
 }
 
@@ -301,9 +348,14 @@ export async function convertUrl(
   browserAllowed: boolean = true,
   providerApiKeysAllowed: boolean = true,
   sessionProfileScope?: string,
+  anonymousCaller: boolean = false,
 ): Promise<ConvertResult> {
   const progress = onProgress || (() => {});
   throwIfAborted(abortSignal);
+  // Search pages are rejected before either cache, and are not remembered as origin failures.
+  if (anonymousCaller && isSearchResultPage(targetUrl)) {
+    throw new ConvertError("Unauthorized", SEARCH_PAGE_API_KEY_MESSAGE, 401);
+  }
   const fallbacks = new Set<string>();
   let browserRendered = false;
   let paywallDetected = false;
@@ -313,7 +365,7 @@ export async function convertUrl(
   const effectiveForceBrowser = browserAllowed ? forceBrowser : false;
   const cacheAllowed = !noCache && !effectiveForceBrowser;
 
-  // 1. 缓存
+  // 1. Positive cache first. Anonymous origin failures use a separate keyspace.
   if (cacheAllowed) {
     const cached = await getCached(env, targetUrl, format, selector, engine);
     if (cached) {
@@ -337,40 +389,84 @@ export async function convertUrl(
     }
   }
 
-  // 2a. Firecrawl 快速路径 — engine=firecrawl 时跳过所有其他转换
-  if (engine === "firecrawl") {
-    return tryFirecrawlFastPath(
-      targetUrl,
-      env,
-      format,
-      selector,
-      !cacheAllowed,
-      engine,
-      progress,
-      abortSignal,
-      providerApiKeysAllowed,
+  if (anonymousCaller && cacheAllowed) {
+    const negative = await getNegativeCache(env, targetUrl);
+    if (negative) {
+      throw new ConvertError(
+        negative.title,
+        negative.message,
+        negative.statusCode,
+        negative.targetStatus,
+      );
+    }
+  }
+
+  try {
+    // Anonymous requests must not call Firecrawl or Jina, including explicit
+    // engine selection. Authenticated free and pro keys still can.
+    if ((engine === "firecrawl" || engine === "jina") && !providerApiKeysAllowed) {
+      throw new ConvertError(
+        "Unauthorized",
+        "engine selection requires an API key.",
+        401,
+      );
+    }
+
+    // 2a. Firecrawl 快速路径 — engine=firecrawl 时跳过所有其他转换
+    if (engine === "firecrawl") {
+      return tryFirecrawlFastPath(
+        targetUrl,
+        env,
+        format,
+        selector,
+        !cacheAllowed,
+        engine,
+        progress,
+        abortSignal,
+        providerApiKeysAllowed,
+      );
+    }
+
+    // 2b. Jina 快速路径 — engine=jina 时跳过所有其他转换
+    if (engine === "jina") {
+      return tryJinaFastPath(targetUrl, env, format, selector, !cacheAllowed, engine, progress, abortSignal);
+    }
+
+    // 2c. CF Markdown 快速路径 (allowed for anonymous — it's a CF-internal API, low cost)
+    if (engine === "cf" || ((!engine || engine === "auto") && await isCfEligible(targetUrl, env))) {
+      const cfResult = await tryCfRestApi(
+        targetUrl, env, format, selector, effectiveForceBrowser, !cacheAllowed, engine, fallbacks, progress, abortSignal,
+      );
+      if (cfResult) return cfResult;
+    }
+
+    // 3. Fetch & parse
+    return await tryFetchAndParse(
+      targetUrl, env, host, format, selector, effectiveForceBrowser, !cacheAllowed, engine,
+      fallbacks, browserRendered, paywallDetected, sourceContentType,
+      progress, abortSignal, browserAllowed, providerApiKeysAllowed, sessionProfileScope,
     );
+  } catch (error) {
+    if (
+      anonymousCaller &&
+      cacheAllowed &&
+      error instanceof ConvertError &&
+      error.targetStatus !== undefined &&
+      isNegativeOriginStatus(error.targetStatus)
+    ) {
+      try {
+        await setNegativeCache(env, targetUrl, {
+          title: error.title,
+          message: error.message,
+          statusCode: error.statusCode,
+          targetStatus: error.targetStatus,
+        });
+      } catch {
+        // A cache write must not replace the origin error.
+      }
+    }
+    throw error;
   }
-
-  // 2b. Jina 快速路径 — engine=jina 时跳过所有其他转换
-  if (engine === "jina") {
-    return tryJinaFastPath(targetUrl, env, format, selector, !cacheAllowed, engine, progress, abortSignal);
-  }
-
-  // 2c. CF Markdown 快速路径 (allowed for anonymous — it's a CF-internal API, low cost)
-  if (engine === "cf" || ((!engine || engine === "auto") && await isCfEligible(targetUrl, env))) {
-    const cfResult = await tryCfRestApi(
-      targetUrl, env, format, selector, effectiveForceBrowser, !cacheAllowed, engine, fallbacks, progress, abortSignal,
-    );
-    if (cfResult) return cfResult;
-  }
-
-  // 3. Fetch & parse
-  return tryFetchAndParse(
-    targetUrl, env, host, format, selector, effectiveForceBrowser, !cacheAllowed, engine,
-    fallbacks, browserRendered, paywallDetected, sourceContentType,
-    progress, abortSignal, browserAllowed, providerApiKeysAllowed, sessionProfileScope,
-  );
 }
 
 // ─── 子函数：Firecrawl 快速路径 ───────────────────────────────
@@ -480,6 +576,7 @@ async function tryExternalMarkdownEarlyReturn(
   abortSignal?: AbortSignal,
   providerApiKeysAllowed: boolean = true,
 ): Promise<ConvertResult | null> {
+  if (!providerApiKeysAllowed) return null;
   let firecrawlFailed = false;
 
   try {
@@ -674,6 +771,7 @@ async function tryFetchAndParse(
   let finalHtml = "";
   let method: ConvertMethod = "readability+turndown";
   let resolvedUrl = targetUrl;
+  let wechatShellSeen = false;
 
   // 应用 adapter URL 变换（如 reddit.com → old.reddit.com）
   const fetchAdapter = getAdapter(targetUrl);
@@ -736,6 +834,10 @@ async function tryFetchAndParse(
       browserRendered = staticResult.browserRendered;
       paywallDetected = staticResult.paywallDetected;
       sourceContentType = staticResult.sourceContentType;
+      if (finalHtml && !hasWechatArticleBody(finalHtml)) {
+        finalHtml = "";
+        wechatShellSeen = true;
+      }
       if (finalHtml) {
         fallbacks.add("wechat_static_fallback");
       }
@@ -747,9 +849,20 @@ async function tryFetchAndParse(
       await progress("fetch", "Fetching via remote browser");
       const buHtml = await fetchViaBrowserUse(targetUrl, env.BROWSER_USE_API_KEY, abortSignal);
       if (buHtml) {
-        finalHtml = buHtml;
-        method = "proxy+readability+turndown";
-        fallbacks.add("browser_use");
+        if (targetUrl.includes("mp.weixin.qq.com") && isWechatVerificationHtml(buHtml)) {
+          throw new ConvertError(
+            "Fetch Failed",
+            "WeChat returned an environment verification page instead of the article content.",
+            502,
+          );
+        }
+        if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(buHtml)) {
+          wechatShellSeen = true;
+        } else {
+          finalHtml = buHtml;
+          method = "proxy+readability+turndown";
+          fallbacks.add("browser_use");
+        }
       }
     }
     if (!finalHtml) {
@@ -757,15 +870,28 @@ async function tryFetchAndParse(
         targetUrl, env, fallbacks, abortSignal, progress,
       );
       if (proxyResult) {
-        finalHtml = proxyResult;
-        method = "proxy+readability+turndown";
+        if (targetUrl.includes("mp.weixin.qq.com") && isWechatVerificationHtml(proxyResult)) {
+          throw new ConvertError(
+            "Fetch Failed",
+            "WeChat returned an environment verification page instead of the article content.",
+            502,
+          );
+        }
+        if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(proxyResult)) {
+          wechatShellSeen = true;
+        } else {
+          finalHtml = proxyResult;
+          method = "proxy+readability+turndown";
+        }
       }
     }
 
     if (!finalHtml) {
       throw new ConvertError(
         "Fetch Failed",
-        "This URL requires browser or proxy access, but no content was returned by the available fallback methods.",
+        wechatShellSeen
+          ? "WeChat returned only page controls or a title, without article content."
+          : "This URL requires browser or proxy access, but no content was returned by the available fallback methods.",
         502,
       );
     }
@@ -801,6 +927,13 @@ async function tryFetchAndParse(
     throw new ConvertError(
       "Fetch Failed",
       "WeChat returned an environment verification page instead of the article content.",
+      502,
+    );
+  }
+  if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(finalHtml)) {
+    throw new ConvertError(
+      "Fetch Failed",
+      "WeChat returned only page controls or a title, without article content.",
       502,
     );
   }
@@ -920,8 +1053,14 @@ async function tryFetchAndParse(
     }
   }
 
-  // External provider 回退 — 基本转换产出极少时的最后手段
-  if (markdown.length < 500 && !browserRendered && fallbacks.size === 0 && finalHtml.length > 2000) {
+  // External provider 回退 — 基本转换产出极少时的最后手段。匿名请求不走这里。
+  if (
+    providerApiKeysAllowed &&
+    markdown.length < 500 &&
+    !browserRendered &&
+    fallbacks.size === 0 &&
+    finalHtml.length > 2000
+  ) {
     let firecrawlFailed = false;
     try {
       const firecrawlResult = await fetchViaFirecrawl(
@@ -960,6 +1099,19 @@ async function tryFetchAndParse(
     }
   }
 
+  if (targetUrl.includes("mp.weixin.qq.com") && isWechatMarkdownShell(markdown, extractedTitle)) {
+    throw new ConvertError(
+      "Fetch Failed",
+      "WeChat returned only page controls or a title, without article content.",
+      502,
+    );
+  }
+
+  // Only after a browser render. Static text and short real notices stay successes.
+  if (browserRendered && isGovEmptyShell(targetUrl, resolvedUrl, markdown, extractedTitle)) {
+    throw new ConvertError("Fetch Failed", GOV_EMPTY_SHELL_MESSAGE, 502);
+  }
+
   if (!markdown.trim()) {
     throw new ConvertError(
       "No Content",
@@ -986,8 +1138,8 @@ async function tryFetchAndParse(
 
   // 9. 微信图片代理
   if (
-    format === "markdown" &&
-    (conversionUrl.includes("mmbiz.qpic.cn") || conversionUrl.includes("mp.weixin.qq.com"))
+    conversionUrl.includes("mmbiz.qpic.cn") ||
+    conversionUrl.includes("mp.weixin.qq.com")
   ) {
     output = proxyImageUrls(output, host);
   }
@@ -1316,6 +1468,14 @@ async function tryStaticFetch(
     cleanupFetchSignal();
   }
 
+  if (isWechat && isWechatVerificationUrl(resolvedUrl)) {
+    throw new ConvertError(
+      "Fetch Failed",
+      "WeChat returned an environment verification page instead of the article content.",
+      502,
+    );
+  }
+
   const staticFailed = !response.ok;
 
   if (staticFailed && !forceBrowser) {
@@ -1331,19 +1491,11 @@ async function tryStaticFetch(
           finalHtml = archiveHtml;
           fallbacks.add("archive_pre_fetch");
         } else {
-          throw new ConvertError(
-            "Fetch Failed",
-            `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
-            502,
-          );
+          throw originStatusError(response);
         }
       }
     } else {
-      throw new ConvertError(
-        "Fetch Failed",
-        `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
-        502,
-      );
+      throw originStatusError(response);
     }
   }
 
@@ -1378,7 +1530,11 @@ async function tryStaticFetch(
         502,
       );
     }
-  } else {
+  } else if (!staticFailed) {
+    // Only parse the response body when the fetch actually succeeded. If the
+    // origin failed (e.g. 403) but an archive snapshot was recovered above,
+    // finalHtml already holds that snapshot — parsing the failed response here
+    // would overwrite it and return the block page as a 200 success.
     // 4. 验证内容类型
     throwIfAborted(abortSignal);
     await progress("analyze", "Analyzing content");

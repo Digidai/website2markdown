@@ -6,7 +6,11 @@ const CONTENT_SELECTOR = ".article-content, .markdown-body, [class*='article-vie
 
 export const juejinAdapter: SiteAdapter = {
   match(url: string): boolean {
-    return url.includes("juejin.cn/post/");
+    return (
+      url.includes("juejin.cn/post/") ||
+      url.includes("juejin.cn/pin/") ||
+      url.includes("juejin.cn/book/")
+    );
   },
 
   alwaysBrowser: true,
@@ -41,7 +45,8 @@ export const juejinAdapter: SiteAdapter = {
         var noise = [
           '[class*="login-guide"]', '[class*="sidebar"]',
           '[class*="recommended"]', '[class*="comment-box"]',
-          '[class*="article-end"]', '[class*="extension"]'
+          '[class*="article-end"]', '[class*="copy-code-btn"]',
+          '.code-block-extension-header'
         ];
         noise.forEach(function(sel) {
           try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}

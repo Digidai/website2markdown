@@ -1,4 +1,6 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
+import { MOBILE_UA } from "../../config";
+import { escapeHtml } from "../../security";
 import { applyStealthAndDesktop } from "../stealth";
 import { createProxyRetrySignal } from "../proxy-retry";
 
@@ -6,10 +8,95 @@ const CONTENT_SELECTOR = '.Feed_body, [class*="wbpro-feed"], [class*="detail_wbt
 
 export const weiboAdapter: SiteAdapter = {
   match(url: string): boolean {
-    return url.includes("weibo.com/");
+    return (
+      url.includes("weibo.com/") ||
+      url.includes("weibo.cn/") ||
+      url.includes("m.weibo.cn/")
+    );
   },
 
   alwaysBrowser: true,
+
+  async fetchDirect(url: string): Promise<string | null> {
+    // Extract status ID from various Weibo URL formats
+    const match =
+      url.match(/(?:weibo\.com\/\d+\/|weibo\.com\/detail\/|m\.weibo\.cn\/(?:status|detail)\/)([A-Za-z0-9]+)/) ||
+      url.match(/weibo\.com\/[A-Za-z0-9_]+\/([A-Za-z0-9]{8,})/);
+    if (!match) return null;
+
+    const statusId = match[1];
+    // Ignore non-status sub-paths like home, fav, message
+    if (["home", "fav", "message", "profile", "setting", "hot"].includes(statusId.toLowerCase())) {
+      return null;
+    }
+
+    try {
+      const apiUrl = `https://m.weibo.cn/statuses/show?id=${statusId}`;
+      const resp = await fetch(apiUrl, {
+        headers: {
+          "User-Agent": MOBILE_UA,
+          "Accept": "application/json, text/plain, */*",
+          "Referer": "https://m.weibo.cn/",
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!resp.ok) return null;
+      const json = (await resp.json()) as any;
+      if (!json || json.ok !== 1 || !json.data) return null;
+
+      const data = json.data;
+      const author = data.user?.screen_name || "微博用户";
+      const createdAt = data.created_at || "";
+      const textHtml = data.text || "";
+
+      // Collect images
+      const pics: string[] = [];
+      if (Array.isArray(data.pics)) {
+        for (const pic of data.pics) {
+          const imgUrl = pic.large?.url || pic.url;
+          if (imgUrl) pics.push(imgUrl);
+        }
+      }
+
+      // Collect retweeted post if present
+      let retweetHtml = "";
+      if (data.retweeted_status) {
+        const ret = data.retweeted_status;
+        const retAuthor = ret.user?.screen_name || "转发微博";
+        const retText = ret.text || "";
+        const retPics: string[] = [];
+        if (Array.isArray(ret.pics)) {
+          for (const p of ret.pics) {
+            const u = p.large?.url || p.url;
+            if (u) retPics.push(u);
+          }
+        }
+        retweetHtml = `<blockquote><p><strong>@${escapeHtml(retAuthor)}:</strong></p>${retText}`;
+        for (const pic of retPics) {
+          retweetHtml += `<figure><img src="${escapeHtml(pic)}" /></figure>`;
+        }
+        retweetHtml += `</blockquote>`;
+      }
+
+      let html = `<html><head><title>${escapeHtml(author)}的微博</title></head><body><article data-adapter="weibo">`;
+      html += `<h1>${escapeHtml(author)}的微博</h1>`;
+      if (createdAt) {
+        html += `<p><time>${escapeHtml(createdAt)}</time></p>`;
+      }
+      html += `<div class="weibo-text">${textHtml}</div>`;
+      for (const pic of pics) {
+        html += `<figure><img src="${escapeHtml(pic)}" /></figure>`;
+      }
+      if (retweetHtml) {
+        html += retweetHtml;
+      }
+      html += `</article></body></html>`;
+      return html;
+    } catch {
+      return null;
+    }
+  },
 
   async configurePage(page: any): Promise<void> {
     await applyStealthAndDesktop(page);

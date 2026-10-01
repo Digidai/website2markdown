@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.2.0] - 2026-10-01
+
+### Added
+- Operator dashboard at `/admin` (noindex) with page views, API calls, conversion rows, and useful results: success, status below 400, at least 800 characters, and no paywall.
+- D1 access and conversion logs, including probe classification. Migrations `0002` through `0005`.
+- Anonymous negative cache for origin HTTP 429, 403, 404, and 410. Entries last 30 minutes and are read only for anonymous callers.
+- Anonymous HTTP 401 for the exact search pages `www.bing.com/search`, `searx.be/search`, and `html.duckduckgo.com/html`.
+
+### Changed
+- Anonymous Firecrawl and Jina selection asks for an API key. Anonymous convert, stream, and batch stay limited to 10, 10, and 5 requests per 60 seconds.
+- A successful live browser render on convert, stream, and batch costs 3 credits. Cache hits stay at the base route cost. Failures are not charged.
+- Free and pro monthly quotas roll to the current UTC month on the next authenticated read.
+- Probe paths return a short 404 before conversion. Unknown non-probe paths still render the homepage.
+- WeChat verification pages and title-only shells return 502 and are not cached.
+- After browser rendering, a `gov.cn` page that is a known not-found URL or an empty not-found shell returns 502 and is not charged. Short notices stay successful.
+- Public marketing pages use the current site design.
+
+### Security
+- The `/admin` passphrase is the `ADMIN_PASSWORD` Worker secret. Login is refused when that secret is unset.
+
 ## [1.1.3] - 2026-06-28
 
 ### Fixed

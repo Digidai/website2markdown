@@ -12,12 +12,26 @@ export function handleLlmsTxt(host: string): Response {
 > Converts any web page to clean, structured Markdown with support for
 > JavaScript-heavy sites, Chinese platforms, and paywalled content.
 
+Converted pages on this host are temporary reading views of someone else's URL.
+Cite the source URL. Do not cite ${baseUrl}/<url> as the original.
+
+## Site
+- Home: ${baseUrl}/
+- Examples: ${baseUrl}/examples
+- Docs: ${baseUrl}/docs
+- Integrations: ${baseUrl}/integrations
+- Machine-readable API card: ${baseUrl}/llms.txt
+- Sitemap: ${baseUrl}/sitemap.xml
+
 ## API Endpoints
 
 ### Convert URL (GET)
-GET ${baseUrl}/<encoded-url>
-- Returns: Markdown content
-- Params: ?format=markdown|html|text|json, ?selector=<css>, ?force_browser=true, ?engine=jina|firecrawl|cf, ?no_cache=true
+GET ${baseUrl}/<url>
+Preferred agent request:
+  curl -H "Accept: text/markdown" ${baseUrl}/https://example.com
+- Returns: Markdown content. Browsers that accept HTML get a reading page.
+- The reading page is noindex. The canonical URL is the source.
+- Params: ?format=markdown|html|text|json, ?selector=<css>, ?force_browser=true, ?engine=jina|firecrawl|cf, ?no_cache=true, ?raw=true
 
 ### Streaming (GET)
 GET ${baseUrl}/api/stream?url=<encoded-url>
@@ -35,8 +49,8 @@ POST ${baseUrl}/api/extract
 
 ### Deep Crawl (POST)
 POST ${baseUrl}/api/deepcrawl
-- Body: { "url": "...", "max_depth": 3, "max_pages": 50 }
-- Returns: Crawled pages as Markdown
+- Body: { "seed": "https://example.com/docs", "max_depth": 3, "max_pages": 50, "stream": true }
+- Returns: Crawled pages as Markdown. Requires an API key.
 
 ### Async Jobs (POST)
 POST ${baseUrl}/api/jobs
@@ -67,11 +81,11 @@ Request an API key at ${baseUrl}/portal/. Authenticate with:
   Authorization: Bearer mk_...
 
 Tiers:
-- anonymous (no key): cache + readability plus keyless engine=jina/firecrawl, no browser rendering
-- free (1,000 credits/month): full pipeline including browser rendering plus keyless engine=jina/firecrawl
-- pro (50,000 credits/month): full pipeline + all engines including engine=cf, proxy, no_cache, force_browser
+- anonymous (no key): cache, direct fetch, and Readability. No browser, no Firecrawl, no Jina.
+- free (1,000 credits/month): full pipeline, including jina and firecrawl. A live browser render costs 3 credits. engine=cf, proxy, and no_cache require Pro.
+- pro (50,000 credits/month): full pipeline plus engine=cf, proxy, no_cache, and force_browser.
 
-Credit costs are fixed per endpoint: convert=1, extract=3, deepcrawl=2 per URL.
+Credits: convert, stream, and batch are 1, or 3 when a live browser render succeeds. Cache hits stay at the route cost. Failures are not charged. Extract is priced at 3 and deepcrawl at 2 for the quota check; those routes do not write the monthly ledger.
 
 Response headers on authenticated requests:
 - X-RateLimit-Limit: monthly credit quota

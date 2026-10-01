@@ -1,4 +1,5 @@
 name = "website2markdown"
+account_id = "48d9ccaf5ee7914c803b5d0656462848"
 main = "src/index.ts"
 compatibility_date = "2025-02-14"
 compatibility_flags = ["nodejs_compat"]

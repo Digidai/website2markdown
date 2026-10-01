@@ -41,6 +41,8 @@ const mocked = vi.hoisted(() => {
   cache: {
     getCached: vi.fn(),
     setCache: vi.fn(),
+    getNegativeCache: vi.fn(),
+    setNegativeCache: vi.fn(),
     getImage: vi.fn(),
   },
   proxy: {
@@ -90,6 +92,8 @@ vi.mock("../converter", () => ({
 vi.mock("../cache", () => ({
   getCached: mocked.cache.getCached,
   setCache: mocked.cache.setCache,
+  getNegativeCache: mocked.cache.getNegativeCache,
+  setNegativeCache: mocked.cache.setNegativeCache,
   getImage: mocked.cache.getImage,
 }));
 
@@ -129,6 +133,8 @@ beforeEach(() => {
 
   mocked.cache.getCached.mockResolvedValue(null);
   mocked.cache.setCache.mockResolvedValue(undefined);
+  mocked.cache.getNegativeCache.mockResolvedValue(null);
+  mocked.cache.setNegativeCache.mockResolvedValue(undefined);
   mocked.cache.getImage.mockResolvedValue(null);
 
   mocked.paywall.applyPaywallHeaders.mockImplementation(() => {});
@@ -201,7 +207,7 @@ describe("CF REST API integration in convertUrl", () => {
     mocked.browser.getAdapter.mockReturnValue(specialAdapter);
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response("<html><body>static body</body></html>", {
+      new Response("<html><body><div id='js_content'><p>static article body</p></div></body></html>", {
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" },
       }),

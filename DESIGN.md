@@ -1,82 +1,54 @@
-# Design System — md.genedai.me
+# Design system — md.genedai.me
 
-Style: Cursor/Linear-inspired. Warm neutral tones, not stark white/black. Dense but readable. Utility language.
+A reading tool, not a launch page. One cool paper and ink palette, one sans for the interface, a serif only in the article you are reading, and a single press blue for actions and links.
 
 ## Fonts
 
 | Role | Font | Fallback | Usage |
 |------|------|----------|-------|
-| Display | Instrument Serif | Georgia, serif | Page titles, hero headings |
-| Body | DM Sans | system-ui, sans-serif | All UI text, labels, descriptions |
-| Code | JetBrains Mono | Fira Code, monospace | API keys, code snippets, usage numbers |
+| UI | Source Sans 3 | PingFang SC, Noto Sans SC, system-ui | All interface text, in both languages |
+| Reading | Source Serif 4 | Songti SC, Noto Serif SC, Georgia | Rendered Markdown only |
+| Code | IBM Plex Mono | Sarasa Mono SC, ui-monospace | URLs, commands, usage numbers |
 
-Load via Google Fonts: `Instrument+Serif:ital@0;1`, `DM+Sans:opsz,wght@9..40,300..700`, `JetBrains+Mono:wght@400;500`.
+Load from Google Fonts. Do not use a display serif in the UI. Chinese and English share the same sans so the rhythm stays even.
 
-## Color Tokens
+## Color
 
 | Token | Light | Dark | Usage |
 |-------|-------|------|-------|
-| `--bg` | #f7f7f4 | #14120b | Page background |
-| `--bg-surface` | #f2f1ed | #1c1a14 | Cards, panels, sidebar |
-| `--bg-elevated` | #eae9e4 | #191b22 | Modals, tooltips, dropdowns |
-| `--text-primary` | #26251e | #edecec | Headings, body text |
-| `--text-secondary` | rgba(38,37,30,0.6) | rgba(237,236,236,0.6) | Labels, metadata |
-| `--text-muted` | rgba(38,37,30,0.45) | rgba(237,236,236,0.3) | Hints, placeholders |
-| `--accent` | #22d3ee | #22d3ee | Buttons, links, active states |
-| `--accent-hover` | #06b6d4 | #06b6d4 | Button hover |
-| `--accent-text` | #0e7490 | #22d3ee | Link text |
-| `--border` | rgba(0,0,0,0.06) | rgba(255,255,255,0.06) | Dividers, borders |
-| `--text-success` | #22c55e | #4ade80 | Active status, success |
-| `--text-danger` | #ef4444 | #f87171 | Revoked, errors, quota exceeded |
-| `--text-warning` | #f59e0b | #fbbf24 | Quota 80%+ warning |
+| `--bg` | #f3f4f6 | #14171c | Page background |
+| `--bg-surface` | #ffffff | #1c2027 | Inputs, code, panels |
+| `--bg-elevated` | #e7eaee | #262b34 | Inset blocks |
+| `--text-primary` | #1c2128 | #e7e9ed | Headings and body |
+| `--text-secondary` | #3d4654 | #c5cbd4 | Supporting copy |
+| `--text-muted` | #5c6573 | #9aa3b2 | Hints. Must stay readable |
+| `--accent` | #1b4f8a | #c5d8f5 | Buttons, current nav, links |
+| `--border` | #d0d5dc | #3a4250 | Rules and field borders |
+| `--danger` | #a3262c | #f0a8a8 | Errors |
+| `--success` | #1a6b45 | #8dcea9 | Completed steps, cache hit |
+| `--warning` | #8a5a12 | #e6c48a | Fallback methods |
 
-Dark mode: `prefers-color-scheme: dark` or `data-theme="dark"`.
+Dark mode follows `prefers-color-scheme`, or `data-theme` when the visitor picks Light or Dark. The choice is stored in `localStorage` under `theme` and applies on the home page, the reader, the loading page, errors, and the portal.
 
-## Spacing & Layout
+## Layout
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--radius` | 4px | All border-radius (not bubbly) |
-| `--max-w` | 1280px | Max content width |
-| Spacing scale | 4, 8, 12, 16, 24, 32, 48, 64px | Consistent multiples of 4 |
+- Content width 1120px. Reading column about 44rem.
+- Radius 4px. Borders are visible. No blur, no glow, no gradient washes.
+- Accent color is for actions and the current section, not for decoration.
+- Numbers use tabular figures.
 
-## Component Patterns
+## Interaction
 
-### Buttons
-- Primary: `--accent` bg, white text, `--radius`, hover `--accent-hover`
-- Secondary: transparent bg, `--accent-text` text, `--border` border
-- Destructive: `--text-danger` bg, white text
-- All buttons: min height 36px, padding 8px 16px, DM Sans 500
+- Every control has a visible `:focus-visible` ring.
+- Pressed buttons move down 1px.
+- Loading, empty, and error states say what happened and what to do next.
+- Motion is the press of a control and the spinner while a conversion runs. The homepage states the API. It does not play a tour.
+- Do not hide content until it scrolls into view.
 
-### Tables / Lists
-- Use `<table>` for data (keys, usage), not card grids
-- Row hover: `--bg-surface`
-- Zebra striping: not needed (clean enough without)
+## Do not
 
-### Modals
-- `--bg-elevated` background
-- 480px max width, centered
-- Focus trap, Esc to close (except key creation modal)
-
-### Empty States
-- Center aligned, max 320px text width
-- Illustration optional (simple SVG line art matching `--text-muted`)
-- Primary action button below description
-- Tone: warm and helpful, not robotic
-
-### Navigation (Portal sidebar)
-- Desktop: fixed 240px left sidebar, `--bg-surface`
-- Tablet (<1024px): hamburger, slide-over
-- Mobile (<768px): hamburger, full-width slide-over
-- Active item: `--accent` left border (2px), `--accent-text` label
-- Items: text only, no icons (keeps it clean)
-
-## Anti-Patterns (DO NOT)
-- No 3-column card grids for features
-- No icons in colored circles
-- No purple/violet gradients
-- No centered everything
-- No uniform bubbly border-radius
-- No emoji as design elements
-- No decorative blobs or wavy SVG dividers
-- `--accent` only on interactive elements, never decoration
+- Italicize one word in a headline.
+- Use three equal icon cards, pill tags, or fake browser windows.
+- Use emoji, star ratings, or made-up success rates.
+- Use uppercase tracked labels.
+- Use a different palette on the reader, the error page, or the portal.

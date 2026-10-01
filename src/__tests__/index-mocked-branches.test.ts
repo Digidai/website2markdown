@@ -26,6 +26,8 @@ const mocked = vi.hoisted(() => ({
   cache: {
     getCached: vi.fn(),
     setCache: vi.fn(),
+    getNegativeCache: vi.fn(),
+    setNegativeCache: vi.fn(),
     getImage: vi.fn(),
   },
   proxy: {
@@ -70,6 +72,8 @@ vi.mock("../converter", () => ({
 vi.mock("../cache", () => ({
   getCached: mocked.cache.getCached,
   setCache: mocked.cache.setCache,
+  getNegativeCache: mocked.cache.getNegativeCache,
+  setNegativeCache: mocked.cache.setNegativeCache,
   getImage: mocked.cache.getImage,
 }));
 
@@ -110,6 +114,8 @@ beforeEach(() => {
 
   mocked.cache.getCached.mockResolvedValue(null);
   mocked.cache.setCache.mockResolvedValue(undefined);
+  mocked.cache.getNegativeCache.mockResolvedValue(null);
+  mocked.cache.setNegativeCache.mockResolvedValue(undefined);
   mocked.cache.getImage.mockResolvedValue(null);
 
   mocked.paywall.applyPaywallHeaders.mockImplementation(() => {});
@@ -290,6 +296,187 @@ describe("index mocked branch coverage", () => {
     expect(mocked.browserUse.fetchViaBrowserUse).not.toHaveBeenCalled();
   });
 
+  it("rejects a WeChat captcha redirect even when its HTML lacks the old markers", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    const captchaUrl = "https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha?action=verify";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { Location: captchaUrl } }))
+      .mockResolvedValueOnce(new Response("<html><body>视频 小程序 赞 在看</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/captcha-redirect?raw=true", {
+      headers: { Accept: "application/json" },
+    });
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+    const payload = await res.json() as { message?: string };
+
+    expect(res.status).toBe(502);
+    expect(payload.message).toBe("WeChat returned an environment verification page instead of the article content.");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("rejects WeChat captcha HTML without the old detector strings", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    for (const html of [
+      "<html><head><title>微信安全验证</title></head><body><div class='captcha-panel'>请完成验证</div></body></html>",
+      "<html><body><p>验证码</p></body></html>",
+    ]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+        new Response(html, { status: 200, headers: { "Content-Type": "text/html" } }),
+      ));
+      const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/captcha-html?raw=true", {
+        headers: { Accept: "application/json" },
+      });
+      const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+      const payload = await res.json() as { message?: string };
+
+      expect(res.status).toBe(502);
+      expect(payload.message).toBe("WeChat returned an environment verification page instead of the article content.");
+    }
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("rejects chrome-only WeChat HTML without caching it", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body><div class='rich_media_tool'>视频 小程序 赞 在看</div></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    ));
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/chrome-only?raw=true", {
+      headers: { Accept: "application/json" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ BROWSER_USE_API_KEY: "browser-use-key" }).env, mockCtx());
+    const payload = await res.json() as { message?: string };
+
+    expect(res.status).toBe(502);
+    expect(payload.message).toContain("without article content");
+    expect(mocked.browserUse.fetchViaBrowserUse).toHaveBeenCalledOnce();
+    expect(mocked.converter.htmlToMarkdown).not.toHaveBeenCalled();
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("rejects a WeChat source that contains only its title", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><head><title>Article Title</title></head><body><h1 id='activity-name'>Article Title</h1><div id='js_content'></div></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    ));
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/empty-article?raw=true", {
+      headers: { Accept: "application/json" },
+    });
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+    const payload = await res.json() as { message?: string };
+
+    expect(res.status).toBe(502);
+    expect(payload.message).toContain("without article content");
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("rejects a repeated-title WeChat conversion even when the source has a body", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><head><title>Article Title</title></head><body><div id='js_content'><p>Brief real prose.</p></div></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    ));
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Article Title\n\n## Article Title",
+      title: "Article Title",
+      contentHtml: "<h1>Article Title</h1>",
+    });
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/title-only?raw=true", {
+      headers: { Accept: "application/json" },
+    });
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+    const payload = await res.json() as { message?: string };
+
+    expect(res.status).toBe(502);
+    expect(payload.message).toContain("without article content");
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("tries Browser Use after a WeChat static shell and returns recovered prose", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body>视频 小程序 赞 在看</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    ));
+    mocked.browserUse.fetchViaBrowserUse.mockResolvedValueOnce(
+      "<html><body><div id='js_content'><p>Recovered article prose.</p></div></body></html>",
+    );
+    mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
+      markdown: html.includes("Recovered article prose.") ? "# Recovered article prose." : "",
+      title: "",
+      contentHtml: "<p>Recovered article prose.</p>",
+    }));
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/shell-recovery?raw=true", {
+      headers: { Accept: "text/markdown" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ BROWSER_USE_API_KEY: "browser-use-key" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Recovered article prose.");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("browser_use");
+    expect(res.headers.get("X-Markdown-Fallbacks")).not.toContain("wechat_static_fallback");
+  });
+
+  it("tries the existing direct proxy after a WeChat static shell and empty Browser Use result", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body>视频 小程序 赞 在看</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    ));
+    mocked.proxy.parseProxyUrl.mockReturnValue({
+      host: "proxy.example.com", port: 8080, username: "u", password: "p",
+    });
+    mocked.proxy.fetchViaProxyPool.mockResolvedValueOnce({
+      status: 200,
+      headers: {},
+      body: "<html><body><div id='js_content'><p>Prose recovered through proxy.</p></div></body></html>",
+      proxyIndex: 0,
+      proxy: { host: "proxy.example.com", port: 8080, username: "u", password: "p" },
+      variant: "mobile",
+      attempts: 1,
+      errors: [],
+    });
+    mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
+      markdown: html.includes("Prose recovered through proxy.") ? "# Prose recovered through proxy." : "",
+      title: "",
+      contentHtml: "<p>Prose recovered through proxy.</p>",
+    }));
+
+    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/proxy-recovery?raw=true", {
+      headers: { Accept: "text/markdown" },
+    });
+    const res = await worker.fetch(req, createMockEnv({
+      BROWSER_USE_API_KEY: "browser-use-key",
+      PROXY_URL: "u:p@proxy.example.com:8080",
+    }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("Prose recovered through proxy.");
+    expect(mocked.browserUse.fetchViaBrowserUse).toHaveBeenCalledOnce();
+    expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("direct_proxy_mobile");
+  });
+
   it("retries through proxy and succeeds after PROXY_RETRY signal", async () => {
     mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
     mocked.browser.fetchWithBrowser.mockRejectedValueOnce(
@@ -461,6 +648,34 @@ describe("index mocked branch coverage", () => {
     expect(res.status).toBe(200);
     expect(mocked.paywall.fetchWaybackSnapshot).toHaveBeenCalled();
     expect(mocked.paywall.fetchArchiveToday).not.toHaveBeenCalled();
+  });
+
+  it("returns the archive snapshot, not the blocked origin body", async () => {
+    // Regression: the 403 block page used to overwrite the recovered snapshot
+    // and be returned (and cached) as a 200 success.
+    mocked.paywall.getPaywallRule.mockReturnValue({ domains: ["example.com"] });
+    mocked.paywall.fetchWaybackSnapshot.mockResolvedValueOnce(
+      `<html><body><article>WAYBACK-ARCHIVED-BODY ${"w".repeat(1600)}</article></body></html>`,
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body>FORBIDDEN-BLOCK-PAGE</body></html>", {
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "Content-Type": "text/html" },
+      }),
+    ));
+
+    const req = new Request("https://md.example.com/https://example.com/pw-body?raw=true", {
+      headers: { Accept: "text/markdown" },
+    });
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+
+    expect(res.status).toBe(200);
+    // Assert on the HTML actually handed to the converter (the markdown output
+    // itself is mocked in this suite).
+    const converted = mocked.converter.htmlToMarkdown.mock.calls.map((c: any[]) => String(c[0]));
+    expect(converted.join("\n")).toContain("WAYBACK-ARCHIVED-BODY");
+    expect(converted.join("\n")).not.toContain("FORBIDDEN-BLOCK-PAGE");
   });
 
   it("uses archive.today fallback when wayback is unavailable", async () => {
@@ -645,7 +860,7 @@ describe("index mocked branch coverage", () => {
 
   it("proxies wechat markdown image urls when output format is markdown", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response("<html><body>wechat</body></html>", {
+      new Response("<html><body><div id='js_content'><img data-src='https://mmbiz.qpic.cn/mmbiz_png/a1/640'></div></body></html>", {
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" },
       }),
@@ -765,5 +980,166 @@ describe("index mocked branch coverage", () => {
 
     expect(res.status).toBe(200);
     expect(payload.results?.[0].error).toBe("Failed to process this URL.");
+  });
+
+  it("rejects a browser-rendered gov.cn not-found shell without caching it", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "页面不存在\n返回首页",
+      title: "页面不存在",
+      contentHtml: "<p>页面不存在</p>",
+    });
+    const { env } = createMockEnv({ API_TOKEN: "gov-token" });
+    const res = await worker.fetch(
+      new Request("https://md.example.com/https://czt.gansu.gov.cn/art/2024/1/1/art_1.html?raw=true", {
+        headers: { Accept: "application/json", Authorization: "Bearer gov-token" },
+      }),
+      env,
+      mockCtx(),
+    );
+    const payload = await res.json() as { message?: string };
+
+    expect(res.status).toBe(502);
+    expect(payload.message).toBe(
+      "This government page returned a not-found or empty shell instead of the article content.",
+    );
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("keeps a short government notice and a long article that mentions a missing page", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    const { env } = createMockEnv({ API_TOKEN: "gov-token" });
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "会议定于明日召开。",
+      title: "会议通知",
+      contentHtml: "<p>会议定于明日召开。</p>",
+    });
+    const notice = await worker.fetch(
+      new Request("https://md.example.com/https://czj.beijing.gov.cn/notice?raw=true", {
+        headers: { Accept: "application/json", Authorization: "Bearer gov-token" },
+      }),
+      env,
+      mockCtx(),
+    );
+    expect(notice.status).toBe(200);
+    expect(await notice.text()).toContain("会议定于明日召开。");
+    expect(mocked.cache.setCache).toHaveBeenCalled();
+
+    mocked.cache.setCache.mockClear();
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: `${"本页讨论页面不存在的处理办法。".repeat(40)}${"正文".repeat(800)}`,
+      title: "处理办法",
+      contentHtml: "<p>long</p>",
+    });
+    const article = await worker.fetch(
+      new Request("https://md.example.com/https://cz.wuxi.gov.cn/art/2024/notice.html?raw=true", {
+        headers: { Accept: "application/json", Authorization: "Bearer gov-token" },
+      }),
+      env,
+      mockCtx(),
+    );
+    expect(article.status).toBe(200);
+    expect(mocked.cache.setCache).toHaveBeenCalled();
+  });
+
+  it("rejects a gov.cn soft-404 URL even when the rendered body is long", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "站点导航".repeat(200),
+      title: "财政部",
+      contentHtml: "<p>nav</p>",
+    });
+    const { env } = createMockEnv({ API_TOKEN: "gov-token" });
+    const res = await worker.fetch(
+      new Request("https://md.example.com/https://www.mof.gov.cn/404.htm?raw=true", {
+        headers: { Accept: "application/json", Authorization: "Bearer gov-token" },
+      }),
+      env,
+      mockCtx(),
+    );
+    expect(res.status).toBe(502);
+    expect(mocked.cache.setCache).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a short gov.cn navigation page as a failure just because it is short", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "甘肃财政 通知公告 政务公开",
+      title: "甘肃财政厅",
+      contentHtml: "<p>甘肃财政</p>",
+    });
+    const { env } = createMockEnv({ API_TOKEN: "gov-token" });
+    const res = await worker.fetch(
+      new Request("https://md.example.com/https://czt.gansu.gov.cn/?raw=true", {
+        headers: { Accept: "application/json", Authorization: "Bearer gov-token" },
+      }),
+      env,
+      mockCtx(),
+    );
+    expect(res.status).toBe(200);
+    expect(mocked.cache.setCache).toHaveBeenCalled();
+  });
+
+  it("leaves a static gov.cn not-found phrase alone when the browser did not render it", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body><p>页面不存在</p></body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    ));
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "页面不存在",
+      title: "页面不存在",
+      contentHtml: "<p>页面不存在</p>",
+    });
+    const res = await worker.fetch(
+      new Request("https://md.example.com/https://hrss.henan.gov.cn/art/1.html?raw=true", {
+        headers: { Accept: "text/markdown" },
+      }),
+      createMockEnv().env,
+      mockCtx(),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("页面不存在");
+    expect(res.headers.get("X-Markdown-Fallbacks") || "").not.toContain("wechat");
+  });
+
+  it("does not apply the government shell rule to a lookalike host", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "页面不存在",
+      title: "页面不存在",
+      contentHtml: "<p>页面不存在</p>",
+    });
+    const { env } = createMockEnv({ API_TOKEN: "gov-token" });
+    const res = await worker.fetch(
+      new Request("https://md.example.com/https://evilgov.cn/404.htm?raw=true", {
+        headers: { Accept: "application/json", Authorization: "Bearer gov-token" },
+      }),
+      env,
+      mockCtx(),
+    );
+    expect(res.status).toBe(200);
+    expect(mocked.cache.setCache).toHaveBeenCalled();
+  });
+
+  it("does not serve a cached search page to an anonymous document navigation", async () => {
+    mocked.cache.getCached.mockResolvedValue({
+      content: "# bing results that must stay hidden",
+      method: "readability+turndown",
+      title: "Bing",
+    });
+    const res = await worker.fetch(
+      new Request("https://md.example.com/https://www.bing.com/search?q=hidden", {
+        headers: { Accept: "text/html", "Sec-Fetch-Dest": "document" },
+      }),
+      createMockEnv().env,
+      mockCtx(),
+    );
+    const body = await res.text();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(body).not.toContain("bing results that must stay hidden");
+    expect(mocked.cache.getCached).not.toHaveBeenCalled();
   });
 });

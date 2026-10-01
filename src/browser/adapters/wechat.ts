@@ -20,12 +20,65 @@ function normalizeText(value: string | null | undefined): string {
   return (value || "").replace(/\s+/g, " ").trim();
 }
 
+function wechatTitle(document: any): string {
+  return normalizeText(
+    (document.querySelector("#activity-name") as any)?.textContent ||
+    (document.querySelector("meta[property='og:title']") as any)?.getAttribute?.("content") ||
+    document.title,
+  );
+}
+
+export function isWechatPageChrome(text: string): boolean {
+  return !text.replace(
+    /视频|小程序|赞|在看|分享|收藏|留言|阅读原文|继续滑动看下一个|微信扫一扫|公众号|[\s\p{P}\p{S}\d]/gu,
+    "",
+  );
+}
+
+function contentScore(node: any, title: string): number {
+  const copy = node.cloneNode(true) as any;
+  copy.querySelectorAll?.("script, style, h1, [data-wechat-meta]").forEach((el: any) => el.remove());
+  const text = normalizeText(copy.textContent);
+  const mediaCount = copy.querySelectorAll?.("img[data-src], img[src], video, pre, table").length || 0;
+  if ((!text || text === title || isWechatPageChrome(text)) && mediaCount === 0) return -1;
+  // A share notice may precede the real article in another js_content node.
+  const shareNotice = /^(?:点击右上角|长按|扫码|扫描二维码|分享给|转发给|请在微信)/.test(text);
+  const paragraphs = copy.querySelectorAll?.("p").length || 0;
+  return text.length + paragraphs * 50 + mediaCount * 50 - (shareNotice ? 1000 : 0);
+}
+
+function bestWechatContent(document: any): any | null {
+  const title = wechatTitle(document);
+  const nodes = Array.from(document.querySelectorAll("#js_content")) as any[];
+  if (nodes.length === 0) {
+    nodes.push(...Array.from(document.querySelectorAll("article")));
+  }
+  let best: any | null = null;
+  let bestScore = -1;
+  for (const node of nodes) {
+    const score = contentScore(node, title);
+    if (score > bestScore) {
+      best = node;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+export function hasWechatArticleBody(html: string): boolean {
+  try {
+    return !!bestWechatContent(parseHTML(html).document);
+  } catch {
+    return false;
+  }
+}
+
 function extractWechatArticleHtml(html: string): string | null {
   if (!html.includes("js_content")) return null;
 
   try {
     const { document } = parseHTML(html);
-    const content = document.querySelector("#js_content") as any;
+    const content = bestWechatContent(document);
     if (!content) return null;
 
     content.querySelectorAll?.("img[data-src]").forEach((img: any) => {
@@ -33,11 +86,7 @@ function extractWechatArticleHtml(html: string): string | null {
       if (real) img.setAttribute("src", real);
     });
 
-    const title = normalizeText(
-      (document.querySelector("#activity-name") as any)?.textContent ||
-      (document.querySelector("meta[property='og:title']") as any)?.getAttribute?.("content") ||
-      document.title,
-    );
+    const title = wechatTitle(document);
     const author = normalizeText((document.querySelector("#js_name") as any)?.textContent);
     const publishTime = normalizeText(
       (document.querySelector("[data-wechat-meta='publish_time']") as any)?.textContent,

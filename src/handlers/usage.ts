@@ -8,6 +8,7 @@
 import type { AuthContext, Env, Tier } from "../types";
 import { TIER_QUOTAS } from "../types";
 import { CORS_HEADERS } from "../config";
+import { ensureMonthlyQuota, utcQuotaWindow } from "../middleware/quota";
 
 // ─── In-memory usage buffer ─────────────────────────────────
 
@@ -132,7 +133,7 @@ export async function handleUsageForAccount(
 
   try {
     const now = new Date();
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const { monthStart } = utcQuotaWindow(now);
 
     const account = await env.AUTH_DB.prepare(
       `SELECT tier, monthly_credits_used, monthly_credits_reset_at FROM accounts WHERE id = ?`
@@ -164,9 +165,16 @@ export async function handleUsageForAccount(
     }>();
 
     // Derive quota from the authoritative tier in D1, not from stale AuthContext
+    const rolled = await ensureMonthlyQuota(
+      env,
+      accountId,
+      account.monthly_credits_used ?? 0,
+      account.monthly_credits_reset_at,
+      now,
+    );
     const tier = (account.tier === "pro" ? "pro" : account.tier === "enterprise" ? "pro" : "free") as Tier;
     const quota = TIER_QUOTAS[tier];
-    const used = account.monthly_credits_used ?? 0;
+    const used = rolled.used;
 
     return Response.json({
       tier: account.tier,
@@ -175,7 +183,7 @@ export async function handleUsageForAccount(
       remaining: Math.max(0, quota - used),
       period: {
         start: monthStart,
-        reset_at: account.monthly_credits_reset_at,
+        reset_at: rolled.resetAt,
       },
       daily: dailyRows.results || [],
     }, {

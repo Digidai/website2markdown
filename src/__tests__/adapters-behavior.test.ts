@@ -5,6 +5,7 @@ import { redditAdapter } from "../browser/adapters/reddit";
 import { neteaseAdapter } from "../browser/adapters/netease";
 import { feishuAdapter, isFeishuDocumentUrl } from "../browser/adapters/feishu";
 import { twitterAdapter } from "../browser/adapters/twitter";
+import { weiboAdapter } from "../browser/adapters/weibo";
 import { htmlToMarkdown } from "../converter";
 
 type MockPage = {
@@ -115,6 +116,32 @@ describe("adapter behavior", () => {
     const html = `<html><body><div id="js_content">plain article</div></body></html>`;
     const processed = wechatAdapter.postProcess!(html);
     expect(processed).toContain("plain article");
+  });
+
+  it("wechat postProcess selects prose from a later js_content node", () => {
+    const html = `<html><head><title>Article Title</title></head><body>
+      <div id="js_content"></div>
+      <div id="js_content"><p>A short but real article paragraph.</p></div>
+      <div class="rich_media_tool">视频 小程序 赞 在看</div>
+    </body></html>`;
+
+    const processed = wechatAdapter.postProcess!(html);
+    const result = htmlToMarkdown(processed, "https://mp.weixin.qq.com/s/two-nodes");
+
+    expect(processed).toContain("A short but real article paragraph.");
+    expect(processed).not.toContain("rich_media_tool");
+    expect(result.markdown).toContain("A short but real article paragraph.");
+  });
+
+  it("wechat postProcess prefers article prose over an earlier share notice", () => {
+    const html = `<html><head><title>Article Title</title></head><body>
+      <div id="js_content">点击右上角分享到朋友圈，长按二维码关注公众号</div>
+      <div id="js_content"><p>Brief article prose.</p></div>
+    </body></html>`;
+
+    const processed = wechatAdapter.postProcess!(html);
+    expect(processed).toContain("Brief article prose.");
+    expect(processed).not.toContain("点击右上角");
   });
 
   it("wechat postProcess promotes js_content into a focused article document", () => {
@@ -362,5 +389,37 @@ describe("adapter behavior", () => {
 
     expect(html).toContain("(@charlie)");
     expect(html).toContain("oembed fallback body");
+  });
+
+  it("fetches weibo status directly via mobile API", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("m.weibo.cn/statuses/show?id=4999999999999999")) {
+        return new Response(
+          JSON.stringify({
+            ok: 1,
+            data: {
+              id: "4999999999999999",
+              text: "这是一条测试微博内容",
+              created_at: "Wed Mar 25 12:00:00 +0800 2026",
+              user: { screen_name: "测试博主" },
+              pics: [{ url: "https://wx1.sinaimg.cn/thumb180/test.jpg", large: { url: "https://wx1.sinaimg.cn/large/test.jpg" } }],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const html = await weiboAdapter.fetchDirect!(
+      "https://weibo.com/1234567890/4999999999999999",
+    );
+
+    expect(html).not.toBeNull();
+    expect(html).toContain("测试博主的微博");
+    expect(html).toContain("这是一条测试微博内容");
+    expect(html).toContain("https://wx1.sinaimg.cn/large/test.jpg");
   });
 });

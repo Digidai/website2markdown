@@ -18,6 +18,11 @@ import {
   fetchWithSafeRedirects,
 } from "./security";
 import { getCached, getImage } from "./cache";
+import {
+  PRIVATE_ERROR_CACHE_CONTROL,
+  SEARCH_PAGE_API_KEY_MESSAGE,
+  isSearchResultPage,
+} from "./policy/anonymous-guards";
 import { setPaywallRulesFromJson, getPaywallRuleStats } from "./paywall";
 import { errorMessage } from "./utils";
 import { landingPageHTML } from "./templates/landing";
@@ -34,7 +39,8 @@ import {
 } from "./runtime-state";
 import { isAuthorizedByToken } from "./middleware/auth";
 import { resolveAuth } from "./middleware/auth-d1";
-import { buildPolicy, checkPolicy, isPublicKeylessEngine, policyHeaders } from "./middleware/tier-gate";
+import { buildPolicy, browserAllowedForRequest, chargedCreditCost, checkPolicy, policyHeaders } from "./middleware/tier-gate";
+import { classifyAccessPath } from "./admin/classify";
 import { sessionProfileScopeForAuth } from "./middleware/api-access";
 import { consumeRateLimit, rateLimitedResponse } from "./middleware/rate-limit";
 import { recordUsage, flushUsage, shouldFlush, handleUsage, handleUsageForAccount } from "./handlers/usage";
@@ -82,6 +88,8 @@ import {
 import { handleOgImage } from "./handlers/og-image";
 import { handleLlmsTxt } from "./handlers/llms-txt";
 import { handleRobotsTxt, handleSitemap } from "./handlers/seo";
+import { handleAdmin } from "./handlers/admin";
+import { recordAccess } from "./admin/analytics";
 import {
   buildDebugTraceDecision,
   cleanupExpiredOperationalRows,
@@ -143,6 +151,23 @@ function isDocumentNavigationRequest(request: Request, acceptHeader: string): bo
         acceptHeader.includes("text/html")));
 }
 
+/**
+ * Hosts the legacy /img/ proxy is allowed to fetch. proxyImageUrls() only ever
+ * rewrites mmbiz.qpic.cn (WeChat) image URLs; anything else would make this an
+ * open image proxy for arbitrary origins.
+ */
+function isProxyableImageHost(imgUrl: string): boolean {
+  try {
+    const host = new URL(imgUrl).hostname.toLowerCase();
+    return (
+      host === "mmbiz.qpic.cn" ||
+      host.endsWith(".qpic.cn")
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function resolveStreamAuth(request: Request, env: Env): Promise<AuthContext | null> {
   if (!env.AUTH_DB) return null;
   const bearerAuth = await resolveAuth(request, env);
@@ -173,6 +198,35 @@ export default {
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const started = Date.now();
+    const response = await handleRequest(request, env, ctx);
+    ctx.waitUntil(recordAccess(env, request, response, Date.now() - started));
+    return response;
+  },
+};
+
+function probeNotFound(method: string): Response {
+  return new Response(method === "HEAD" ? null : "Not Found", {
+    status: 404,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
+      ...CORS_HEADERS,
+    },
+  });
+}
+
+/** Anonymous convert/stream/batch share a D1 counter. Keyed callers stay on the local limit. */
+async function anonymousForDurableLimit(request: Request, env: Env): Promise<boolean> {
+  if (env.AUTH_DB) {
+    return (await resolveAuth(request, env)).tier === "anonymous";
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  return !(authorization.startsWith("Bearer ") && authorization.length > 7);
+}
+
+async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const host = url.host;
     const path = url.pathname;
@@ -184,20 +238,41 @@ export default {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
+    if (
+      path === "/admin" ||
+      path === "/admin/" ||
+      path === "/admin/logout" ||
+      path === "/admin/conversion"
+    ) {
+      return handleAdmin(request, env);
+    }
+
+    // Scanner paths must not render the marketing page or become outbound fetches.
+    // This is before the portal prefix, HEAD's generic 405, and URL extraction.
+    if (classifyAccessPath(path).surface === "probe") {
+      return probeNotFound(request.method);
+    }
+
     await syncPaywallRules(env);
 
     // POST /api/batch
     if (request.method === "POST" && path === "/api/batch") {
-      const decision = await consumeRateLimit(request, env, "batch");
+      const decision = await consumeRateLimit(request, env, "batch", {
+        anonymous: await anonymousForDurableLimit(request, env),
+      });
       if (decision?.exceeded) {
         return rateLimitedResponse("batch", decision, true);
       }
-      return handleBatch(request, env, host);
+      const batchResponse = await handleBatch(request, env, host);
+      if (shouldFlush()) ctx.waitUntil(flushUsage(env));
+      return batchResponse;
     }
 
     // POST /api/extract
     if (request.method === "POST" && path === "/api/extract") {
-      const decision = await consumeRateLimit(request, env, "convert");
+      const decision = await consumeRateLimit(request, env, "convert", {
+        anonymous: await anonymousForDurableLimit(request, env),
+      });
       if (decision?.exceeded) {
         return rateLimitedResponse("convert", decision, true);
       }
@@ -206,7 +281,9 @@ export default {
 
     // POST /api/deepcrawl
     if (request.method === "POST" && path === "/api/deepcrawl") {
-      const decision = await consumeRateLimit(request, env, "batch");
+      const decision = await consumeRateLimit(request, env, "batch", {
+        anonymous: await anonymousForDurableLimit(request, env),
+      });
       if (decision?.exceeded) {
         return rateLimitedResponse("batch", decision, true);
       }
@@ -215,7 +292,9 @@ export default {
 
     // POST /api/jobs
     if (request.method === "POST" && path === "/api/jobs") {
-      const decision = await consumeRateLimit(request, env, "batch");
+      const decision = await consumeRateLimit(request, env, "batch", {
+        anonymous: await anonymousForDurableLimit(request, env),
+      });
       if (decision?.exceeded) {
         return rateLimitedResponse("batch", decision, true);
       }
@@ -298,6 +377,7 @@ export default {
         request,
         env,
         jobPath.action === "stream" ? "stream" : "batch",
+        { anonymous: await anonymousForDurableLimit(request, env) },
       );
       if (decision?.exceeded) {
         return rateLimitedResponse(jobPath.action === "stream" ? "stream" : "batch", decision, true);
@@ -354,12 +434,18 @@ export default {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
+      if (path === "/" || path === "/examples" || path === "/docs" || path === "/integrations" || path === "/integration") {
+        return new Response(null, {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
       return new Response("Method Not Allowed", { status: 405, headers: CORS_HEADERS });
     }
 
     // SEO files
     if (path === "/robots.txt") {
-      return handleRobotsTxt();
+      return handleRobotsTxt(host);
     }
     if (path === "/sitemap.xml") {
       return handleSitemap(host);
@@ -444,6 +530,25 @@ export default {
         );
       }
 
+      // Quota enforcement. checkPolicy deliberately returns null when the quota
+      // is exhausted ("handled separately"), so each route must enforce it. The
+      // convert path does this below; without the same check here, an exhausted
+      // key could keep converting for free through /api/stream.
+      if (
+        streamPolicy &&
+        streamAuth &&
+        streamPolicy.tier !== "anonymous" &&
+        streamPolicy.quotaRemaining <= 0
+      ) {
+        return Response.json(
+          {
+            error: "Quota Exceeded",
+            message: `Monthly quota of ${streamAuth.quotaLimit} credits exhausted. Upgrade your plan at /portal/.`,
+          },
+          { status: 429, headers: CORS_HEADERS },
+        );
+      }
+
       let legacyStreamAuthorized = false;
       // Legacy auth fallback (when no D1)
       if (!streamAuth) {
@@ -456,11 +561,7 @@ export default {
             );
           }
           legacyStreamAuthorized = true;
-        } else if (
-          streamNoCache ||
-          streamForceBrowser ||
-          (streamEngine && !isPublicKeylessEngine(streamEngine))
-        ) {
+        } else if (streamNoCache || streamForceBrowser || streamEngine) {
           return Response.json(
             { error: "Unauthorized", message: "Parameters no_cache, engine, and force_browser require a valid token." },
             { status: 401, headers: CORS_HEADERS },
@@ -468,12 +569,44 @@ export default {
         }
       }
 
-      const decision = await consumeRateLimit(request, env, "stream");
+      const streamTierAnonymous = streamAuth
+        ? streamAuth.tier === "anonymous"
+        : !legacyStreamAuthorized;
+      let streamBrowserAllowed = streamPolicy
+        ? streamPolicy.browserAllowed
+        : Boolean(env.PUBLIC_API_TOKEN);
+      if (streamPolicy && streamPolicy.tier !== "anonymous") {
+        const browserGate = browserAllowedForRequest(streamPolicy, streamForceBrowser);
+        if (browserGate.error) {
+          return Response.json(
+            { error: "Quota Exceeded", message: browserGate.error },
+            { status: 429, headers: CORS_HEADERS },
+          );
+        }
+        streamBrowserAllowed = browserGate.allowed;
+      }
+
+      const streamTarget = url.searchParams.get("url");
+      if (streamTierAnonymous && streamTarget && isSearchResultPage(streamTarget)) {
+        return Response.json(
+          { error: "Unauthorized", message: SEARCH_PAGE_API_KEY_MESSAGE },
+          {
+            status: 401,
+            headers: {
+              ...CORS_HEADERS,
+              "Cache-Control": PRIVATE_ERROR_CACHE_CONTROL,
+            },
+          },
+        );
+      }
+
+      const decision = await consumeRateLimit(request, env, "stream", {
+        anonymous: streamTierAnonymous,
+      });
       if (decision?.exceeded) {
         return rateLimitedResponse("stream", decision, true);
       }
       incrementCounter("streamRequests");
-      const streamBrowserAllowed = streamPolicy ? streamPolicy.browserAllowed : !env.PUBLIC_API_TOKEN ? false : true;
       // Pass rate-limit headers through to the SSE response so clients can
       // observe their quota without making a separate /api/usage call.
       const streamResponseHeaders = streamAuth && streamPolicy
@@ -498,6 +631,7 @@ export default {
           quotaRemaining: streamPolicy?.quotaRemaining,
           providerApiKeysAllowed: streamAuth ? streamAuth.tier !== "anonymous" : legacyStreamAuthorized,
           sessionProfileScope: streamSessionProfileScope,
+          anonymousCaller: streamTierAnonymous,
         },
       );
     }
@@ -539,6 +673,12 @@ export default {
         return new Response("Invalid image URL encoding", { status: 400 });
       }
       if (!isValidUrl(imgUrl) || !isSafeUrl(imgUrl)) {
+        return new Response("Forbidden", { status: 403 });
+      }
+      // This proxy exists solely for hotlink-protected WeChat images, which is
+      // all proxyImageUrls() ever rewrites. Restrict it to those hosts so it
+      // cannot be used as an open image proxy for arbitrary origins.
+      if (!isProxyableImageHost(imgUrl)) {
         return new Response("Forbidden", { status: 403 });
       }
       try {
@@ -613,7 +753,12 @@ export default {
           landingLang = "zh";
         }
       }
-      return new Response(landingPageHTML(host, landingLang), {
+      const sitePage =
+        path === "/examples" ? "examples"
+        : path === "/docs" ? "docs"
+        : path === "/integrations" || path === "/integration" ? "integration"
+        : "home";
+      return new Response(landingPageHTML(host, landingLang, sitePage), {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Content-Security-Policy": LANDING_CSP,
@@ -621,6 +766,7 @@ export default {
           "X-Frame-Options": "DENY",
           "X-Content-Type-Options": "nosniff",
           "Referrer-Policy": "strict-origin-when-cross-origin",
+          "Link": '</llms.txt>; rel="describedby", </sitemap.xml>; rel="sitemap"',
         },
       });
     }
@@ -745,7 +891,14 @@ export default {
         );
       }
 
-      const browserAllowed = policy.browserAllowed;
+      const browserGate = browserAllowedForRequest(policy, forceBrowser);
+      if (browserGate.error) {
+        return withExtraHeaders(
+          errorResponse("Quota Exceeded", browserGate.error, 429, jsonErrors),
+          { "X-Request-ID": requestId },
+        );
+      }
+      const browserAllowed = browserGate.allowed;
 
       if (isDocumentNav && queryToken && !env.AUTH_DB && env.PUBLIC_API_TOKEN) {
         return withExtraHeaders(
@@ -787,7 +940,19 @@ export default {
         }
       }
 
-      const rateDecision = await consumeRateLimit(request, env, "convert");
+      if (auth.tier === "anonymous" && isSearchResultPage(targetUrl)) {
+        return withExtraHeaders(
+          errorResponse("Unauthorized", SEARCH_PAGE_API_KEY_MESSAGE, 401, jsonErrors),
+          {
+            "X-Request-ID": requestId,
+            "Cache-Control": PRIVATE_ERROR_CACHE_CONTROL,
+          },
+        );
+      }
+
+      const rateDecision = await consumeRateLimit(request, env, "convert", {
+        anonymous: auth.tier === "anonymous",
+      });
       if (rateDecision?.exceeded) {
         return withExtraHeaders(
           rateLimitedResponse("convert", rateDecision, jsonErrors),
@@ -953,6 +1118,7 @@ export default {
         undefined, undefined, engine, browserAllowed,
         auth.tier !== "anonymous",
         sessionProfileScope,
+        auth.tier === "anonymous",
       );
 
       incrementCounter("conversionsTotal");
@@ -974,7 +1140,15 @@ export default {
       });
 
       // Track usage (D1 flush via waitUntil)
-      recordUsage(auth, policy.creditCost, result.diagnostics.browserRendered, result.cached);
+      const cacheHit = result.cached || result.diagnostics.cacheHit;
+      const liveBrowser = !cacheHit && (
+        result.diagnostics.browserRendered || result.method === "browser+readability+turndown"
+      );
+      const charged = chargedCreditCost(policy.creditCost, {
+        browserRendered: liveBrowser,
+        cacheHit,
+      });
+      recordUsage(auth, charged, liveBrowser, cacheHit);
       if (shouldFlush()) {
         ctx.waitUntil(flushUsage(env));
       }
@@ -986,6 +1160,7 @@ export default {
       );
       // Add rate limit + cost headers
       for (const [k, v] of Object.entries(policyHeaders(policy, auth))) resp.headers.set(k, v);
+      if (policy.tier !== "anonymous") resp.headers.set("X-Request-Cost", String(charged));
       for (const [k, v] of Object.entries(debugTraceHeaders(eventDebugTrace))) resp.headers.set(k, v);
       resp.headers.set("X-Request-ID", requestId);
       ctx.waitUntil(recordConversionEvent(env, {
@@ -1003,7 +1178,7 @@ export default {
         selector,
         forceBrowser,
         noCache,
-        creditCost: policy.creditCost,
+        creditCost: charged,
         quotaRemaining: policy.quotaRemaining,
         debugTrace: eventDebugTrace,
       }));
@@ -1035,9 +1210,16 @@ export default {
           errorMessage: err.message,
           debugTrace: eventDebugTrace,
         }));
+        const errorHeaders: Record<string, string> = {
+          ...debugTraceHeaders(eventDebugTrace),
+          "X-Request-ID": requestId,
+        };
+        if (err.targetStatus !== undefined || err.message === SEARCH_PAGE_API_KEY_MESSAGE) {
+          errorHeaders["Cache-Control"] = PRIVATE_ERROR_CACHE_CONTROL;
+        }
         return withExtraHeaders(
           errorResponse(err.title, err.message, err.statusCode, jsonErrors),
-          { ...debugTraceHeaders(eventDebugTrace), "X-Request-ID": requestId },
+          errorHeaders,
         );
       }
       const message = err instanceof Error ? err.message : String(err);
@@ -1077,5 +1259,4 @@ export default {
         { ...debugTraceHeaders(eventDebugTrace), "X-Request-ID": requestId },
       );
     }
-  },
-};
+}

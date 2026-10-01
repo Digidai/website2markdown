@@ -5,6 +5,8 @@ export interface Env {
   JOB_COORDINATOR?: DurableObjectNamespace;
   /** D1 database for auth, API keys, and usage metering */
   AUTH_DB?: D1Database;
+  /** Passphrase for /admin. Login is refused when this is unset. */
+  ADMIN_PASSWORD?: string;
   API_TOKEN?: string;
   PUBLIC_API_TOKEN?: string;
   PAYWALL_RULES_JSON?: string;

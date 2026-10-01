@@ -48,12 +48,15 @@ export function handlePublicHealth(host: string): Response {
  * rate limit state, browser concurrency, etc.
  */
 export async function handleFullHealth(request: Request, env: Env, host: string): Promise<Response> {
-  // Require admin auth for full metrics
-  if (env.API_TOKEN) {
-    const authorized = await isAuthorizedByToken(request, env.API_TOKEN);
-    if (!authorized) {
-      return handlePublicHealth(host);
-    }
+  // Require admin auth for full metrics. Fail closed: if no API_TOKEN is
+  // configured there is no way to authorize the caller, so fall back to the
+  // public payload rather than exposing operational internals to everyone.
+  if (!env.API_TOKEN) {
+    return handlePublicHealth(host);
+  }
+  const authorized = await isAuthorizedByToken(request, env.API_TOKEN);
+  if (!authorized) {
+    return handlePublicHealth(host);
   }
   return buildFullHealthResponse(host);
 }

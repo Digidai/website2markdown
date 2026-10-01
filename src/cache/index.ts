@@ -1,5 +1,6 @@
 import type { Env } from "../types";
 import { CACHE_TTL_DEFAULT, CACHE_TTL_SHORT } from "../config";
+import { isNegativeOriginStatus } from "../policy/anonymous-guards";
 import { errorMessage } from "../utils";
 
 type CachedPayload = {
@@ -19,6 +20,20 @@ const HASH_MEMO_CAPACITY = 256;
 const CACHE_KEY_MEMO_CAPACITY = 512;
 const hashMemo = new Map<string, string>();
 const cacheKeyMemo = new Map<string, string>();
+
+/** Anonymous origin failures. Separate from the 15s positive hot cache. */
+const NEGATIVE_CACHE_TTL_SECONDS = 1800;
+const NEGATIVE_HOT_TTL_MS = NEGATIVE_CACHE_TTL_SECONDS * 1000;
+const NEGATIVE_HOT_CAPACITY = 128;
+
+export interface NegativeCacheEntry {
+  title: string;
+  message: string;
+  statusCode: number;
+  targetStatus: number;
+}
+
+const negativeHot = new Map<string, { value: NegativeCacheEntry; expiresAt: number }>();
 const CACHE_READ_TIMEOUT_MS = 800;
 const CACHE_WRITE_TIMEOUT_MS = 1500;
 const R2_OP_TIMEOUT_MS = 3000;
@@ -349,6 +364,147 @@ export async function setCache(
     );
   } catch (e) {
     console.error("Cache write failed:", e instanceof Error ? e.message : e);
+  }
+}
+
+async function negativeCacheKey(url: string): Promise<string> {
+  return `https://md-neg/v1/${await urlHash(url)}`;
+}
+
+function parseNegativeEntry(raw: string): NegativeCacheEntry | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<NegativeCacheEntry> | null;
+    if (
+      !parsed ||
+      typeof parsed.title !== "string" ||
+      typeof parsed.message !== "string" ||
+      typeof parsed.statusCode !== "number" ||
+      typeof parsed.targetStatus !== "number" ||
+      !isNegativeOriginStatus(parsed.targetStatus)
+    ) {
+      return null;
+    }
+    return {
+      title: parsed.title,
+      message: parsed.message,
+      statusCode: parsed.statusCode,
+      targetStatus: parsed.targetStatus,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readNegativeHot(key: string): NegativeCacheEntry | null {
+  const entry = negativeHot.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    negativeHot.delete(key);
+    return null;
+  }
+  touchBoundedMap(negativeHot, key, entry, NEGATIVE_HOT_CAPACITY);
+  return { ...entry.value };
+}
+
+function writeNegativeHot(key: string, value: NegativeCacheEntry): void {
+  touchBoundedMap(
+    negativeHot,
+    key,
+    { value: { ...value }, expiresAt: Date.now() + NEGATIVE_HOT_TTL_MS },
+    NEGATIVE_HOT_CAPACITY,
+  );
+}
+
+async function readNegativeCacheApi(key: string): Promise<NegativeCacheEntry | null> {
+  try {
+    if (typeof caches === "undefined") return null;
+    const cache = caches.default;
+    const response = await withTimeout(
+      cache.match(new Request(key)),
+      CACHE_API_READ_TIMEOUT_MS,
+      "Cache API read timed out",
+    );
+    if (!response) return null;
+    return parseNegativeEntry(await response.text());
+  } catch {
+    return null;
+  }
+}
+
+async function writeNegativeCacheApi(key: string, data: NegativeCacheEntry): Promise<void> {
+  try {
+    if (typeof caches === "undefined") return;
+    const cache = caches.default;
+    const response = new Response(JSON.stringify(data), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": `max-age=${NEGATIVE_CACHE_TTL_SECONDS}`,
+      },
+    });
+    await withTimeout(
+      cache.put(new Request(key), response),
+      CACHE_API_WRITE_TIMEOUT_MS,
+      "Cache API write timed out",
+    );
+  } catch {
+    // Cache API write failure is non-fatal — KV is the durable layer
+  }
+}
+
+/** Read a remembered anonymous origin failure. Misses return null. */
+export async function getNegativeCache(
+  env: Env,
+  url: string,
+): Promise<NegativeCacheEntry | null> {
+  try {
+    const key = await negativeCacheKey(url);
+    const hot = readNegativeHot(key);
+    if (hot) return hot;
+
+    const apiCached = await readNegativeCacheApi(key);
+    if (apiCached) {
+      writeNegativeHot(key, apiCached);
+      return { ...apiCached };
+    }
+
+    const raw = await withTimeout(
+      env.CACHE_KV.get(key, "text"),
+      CACHE_READ_TIMEOUT_MS,
+      "KV read timed out",
+    );
+    if (!raw) return null;
+    const parsed = parseNegativeEntry(raw);
+    if (!parsed) return null;
+    writeNegativeHot(key, parsed);
+    writeNegativeCacheApi(key, parsed).catch(() => {});
+    return { ...parsed };
+  } catch {
+    return null;
+  }
+}
+
+/** Remember an anonymous origin failure for 30 minutes. Failures here are non-fatal. */
+export async function setNegativeCache(
+  env: Env,
+  url: string,
+  data: NegativeCacheEntry,
+): Promise<void> {
+  try {
+    if (!isNegativeOriginStatus(data.targetStatus)) return;
+    const key = await negativeCacheKey(url);
+    writeNegativeHot(key, data);
+    writeNegativeCacheApi(key, data).catch(() => {});
+    await withTransientRetry(() =>
+      withTimeout(
+        env.CACHE_KV.put(key, JSON.stringify(data), {
+          expirationTtl: NEGATIVE_CACHE_TTL_SECONDS,
+        }),
+        CACHE_WRITE_TIMEOUT_MS,
+        "KV write timed out",
+      ),
+    );
+  } catch (e) {
+    console.error("Negative cache write failed:", e instanceof Error ? e.message : e);
   }
 }
 

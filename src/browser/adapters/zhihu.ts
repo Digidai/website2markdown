@@ -6,14 +6,16 @@ import { createProxyRetrySignal } from "../proxy-retry";
 const ZHIHU_CHALLENGE_TIMEOUT = 15_000;
 
 const CONTENT_SELECTOR =
-  ".Post-RichTextContainer, .RichContent-inner, .QuestionRichText, article";
+  ".Post-RichTextContainer, .RichContent-inner, .QuestionRichText, article, .PinItem, .ZVideo-content";
 
 export const zhihuAdapter: SiteAdapter = {
   match(url: string): boolean {
     return (
       url.includes("zhihu.com/p/") ||
       url.includes("zhihu.com/question/") ||
-      url.includes("zhuanlan.zhihu.com/")
+      url.includes("zhuanlan.zhihu.com/") ||
+      url.includes("zhihu.com/pin/") ||
+      url.includes("zhihu.com/zvideo/")
     );
   },
 
@@ -67,21 +69,40 @@ export const zhihuAdapter: SiteAdapter = {
       throw new Error("知乎反爬机制已触发，暂时无法访问该页面。");
     }
 
-    // Remove login walls, overlays, and clean up
+    // Remove login walls, overlays, expand answers, and clean up
     await page.evaluate(`
       (function() {
+        // Expand collapsed answers before removing elements
+        var buttons = document.querySelectorAll('.ContentItem-expandButton, button.RichContent-collapsedText');
+        for (var i = 0; i < buttons.length; i++) {
+          try { buttons[i].click(); } catch(e) {}
+        }
+
+        // Expand collapsed containers and restore full height
+        document.querySelectorAll('.RichContent.is-collapsed').forEach(function(el) {
+          el.classList.remove('is-collapsed');
+          el.style.maxHeight = 'none';
+        });
+
+        // Convert LaTeX math formulas from data-tex attributes
+        document.querySelectorAll('.ztext-math[data-tex]').forEach(function(el) {
+          var tex = el.getAttribute('data-tex');
+          if (tex) {
+            el.textContent = '$' + tex + '$';
+          }
+        });
+
+        // Remove overlays and modal elements
         ['[class*="Modal"]','[class*="signflow"]','.OpenInAppButton','.AppHeader-login','.ContentItem-expandButton']
           .forEach(function(sel) {
             try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
           });
         document.body.style.overflow = 'auto';
         document.documentElement.style.overflow = 'auto';
-        document.querySelectorAll('.RichContent.is-collapsed').forEach(function(el) {
-          el.classList.remove('is-collapsed');
-          el.style.maxHeight = 'none';
-        });
-        document.querySelectorAll('img[data-original], img[data-actualsrc]').forEach(function(img) {
-          var real = img.getAttribute('data-original') || img.getAttribute('data-actualsrc');
+
+        // Fix lazy-loaded images
+        document.querySelectorAll('img[data-original], img[data-actualsrc], img[data-lazy-src]').forEach(function(img) {
+          var real = img.getAttribute('data-original') || img.getAttribute('data-actualsrc') || img.getAttribute('data-lazy-src');
           if (real) img.setAttribute('src', real);
         });
         document.querySelectorAll('noscript').forEach(function(ns) {

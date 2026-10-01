@@ -9,9 +9,12 @@ describe("templates", () => {
     const html = landingPageHTML('md.example.com"><script>alert(1)</script>');
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
-    expect(html).toContain("GET /api/stream");
-    expect(html).toContain("POST /api/deepcrawl");
-    expect(html).toContain('curl -H "Accept: text/markdown" https://md.example.com');
+    expect(html).not.toContain("POST /api/deepcrawl");
+    const docs = landingPageHTML('md.example.com"><script>alert(1)</script>', "en", "docs");
+    expect(docs).toContain("GET /api/stream");
+    expect(docs).toContain("POST /api/deepcrawl");
+    expect(docs).toContain('curl -H "Accept: text/markdown" https://md.example.com');
+    expect(docs).not.toContain('<script>alert(1)</script>');
   });
 
   it("renders Chinese landing page when lang is zh", () => {
@@ -21,11 +24,13 @@ describe("templates", () => {
     expect(html).toContain("任意 URL 转");
     expect(html).toContain("转换");
     expect(html).toContain('lang="zh-CN"');
-    expect(html).toContain("/api/extract");
-    expect(html).toContain("/api/jobs");
-    expect(html).toContain("/api/deepcrawl");
-    expect(html).toContain("PUBLIC_API_TOKEN");
     expect(html).toContain("任务编排和 Deep Crawl");
+    expect(html).not.toContain("id=\"tab-docs\"");
+    const docs = landingPageHTML("md.example.com", "zh", "docs");
+    expect(docs).toContain("/api/extract");
+    expect(docs).toContain("/api/jobs");
+    expect(docs).toContain("/api/deepcrawl");
+    expect(docs).toContain("PUBLIC_API_TOKEN");
   });
 
   it("escapes title and message in error page", () => {
@@ -62,6 +67,8 @@ describe("templates", () => {
     );
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;");
     expect(html).toContain("Art &quot;Title&quot;");
+    expect(html).toContain('content="noindex, follow"');
+    expect(html).toContain('rel="canonical" href="https://example.com/&quot;x&quot;"');
     expect(html).toContain("CACHED");
     expect(html).toContain('/https%3A%2F%2Fexample.com%2F%22x%22?raw=true&amp;selector=.main');
     expect(html).not.toContain('<script>alert("x")</script>');

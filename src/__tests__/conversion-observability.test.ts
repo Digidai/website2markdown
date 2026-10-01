@@ -318,7 +318,7 @@ describe("conversion observability", () => {
     const ctx = mockCtx();
 
     const req = new Request(
-      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream%3Faccess_token%3Dtarget_secret&engine=jina",
+      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream%3Faccess_token%3Dtarget_secret",
       { headers: { "X-Request-ID": "req-stream-123" } },
     );
     const res = await worker.fetch(req, env, ctx);
@@ -771,6 +771,8 @@ describe("conversion observability", () => {
       .map((statement) => statement.sql.replace(/\s+/g, " ").trim());
     expect(deletes).toEqual([
       expect.stringContaining("DELETE FROM conversion_debug_traces"),
+      expect.stringContaining("DELETE FROM access_events"),
+      expect.stringContaining("DELETE FROM conversion_log"),
       expect.stringContaining("DELETE FROM sessions"),
       expect.stringContaining("DELETE FROM magic_link_tokens"),
       expect.stringContaining("DELETE FROM rate_limits"),

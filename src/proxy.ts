@@ -174,36 +174,104 @@ export async function fetchViaProxy(
   }
 
   const url = new URL(targetUrl);
-  const socket = connect(
+  const isHttps = url.protocol === "https:";
+  let activeSocket: any = connect(
     { hostname: proxy.host, port: proxy.port },
     { secureTransport: "off", allowHalfOpen: false },
   );
-  const writer = socket.writable.getWriter();
-  const reader = socket.readable.getReader();
+  let activeWriter: any = activeSocket.writable.getWriter();
+  let activeReader: any = activeSocket.readable.getReader();
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const deadline = Date.now() + timeoutMs;
 
   try {
-    // Send HTTP request with full URL (forward proxy mode)
-    // The proxy will handle HTTPS to the target on our behalf.
     const authBase64 = btoa(`${proxy.username}:${proxy.password}`);
     const hostHeader = url.port &&
       !((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80"))
       ? `${url.hostname}:${url.port}`
       : url.hostname;
-    let httpReq = `GET ${targetUrl} HTTP/1.1\r\n`;
-    httpReq += `Host: ${hostHeader}\r\n`;
-    httpReq += `Proxy-Authorization: Basic ${authBase64}\r\n`;
-    for (const [key, val] of Object.entries(headers)) {
-      assertValidProxyHeader(key, val);
-      httpReq += `${key}: ${val}\r\n`;
+
+    // For HTTPS targets, if startTls is supported on Cloudflare socket, establish an HTTP CONNECT tunnel
+    if (isHttps && typeof activeSocket.startTls === "function") {
+      const targetPort = url.port ? parseInt(url.port, 10) : 443;
+      const targetHostPort = `${url.hostname}:${targetPort}`;
+      let connectReq = `CONNECT ${targetHostPort} HTTP/1.1\r\n`;
+      connectReq += `Host: ${targetHostPort}\r\n`;
+      connectReq += `Proxy-Authorization: Basic ${authBase64}\r\n`;
+      connectReq += `User-Agent: website2markdown/1.0\r\n\r\n`;
+      if (signal?.aborted) throw new Error("Proxy request aborted");
+      await activeWriter.write(encoder.encode(connectReq));
+
+      // Read proxy CONNECT response
+      const connectChunks: Uint8Array[] = [];
+      let connectBytesRead = 0;
+      let tunnelEstablished = false;
+      while (!tunnelEstablished) {
+        if (signal?.aborted) throw new Error("Proxy request aborted");
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new Error(`Proxy CONNECT timed out after ${timeoutMs}ms`);
+        }
+        const { value, done } = await readWithTimeout<{ value?: Uint8Array; done: boolean }>(
+          activeReader.read(),
+          remainingMs,
+          `Proxy CONNECT timed out after ${timeoutMs}ms`,
+          signal,
+        );
+        if (done) break;
+        if (value) {
+          connectBytesRead += value.byteLength;
+          if (connectBytesRead > 65536) {
+            throw new Error("Proxy CONNECT response too large");
+          }
+          connectChunks.push(value);
+          const rawConnect = concatUint8Arrays(connectChunks, connectBytesRead);
+          const headerEnd = indexOfBytes(rawConnect, HEADER_SEPARATOR_BYTES);
+          if (headerEnd >= 0) {
+            tunnelEstablished = true;
+            const statusLine = decoder.decode(rawConnect.subarray(0, headerEnd)).split("\r\n")[0];
+            const statusMatch = statusLine.match(/HTTP\/[\d.]+ (\d+)/);
+            const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : 0;
+            if (statusCode < 200 || statusCode >= 300) {
+              throw new Error(`Proxy CONNECT tunnel rejected with status ${statusCode}: ${statusLine}`);
+            }
+          }
+        }
+      }
+
+      // Upgrade socket to TLS
+      try { activeWriter.releaseLock(); } catch {}
+      try { activeReader.releaseLock(); } catch {}
+      const tlsSocket = activeSocket.startTls({ expectedServerHostname: url.hostname });
+      activeSocket = tlsSocket;
+      activeWriter = tlsSocket.writable.getWriter();
+      activeReader = tlsSocket.readable.getReader();
+
+      // Send end-to-end HTTP request inside the TLS tunnel
+      const pathWithQuery = (url.pathname || "/") + url.search;
+      let httpReq = `GET ${pathWithQuery} HTTP/1.1\r\n`;
+      httpReq += `Host: ${hostHeader}\r\n`;
+      for (const [key, val] of Object.entries(headers)) {
+        assertValidProxyHeader(key, val);
+        httpReq += `${key}: ${val}\r\n`;
+      }
+      httpReq += "Connection: close\r\n\r\n";
+      if (signal?.aborted) throw new Error("Proxy request aborted");
+      await activeWriter.write(encoder.encode(httpReq));
+    } else {
+      // Standard HTTP forward proxy mode (or mock environments where startTls is absent)
+      let httpReq = `GET ${targetUrl} HTTP/1.1\r\n`;
+      httpReq += `Host: ${hostHeader}\r\n`;
+      httpReq += `Proxy-Authorization: Basic ${authBase64}\r\n`;
+      for (const [key, val] of Object.entries(headers)) {
+        assertValidProxyHeader(key, val);
+        httpReq += `${key}: ${val}\r\n`;
+      }
+      httpReq += "Connection: close\r\n\r\n";
+      if (signal?.aborted) throw new Error("Proxy request aborted");
+      await activeWriter.write(encoder.encode(httpReq));
     }
-    httpReq += "Connection: close\r\n\r\n";
-    if (signal?.aborted) {
-      throw new Error("Proxy request aborted");
-    }
-    await writer.write(encoder.encode(httpReq));
 
     // Read response with a hard deadline.
     const chunks: Uint8Array[] = [];
@@ -216,8 +284,8 @@ export async function fetchViaProxy(
       if (remainingMs <= 0) {
         throw new Error(`Proxy response timed out after ${timeoutMs}ms`);
       }
-      const { value, done } = await readWithTimeout(
-        reader.read(),
+      const { value, done } = await readWithTimeout<{ value?: Uint8Array; done: boolean }>(
+        activeReader.read(),
         remainingMs,
         `Proxy response timed out after ${timeoutMs}ms`,
         signal,
@@ -264,11 +332,11 @@ export async function fetchViaProxy(
     const body = decoder.decode(bodyBytes);
     return { status, headers: respHeaders, body };
   } finally {
-    try { await writer.close(); } catch {}
-    try { writer.releaseLock(); } catch {}
-    try { await reader.cancel(); } catch {}
-    try { reader.releaseLock(); } catch {}
-    try { socket.close(); } catch (e) {
+    try { await activeWriter.close(); } catch {}
+    try { activeWriter.releaseLock(); } catch {}
+    try { await activeReader.cancel(); } catch {}
+    try { activeReader.releaseLock(); } catch {}
+    try { activeSocket.close(); } catch (e) {
       console.error("Proxy socket close failed:", errorMessage(e));
     }
   }

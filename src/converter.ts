@@ -250,14 +250,22 @@ export function htmlToText(
     .replace(/^>\s/gm, "");
 }
 
-/** Rewrite hotlink-protected image URLs to go through our /img/ proxy. */
+/** Rewrite hotlink-protected image URLs in Markdown or HTML to go through our /img/ proxy. */
 export function proxyImageUrls(
-  markdown: string,
+  content: string,
   proxyHost: string,
 ): string {
-  return markdown.replace(
+  // Markdown images: ![alt](https://mmbiz.qpic.cn/...)
+  let result = content.replace(
     /!\[([^\]]*)\]\((https?:\/\/mmbiz\.qpic\.cn\/[^)]+)\)/g,
     (_match, alt, imgUrl) =>
       `![${alt}](https://${proxyHost}/img/${encodeURIComponent(imgUrl)})`,
   );
+  // HTML img tags: <img ... src="https://mmbiz.qpic.cn/..." ...>
+  result = result.replace(
+    /(<img\b[^>]*\bsrc=["'])(https?:\/\/mmbiz\.qpic\.cn\/[^"']+)(["'][^>]*>)/gi,
+    (_match, prefix, imgUrl, suffix) =>
+      `${prefix}https://${proxyHost}/img/${encodeURIComponent(imgUrl)}${suffix}`,
+  );
+  return result;
 }

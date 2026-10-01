@@ -11,7 +11,8 @@ import { isSafeUrl, isValidUrl } from "../security";
 import { incrementCounter, logMetric } from "../runtime-state";
 import { ConvertError } from "../helpers/response";
 import { authorizeApiAccess, sessionProfileScopeForAuth } from "../middleware/api-access";
-import { checkPolicy } from "../middleware/tier-gate";
+import { browserAllowedForRequest, chargedCreditCost, checkPolicy } from "../middleware/tier-gate";
+import { recordUsage } from "./usage";
 import {
   convertUrlWithMetrics,
   readBodyWithLimit,
@@ -204,6 +205,13 @@ export async function handleBatch(
           { status: 401, headers: CORS_HEADERS },
         );
       }
+      const browserGate = browserAllowedForRequest(access.policy, item.forceBrowser);
+      if (browserGate.error) {
+        return Response.json(
+          { error: "Quota Exceeded", message: browserGate.error },
+          { status: 429, headers: CORS_HEADERS },
+        );
+      }
     }
     const sessionProfileScope = sessionProfileScopeForAuth(access.auth);
 
@@ -223,9 +231,19 @@ export async function handleBatch(
           undefined,
           request.signal,
           item.engine,
-          access.policy.browserAllowed,
+          browserAllowedForRequest(access.policy, item.forceBrowser).allowed,
           access.auth.tier !== "anonymous",
           sessionProfileScope,
+        );
+        const cacheHit = result.cached || result.diagnostics.cacheHit;
+        const liveBrowser = !cacheHit && (
+          result.diagnostics.browserRendered || result.method === "browser+readability+turndown"
+        );
+        recordUsage(
+          access.auth,
+          chargedCreditCost(access.policy.creditCost, { browserRendered: liveBrowser, cacheHit }),
+          liveBrowser,
+          cacheHit,
         );
         incrementCounter("conversionsTotal");
         if (result.cached || result.diagnostics.cacheHit) incrementCounter("cacheHits");

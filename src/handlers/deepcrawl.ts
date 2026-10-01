@@ -41,7 +41,7 @@ import {
 } from "./convert";
 import { sseResponse } from "./stream";
 import { authorizeApiAccess, type ApiAccessContext, sessionProfileScopeForAuth } from "../middleware/api-access";
-import { checkPolicy } from "../middleware/tier-gate";
+import { browserAllowedForRequest, checkPolicy } from "../middleware/tier-gate";
 
 // ─── 常量 ────────────────────────────────────────────────────
 
@@ -521,6 +521,9 @@ export async function executeDeepCrawl(
 
   const startedAtMs = Date.now();
   const startedAtIso = new Date(startedAtMs).toISOString();
+  const browserAllowed = access
+    ? browserAllowedForRequest(access.policy, payload.forceBrowser).allowed
+    : true;
 
   const options: DeepCrawlOptions = {
     maxDepth: payload.maxDepth,
@@ -592,27 +595,30 @@ export async function executeDeepCrawl(
       } catch { /* fall through to convertUrl */ }
     }
 
+    // Fetch full HTML (without selector) so BFS link extraction can find links across the entire page (nav, pagination, footer)
     const converted = await convertUrlWithMetrics(
-      url, env, host, "html", payload.selector, payload.forceBrowser, payload.noCache,
+      url, env, host, "html", undefined, payload.forceBrowser, payload.noCache,
       undefined,
       context.signal,
       cfAttempted ? "local" : undefined,
-      access?.policy.browserAllowed ?? true,
+      browserAllowed,
       access ? access.auth.tier !== "anonymous" : true,
       sessionProfileScopeForAuth(access?.auth),
     );
 
     let markdown: string | undefined;
+    let title: string = converted.title;
     if (payload.includeMarkdown) {
       const md = htmlToMarkdown(converted.content, url, payload.selector);
       markdown = md.markdown;
+      if (md.title) title = md.title;
     }
 
     return {
       url,
       html: converted.content,
       markdown,
-      title: converted.title,
+      title,
       method: converted.method,
       contentType: converted.sourceContentType || undefined,
     };
@@ -696,6 +702,14 @@ export async function handleDeepCrawl(
     return Response.json(
       { error: "Invalid request", message: "Request payload validation failed." },
       { status: 400, headers: CORS_HEADERS },
+    );
+  }
+
+  const browserGate = browserAllowedForRequest(access.policy, payload.forceBrowser);
+  if (browserGate.error) {
+    return Response.json(
+      { error: "Quota Exceeded", message: browserGate.error },
+      { status: 429, headers: CORS_HEADERS },
     );
   }
 

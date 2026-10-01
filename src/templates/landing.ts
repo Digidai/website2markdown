@@ -1,8 +1,10 @@
 import { escapeHtml } from "../security";
+import { FONT_UI, THEME_BASE, THEME_BOOT, THEME_TOKENS } from "./theme";
 
 type LandingLang = "en" | "zh";
+export type SitePage = "home" | "examples" | "docs" | "integration";
 
-export function landingPageHTML(host: string, lang: LandingLang = "en"): string {
+export function landingPageHTML(host: string, lang: LandingLang = "en", page: SitePage = "home"): string {
   const h = escapeHtml(host);
   const isZh = lang === "zh";
   const t = isZh
@@ -21,21 +23,25 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         tabIntegration: "集成",
         portalLabel: "获取 API Key",
         // Hero
-        heroTitleHtml: "任意 URL 转 <em>Markdown</em>，即刻完成",
-        heroSubtitle: "将任意网页转为干净 Markdown，为 AI Agent、LLM 与开发者而生。开源、边缘部署、16 个平台适配器。",
-        inputPlaceholder: "粘贴任意 URL...",
+        heroTitleHtml: "打不开的网页，交给它",
+        heroSubtitle: "在链接前加上这个域名。普通网页、以及微信公众号、知乎、飞书这类会把阅读器挡在外面的站点，都会以 Markdown 返回。给你自己看，也给 Agent 用。",
+        inputPlaceholder: "粘贴任意 URL",
         convertButton: "转换",
         convertingButton: "转换中",
-        hintKeys: "format &middot; selector &middot; force_browser &middot; raw &middot; engine",
+        hintKeys: "可选参数：format、selector、force_browser、raw、engine",
+        formError: "先粘贴一个 URL。",
+        copyLabel: "复制",
+        copiedLabel: "已复制",
+        copyFailed: "请手动选择复制",
         // Why cards
-        why1Title: "其他工具搞不定的，我们行",
-        why1Desc: "JS 驱动的 SPA、付费墙内容、反爬网站。16 个适配器覆盖国内外主流平台。",
-        why2Title: "天生为 AI 而造",
-        why2Desc: "MCP Server、Agent Skills、llms.txt 开箱即用。你的 AI Agent 直接就能用，不需要胶水代码。",
-        why3Title: "生产环境就绪",
-        why3Desc: "619 项测试、5 层 fallback 管线、KV 缓存，部署在 Cloudflare Workers 边缘。",
+        why1Title: "SPA、付费墙与反爬页面",
+        why1Desc: "16 个适配器覆盖微信公众号、知乎、飞书、Twitter 等国内外平台。静态抓取拿不到内容时，自动升级到无头浏览器。",
+        why2Title: "你的 Agent 直接可用",
+        why2Desc: "自带 MCP Server、Agent Skills 与 llms.txt。把 Claude、Cursor 或自研 Agent 指过来就能用，不需要写胶水代码。",
+        why3Title: "五层兜底，逐层降级",
+        why3Desc: "原生提取、Readability、无头浏览器、Firecrawl、Jina 依次尝试。浏览器和外部阅读器需要 API key。结果缓存在边缘。",
         // Use cases
-        useCasesTitle: "覆盖每种工作流",
+        useCasesTitle: "大家拿它做什么",
         uc1Title: "AI Agent",
         uc1Desc: "把任意网页内容以干净 Markdown 喂给 LLM",
         uc2Title: "知识库构建",
@@ -54,7 +60,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         step1Title: "添加前缀",
         step1Desc: "在任意网址前加上 md.genedai.me/",
         step2Title: "边缘处理",
-        step2Desc: "5 层 fallback：原生 &rarr; Readability &rarr; 浏览器/CF REST &rarr; Firecrawl &rarr; Jina",
+        step2Desc: "按顺序尝试：原生提取、Readability、浏览器、Firecrawl、Jina。浏览器和外部阅读器需要 API key。",
         step3Title: "干净输出",
         step3Desc: "Markdown、JSON、HTML 或纯文本",
         // FAQ
@@ -66,13 +72,13 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         faq3Q: "支持哪些平台？",
         faq3A: "16 个内置适配器：微信公众号、知乎、飞书/Lark、语雀、掘金、CSDN、36氪、头条、微博、网易、Twitter/X、Reddit、Notion、GitHub、Substack、Medium。任何公开 URL 都可通过通用 fallback 处理。",
         faq4Q: "如何处理 JS 渲染密集型页面？",
-        faq4A: "自动 5 层 fallback。原生提取失败后，依次升级到 Readability、Cloudflare 无头 Chrome 浏览器渲染，最后用 Firecrawl 和 Jina Reader 兜底。使用 ?force_browser=true 可直接跳到浏览器渲染。",
+        faq4A: "原生提取失败后升级到 Readability。浏览器渲染、Firecrawl 和 Jina 需要 API key。转换成功且实际走了浏览器时计 3 credits，缓存命中仍是 1。持有 key 时可用 ?force_browser=true。",
         faq5Q: "如何与 AI Agent 集成？",
         faq5A: "三种方式：(1) Agent Skills——Claude Code/OpenClaw 一条命令安装。(2) MCP Server——Claude Desktop、Cursor IDE。(3) llms.txt——所有 AI 系统自动发现。",
         faq6Q: "如何使用 API？",
         faq6A: "在任意 URL 前加上 md.genedai.me/。获取原始 Markdown 加 ?raw=true。示例：curl \"https://md.genedai.me/https://example.com?raw=true\"。完整 API 参考见文档标签页。",
         // CTA
-        ctaTitle: "立即试试。",
+        ctaTitle: "粘贴一个 URL。",
         // Docs tab
         quickStartTitle: "快速开始",
         curlRawComment: "# 获取原始 Markdown",
@@ -112,11 +118,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         returnsLabel: "返回",
         // Integration tab
         integrationTitle: "AI Agent 集成",
-        decisionTreeTitle: "选择你的集成方式",
-        decisionSkills: "你的 Agent 有终端吗？",
-        decisionYes: "是 &rarr; Agent Skills（最快，上下文最丰富）",
-        decisionNo: "否 &rarr; MCP Server",
-        decisionAll: "所有 AI &rarr; llms.txt 自动发现",
+        decisionTreeTitle: "选一种接法",
+        decisionSkills: "Agent 有终端。",
+        decisionYes: "安装 Agent Skills。一条命令，带上用法和 16 个平台的说明。",
+        decisionNo: "没有终端，用 MCP Server。",
+        decisionAll: "任何能打开网页的系统，读 llms.txt 就能发现接口。",
         skillTitle: "Agent Skills",
         skillDesc: "一条命令安装，Agent 自动发现。包含完整使用模式、错误处理和 16 个平台适配器指南。",
         skillFor: "适用：Claude Code、Codex CLI、Gemini CLI、OpenClaw",
@@ -152,6 +158,22 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         footerProduct: "产品",
         footerIntegration: "集成",
         footerOpenSource: "开源",
+        compLatencyHigh: "最低",
+        compLatencyMid: "低",
+        compContextHigh: "最全",
+        compContextMid: "部分",
+        compContextLow: "较少",
+        layer1Name: "原生 Markdown",
+        layer1Meta: "Cloudflare 边缘，约 0.1 秒",
+        layer2Name: "Readability",
+        layer2Meta: "解析 HTML，约 0.5 秒",
+        layer3Name: "无头浏览器",
+        layer3Meta: "约 2–5 秒",
+        layer4Name: "Cloudflare REST",
+        layer4Meta: "约 1–3 秒",
+        layer5Name: "Firecrawl，然后 Jina",
+        layer5Meta: "外部兜底，约 2–4 秒",
+        pipelineNote: "按这个顺序尝试，拿到内容就返回。",
         footerContributing: "贡献指南",
         footerSecurity: "安全",
         footerThemeLight: "浅色",
@@ -163,7 +185,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         mockupWechatBadge: "微信公众号",
         mockupFollow: "关注公众号",
         mockupArticleTitle: "深度解析：大模型在企业的落地实践",
-        mockupAuthorDate: "张三 | 2026-03-25",
+        mockupAuthorDate: "林可，2026-03-25",
         mockupWechatBlock: "此内容需要在微信客户端中打开",
         mockupQrHint: "长按识别二维码",
         mockupOpenWechat: "在微信中打开",
@@ -189,8 +211,8 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         mockupZhihuBullet2: "私有化部署需求增长",
         mockupZhihuBullet3: "Agent 框架百花齐放",
         mockupExtractedBadge: "通过浏览器渲染提取",
-        mockupLabelBlocked: "BLOCKED PAGE",
-        mockupLabelClean: "CLEAN MARKDOWN",
+        mockupLabelBlocked: "页面上看到的",
+        mockupLabelClean: "转成的 Markdown",
         // Mockup: Feature 2 Chat
         mockupChatUserMsg: "读一下这篇文章，总结核心观点",
         mockupChatSummaryIntro: "这篇文章的核心观点：",
@@ -199,7 +221,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         mockupChatPoint3: "Agent 将改变软件开发方式",
         mockupChatEnding: "文章还提到了一个有趣的案例...",
         // Mockup: Feature 3 Pipeline
-        mockupPipelineResult: "结果：干净 Markdown · 99.2% 成功率",
+        mockupPipelineResult: "返回干净的 Markdown。",
       }
     : {
         htmlLang: "en",
@@ -216,21 +238,25 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         tabIntegration: "Integration",
         portalLabel: "Get API Key",
         // Hero
-        heroTitleHtml: "Any URL to <em>Markdown</em>, instantly",
-        heroSubtitle: "Convert any web page to clean Markdown for AI agents, LLMs, and developers. Open source, edge-deployed, 16 platform adapters.",
-        inputPlaceholder: "paste any url...",
+        heroTitleHtml: "Pages your agent can't open",
+        heroSubtitle: "Put this host in front of the link. Ordinary pages, and the ones that keep a reader out &mdash; WeChat, Zhihu, Feishu &mdash; come back as Markdown. For you, and for an agent.",
+        inputPlaceholder: "Paste any URL",
         convertButton: "Convert",
         convertingButton: "Converting",
-        hintKeys: "format &middot; selector &middot; force_browser &middot; raw &middot; engine",
+        hintKeys: "Optional: format, selector, force_browser, raw, engine",
+        formError: "Paste a URL first.",
+        copyLabel: "Copy",
+        copiedLabel: "Copied",
+        copyFailed: "Select the text to copy",
         // Why cards
-        why1Title: "Works where others fail",
-        why1Desc: "JS-heavy SPAs, paywalled content, anti-bot sites. 16 adapters for Chinese &amp; international platforms.",
-        why2Title: "AI-native from day one",
-        why2Desc: "MCP Server, Agent Skills, llms.txt built-in. Your AI agent just works -- no glue code needed.",
-        why3Title: "Production ready",
-        why3Desc: "619 tests, 5-layer fallback pipeline, KV cache, edge-deployed on Cloudflare Workers.",
+        why1Title: "SPAs, paywalls, anti-bot pages",
+        why1Desc: "Sixteen adapters cover WeChat, Zhihu, Feishu, Twitter and more. When a static fetch comes back empty, it escalates to a headless browser.",
+        why2Title: "Reachable from your agent",
+        why2Desc: "An MCP server, Agent Skills, and llms.txt ship with it. Point Claude, Cursor, or your own agent at the host &mdash; no glue code.",
+        why3Title: "Five fallbacks, in order",
+        why3Desc: "Native extraction, Readability, a headless browser, Firecrawl, then Jina. Browser rendering and external readers require an API key. Results are cached at the edge.",
         // Use cases
-        useCasesTitle: "Built for every workflow",
+        useCasesTitle: "What people use it for",
         uc1Title: "AI Agents",
         uc1Desc: "Feed web content to LLMs in clean Markdown",
         uc2Title: "Knowledge Base",
@@ -249,7 +275,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         step1Title: "Prepend URL",
         step1Desc: "Add md.genedai.me/ before any web address",
         step2Title: "Edge Pipeline",
-        step2Desc: "5-layer fallback: Native &rarr; Readability &rarr; Browser/CF REST &rarr; Firecrawl &rarr; Jina",
+        step2Desc: "Tried in order: native extraction, Readability, a browser, Firecrawl, then Jina. Browser rendering and external readers require an API key.",
         step3Title: "Clean Output",
         step3Desc: "Markdown, JSON, HTML, or plain text",
         // FAQ
@@ -261,13 +287,13 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         faq3Q: "Which platforms are supported?",
         faq3A: "16 built-in adapters: WeChat, Zhihu, Feishu/Lark, Yuque, Juejin, CSDN, 36Kr, Toutiao, Weibo, NetEase, Twitter/X, Reddit, Notion, GitHub, Substack, and Medium. Any public URL works via generic fallback.",
         faq4Q: "How does it handle JS-heavy pages?",
-        faq4A: "Automatic 5-layer fallback. If native extraction fails, it escalates to Readability, then headless Chrome via Cloudflare Browser Rendering, then Firecrawl and Jina Reader as external fallbacks. Use ?force_browser=true to skip straight to browser rendering.",
+        faq4A: "If native extraction fails, it escalates to Readability. Browser rendering, Firecrawl, and Jina require an API key. A successful live browser render costs 3 credits, and a cache hit stays at 1. With a key, use ?force_browser=true to go straight to the browser.",
         faq5Q: "How to integrate with my AI agent?",
         faq5A: "Three ways: (1) Agent Skills for Claude Code/OpenClaw -- one command install. (2) MCP Server for Claude Desktop/Cursor. (3) llms.txt for auto-discovery by any AI system.",
         faq6Q: "How to use the API?",
         faq6A: "Prepend md.genedai.me/ before any URL. For raw Markdown, add ?raw=true. Example: curl \"https://md.genedai.me/https://example.com?raw=true\". See the Docs tab for full API reference.",
         // CTA
-        ctaTitle: "Try it now.",
+        ctaTitle: "Paste a URL.",
         // Docs tab
         quickStartTitle: "Quick Start",
         curlRawComment: "# Get raw Markdown",
@@ -307,11 +333,11 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         returnsLabel: "Returns",
         // Integration tab
         integrationTitle: "AI Agent Integration",
-        decisionTreeTitle: "Choose Your Integration",
-        decisionSkills: "Does your agent have a terminal?",
-        decisionYes: "YES &rarr; Agent Skills (fastest, richest context)",
-        decisionNo: "NO &rarr; MCP Server",
-        decisionAll: "All AI &rarr; llms.txt auto-discovery",
+        decisionTreeTitle: "Pick one",
+        decisionSkills: "The agent has a terminal.",
+        decisionYes: "Install Agent Skills. One command, with usage notes and guides for all 16 adapters.",
+        decisionNo: "No terminal: use the MCP server.",
+        decisionAll: "Anything that can open a web page can read llms.txt and discover the API.",
         skillTitle: "Agent Skills",
         skillDesc: "One command to install, auto-discovered by your agent. Includes full usage patterns, error handling, and guides for all 16 platform adapters.",
         skillFor: "For: Claude Code, Codex CLI, Gemini CLI, OpenClaw",
@@ -346,7 +372,23 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         // Footer
         footerProduct: "Product",
         footerIntegration: "Integration",
-        footerOpenSource: "Open Source",
+        footerOpenSource: "Open source",
+        compLatencyHigh: "Lowest",
+        compLatencyMid: "Low",
+        compContextHigh: "Full",
+        compContextMid: "Partial",
+        compContextLow: "Light",
+        layer1Name: "Native Markdown",
+        layer1Meta: "Cloudflare edge, about 0.1s",
+        layer2Name: "Readability",
+        layer2Meta: "HTML parsing, about 0.5s",
+        layer3Name: "Headless browser",
+        layer3Meta: "about 2–5s",
+        layer4Name: "Cloudflare REST",
+        layer4Meta: "about 1–3s",
+        layer5Name: "Firecrawl, then Jina",
+        layer5Meta: "External fallback, about 2–4s",
+        pipelineNote: "Each layer is tried in order. The first one that returns content wins.",
         footerContributing: "Contributing",
         footerSecurity: "Security",
         footerThemeLight: "Light",
@@ -358,7 +400,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         mockupWechatBadge: "WeChat Official",
         mockupFollow: "Follow",
         mockupArticleTitle: "Deep Dive: LLMs in Enterprise Production",
-        mockupAuthorDate: "John Zhang | 2026-03-25",
+        mockupAuthorDate: "Lin Ke, 2026-03-25",
         mockupWechatBlock: "This content requires the WeChat app",
         mockupQrHint: "Scan QR code",
         mockupOpenWechat: "Open in WeChat",
@@ -383,9 +425,9 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         mockupZhihuBullet1: "Multimodal capabilities becoming standard",
         mockupZhihuBullet2: "Growing demand for private deployment",
         mockupZhihuBullet3: "Agent frameworks flourishing",
-        mockupExtractedBadge: "Extracted via browser rendering",
-        mockupLabelBlocked: "BLOCKED PAGE",
-        mockupLabelClean: "CLEAN MARKDOWN",
+        mockupExtractedBadge: "Extracted with browser rendering",
+        mockupLabelBlocked: "What the page shows",
+        mockupLabelClean: "Markdown you get",
         // Mockup: Feature 2 Chat
         mockupChatUserMsg: "Read this article and summarize the key points",
         mockupChatSummaryIntro: "Here are the key takeaways from the article:",
@@ -394,7 +436,7 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         mockupChatPoint3: "Agents will transform software development",
         mockupChatEnding: "The article also mentions an interesting case study...",
         // Mockup: Feature 3 Pipeline
-        mockupPipelineResult: "Result: Clean Markdown · 99.2% success rate",
+        mockupPipelineResult: "You get clean Markdown back.",
       };
 
   /* ---- Schema.org @graph (4 types) ---- */
@@ -469,35 +511,125 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     .replace(/\u2028/g, "\\u2028")
     .replace(/\u2029/g, "\\u2029");
 
-  /* ---- SVG Icons (Lucide/Feather style) ---- */
-  const iconBot = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><circle cx="8" cy="16" r="1"/><circle cx="16" cy="16" r="1"/></svg>`;
-  const iconBook = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>`;
-  const iconRefresh = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>`;
-  const iconSearch = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
-  const iconGlobe = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>`;
-  const iconTable = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>`;
-  const iconGithub = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>`;
+  const iconGithub = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>`;
 
   const platforms = ["WeChat", "Zhihu", "Feishu", "Yuque", "Juejin", "CSDN", "36Kr", "Toutiao", "Weibo", "NetEase", "Twitter/X", "Reddit", "Notion", "GitHub", "Substack", "Medium"];
+  const pagePath: Record<SitePage, string> = {
+    home: "/",
+    examples: "/examples",
+    docs: "/docs",
+    integration: "/integrations",
+  };
+  const langHref = (pathname: string, language: LandingLang) =>
+    language === "zh" ? (pathname === "/" ? "/?lang=zh" : `${pathname}?lang=zh`) : pathname === "/" ? "/?lang=en" : pathname;
+  const stay = (pathname: string) => (isZh ? langHref(pathname, "zh") : pathname === "/" ? "/" : pathname);
+  const documentTitle =
+    page === "examples" ? (isZh ? "示例" : "Examples")
+    : page === "docs" ? (isZh ? "文档" : "Docs")
+    : page === "integration" ? (isZh ? "集成" : "Integrations")
+    : t.pageTitle;
+  const canonicalPath = pagePath[page];
+  const canonical = `https://${h}${isZh ? langHref(canonicalPath, "zh") : canonicalPath === "/" ? "/" : canonicalPath}`;
 
-  return `<!DOCTYPE html>
+  const wechatProof = `<article class="exhibit">
+    <div class="exhibit-copy">
+      <h2>${t.why1Title}</h2>
+      <p>${t.why1Desc}</p>
+    </div>
+    <div class="compare">
+      <div class="compare-col">
+        <p class="compare-label">${t.mockupLabelBlocked}</p>
+        <p class="compare-kicker">${t.mockupWechatBadge}</p>
+        <h3>${t.mockupArticleTitle}</h3>
+        <p class="compare-meta">${t.mockupAuthorDate}</p>
+        <p class="compare-block">${t.mockupWechatBlock}</p>
+        <p class="compare-note">${t.mockupQrHint}</p>
+      </div>
+      <div class="compare-col">
+        <p class="compare-label">${t.mockupLabelClean}</p>
+        <pre class="specimen-md"># ${t.mockupArticleTitle}
+
+&gt; ${t.mockupAuthorDate}
+
+## ${t.mockupH2KeyPoints}
+
+1. ${t.mockupBullet1}
+2. ${t.mockupBullet2}
+3. ${t.mockupBullet3}
+
+## ${t.mockupH2Background}
+
+${t.mockupBgParagraph}</pre>
+      </div>
+    </div>
+  </article>`;
+
+  const zhihuProof = `<article class="exhibit">
+    <div class="exhibit-copy">
+      <h2>${isZh ? "登录墙后面的全文" : "The rest of a login wall"}</h2>
+      <p>${isZh ? "知乎这类页面会停在登录框。浏览器渲染把正文提出来，不需要你先注册。" : "Zhihu stops on a sign-in box. Browser rendering pulls the article out. You don't register first."}</p>
+    </div>
+    <div class="compare">
+      <div class="compare-col">
+        <p class="compare-label">${t.mockupLabelBlocked}</p>
+        <p class="compare-kicker">${t.mockupZhihuSlogan}</p>
+        <h3>${t.mockupZhihuTitle}</h3>
+        <p class="compare-note">${t.mockupZhihuContent}</p>
+        <p class="compare-block">${t.mockupLoginRequired}</p>
+      </div>
+      <div class="compare-col">
+        <p class="compare-label">${t.mockupLabelClean}</p>
+        <pre class="specimen-md"># ${t.mockupZhihuAnswer}
+
+${t.mockupZhihuParagraph}
+
+## ${t.mockupZhihuH3}
+
+- ${t.mockupZhihuBullet1}
+- ${t.mockupZhihuBullet2}
+- ${t.mockupZhihuBullet3}</pre>
+        <p class="compare-note">${t.mockupExtractedBadge}</p>
+      </div>
+    </div>
+  </article>`;
+
+  const agentProof = `<article class="exhibit">
+    <div class="exhibit-copy">
+      <h2>${t.why2Title}</h2>
+      <p>${t.why2Desc}</p>
+    </div>
+    <div class="transcript">
+      <p><span class="who">${isZh ? "你" : "You"}</span> ${t.mockupChatUserMsg}</p>
+      <p class="tool">convert_url
+url: https://mp.weixin.qq.com/s/abc123</p>
+      <p><span class="who">Agent</span> ${t.mockupChatSummaryIntro}</p>
+      <ol>
+        <li>${t.mockupChatPoint1}</li>
+        <li>${t.mockupChatPoint2}</li>
+        <li>${t.mockupChatPoint3}</li>
+      </ol>
+      <p>${t.mockupChatEnding}</p>
+    </div>
+  </article>`;
+
+  const html = `<!DOCTYPE html>
 <html lang="${t.htmlLang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${h} - ${t.pageTitle}</title>
+  <title>${h} - ${documentTitle}</title>
   <meta name="description" content="${t.metaDescription}">
   <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
   <meta name="author" content="Digidai">
-  <link rel="canonical" href="https://${h}/">
-  <link rel="alternate" hreflang="en" href="https://${h}/">
-  <link rel="alternate" hreflang="zh" href="https://${h}/?lang=zh">
-  <link rel="alternate" hreflang="x-default" href="https://${h}/">
+  <link rel="canonical" href="${canonical}">
+  <link rel="alternate" hreflang="en" href="https://${h}${canonicalPath === "/" ? "/" : canonicalPath}">
+  <link rel="alternate" hreflang="zh" href="https://${h}${langHref(canonicalPath, "zh")}">
+  <link rel="alternate" hreflang="x-default" href="https://${h}${canonicalPath === "/" ? "/" : canonicalPath}">
   <!-- Open Graph -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="${h} — ${t.pageTitle}">
+  <meta property="og:title" content="${h} — ${documentTitle}">
   <meta property="og:description" content="${t.shareDescription}">
-  <meta property="og:url" content="https://${h}/">
+  <meta property="og:url" content="${canonical}">
   <meta property="og:site_name" content="${h}">
   <meta property="og:image" content="https://${h}/api/og">
   <meta property="og:image:width" content="1200">
@@ -505,740 +637,316 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
   <meta property="og:locale" content="${t.locale}">
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="${h} — ${t.pageTitle}">
+  <meta name="twitter:title" content="${h} — ${documentTitle}">
   <meta name="twitter:description" content="${t.shareDescription}">
   <meta name="twitter:image" content="https://${h}/api/og">
+  ${THEME_BOOT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="${FONT_UI}" rel="stylesheet">
   <style>
-    /* ---- Color System ---- */
-    :root {
-      --bg: #f7f7f4;
-      --bg-surface: #f2f1ed;
-      --bg-elevated: #eae9e4;
-      --text-primary: #26251e;
-      --text-secondary: rgba(38,37,30,0.6);
-      --text-muted: rgba(38,37,30,0.45);
-      --accent: #22d3ee;
-      --accent-hover: #06b6d4;
-      --accent-text: #0e7490;
-      --border: rgba(0,0,0,0.06);
-      --font-display: 'Instrument Serif', Georgia, serif;
-      --font-body: 'DM Sans', system-ui, sans-serif;
-      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-      --accent-on: #0e3a4a;
-      --radius: 4px;
-      --max-w: 1280px;
-      color-scheme: light dark;
-    }
+    ${THEME_TOKENS}
+    ${THEME_BASE}
 
-    :root[data-theme="dark"], .dark {
-      --bg: #14120b;
-      --bg-surface: #1c1a14;
-      --bg-elevated: #191b22;
-      --text-primary: #edecec;
-      --text-secondary: rgba(237,236,236,0.6);
-      --text-muted: rgba(237,236,236,0.3);
-      --accent: #22d3ee;
-      --accent-hover: #06b6d4;
-      --accent-text: #22d3ee;
-      --border: rgba(255,255,255,0.06);
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        --bg: #14120b;
-        --bg-surface: #1c1a14;
-        --bg-elevated: #191b22;
-        --text-primary: #edecec;
-        --text-secondary: rgba(237,236,236,0.6);
-        --text-muted: rgba(237,236,236,0.3);
-        --accent: #22d3ee;
-        --accent-hover: #06b6d4;
-        --accent-text: #22d3ee;
-        --border: rgba(255,255,255,0.06);
-      }
-    }
-
-    /* ---- Reset ---- */
-    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: var(--font-body);
-      background: var(--bg);
-      color: var(--text-primary);
-      font-size: 16px;
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-
-    /* ---- Utility ---- */
-    .container { max-width: var(--max-w); margin: 0 auto; padding: 0 20px; }
+    .container { max-width: var(--max-w); margin: 0 auto; padding: 0 24px; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
 
-    /* ---- Scrollbar ---- */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 3px; }
-
-    /* ---- Animations ---- */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease, transform 0.6s ease; }
-    .reveal.visible { opacity: 1; transform: translateY(0); }
-    .reveal-stagger > * { opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s ease; }
-    .reveal-stagger.visible > * { opacity: 1; transform: translateY(0); }
-    .reveal-stagger.visible > *:nth-child(1) { transition-delay: 0s; }
-    .reveal-stagger.visible > *:nth-child(2) { transition-delay: 0.08s; }
-    .reveal-stagger.visible > *:nth-child(3) { transition-delay: 0.16s; }
-    .reveal-stagger.visible > *:nth-child(4) { transition-delay: 0.2s; }
-    .reveal-stagger.visible > *:nth-child(5) { transition-delay: 0.24s; }
-    .reveal-stagger.visible > *:nth-child(6) { transition-delay: 0.28s; }
-
-    /* ---- Header ---- */
     .site-header {
-      position: sticky; top: 0; z-index: 100; height: 52px;
-      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-      background: color-mix(in srgb, var(--bg) 80%, transparent);
-      transition: box-shadow 0.3s ease;
+      position: sticky; top: 0; z-index: 20; min-height: var(--header-h);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
     }
-    .site-header.scrolled { box-shadow: 0 1px 0 var(--border); }
     .header-inner {
-      max-width: var(--max-w); margin: 0 auto; padding: 0 20px;
-      height: 100%; display: flex; align-items: center; justify-content: space-between;
+      max-width: var(--max-w); margin: 0 auto; padding: 0 24px;
+      min-height: var(--header-h); display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }
     .site-name {
-      font-family: var(--font-mono); font-size: 14px; font-weight: 500;
-      color: var(--accent-text); text-decoration: none; letter-spacing: -0.3px;
+      font-size: 15px; font-weight: 600; color: var(--text-primary);
+      text-decoration: none; letter-spacing: -0.01em;
     }
-    .header-nav { display: flex; align-items: center; gap: 2px; }
+    .site-name:hover { color: var(--accent-text); }
+    .header-nav { display: flex; align-items: center; gap: 4px; }
     .tab-btn {
       background: none; border: none; cursor: pointer;
-      font-family: var(--font-body); font-size: 13px; font-weight: 500;
-      color: var(--text-secondary); padding: 6px 14px; border-radius: 999px;
-      transition: all 0.2s ease; min-height: 36px;
-    }
-    .tab-btn:hover { color: var(--text-primary); background: var(--bg-surface); }
-    .tab-btn.active { color: var(--accent-on); background: var(--accent); font-weight: 600; }
-    .header-right { display: flex; align-items: center; gap: 8px; }
-    .lang-switch {
-      display: inline-flex; gap: 2px; padding: 3px;
-      background: var(--bg-surface); border-radius: 999px;
-    }
-    .lang-link {
-      color: var(--text-secondary); text-decoration: none; font-size: 13px; font-weight: 500;
-      padding: 5px 14px; border-radius: 999px; transition: all 0.2s ease; letter-spacing: 0.02em;
-      min-height: 36px; display: inline-flex; align-items: center; cursor: pointer;
-    }
-    .lang-link:hover { color: var(--text-primary); background: var(--bg-elevated); }
-    .lang-link.active { color: var(--accent-on); background: var(--accent); font-weight: 600; }
-    .portal-link {
+      font-family: inherit; font-size: 15px; font-weight: 500;
+      color: var(--text-secondary); padding: 8px 12px; border-radius: 0;
+      min-height: 40px; text-decoration: none;
       display: inline-flex; align-items: center;
-      padding: 6px 14px;
-      font-size: 13px; font-weight: 500;
-      color: var(--accent-on);
-      background: var(--accent);
-      border: 1px solid var(--accent);
-      border-radius: var(--radius);
-      text-decoration: none;
-      transition: background 0.15s, transform 0.15s;
+      box-shadow: inset 0 -2px 0 transparent;
     }
-    .portal-link:hover { background: #06b6d4; transform: translateY(-1px); }
-    .github-link {
-      display: flex; align-items: center; color: var(--text-secondary);
-      transition: color 0.2s; padding: 4px;
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { color: var(--text-primary); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+    .header-right { display: flex; align-items: center; gap: 8px; }
+    .lang-switch { display: inline-flex; align-items: center; gap: 2px; }
+    .lang-link {
+      color: var(--text-secondary); text-decoration: none; font-size: 14px; font-weight: 500;
+      padding: 6px 8px; min-height: 36px; display: inline-flex; align-items: center;
     }
+    .lang-link:hover { color: var(--text-primary); }
+    .lang-link.active { color: var(--text-primary); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent); }
+    .portal-link {
+      display: inline-flex; align-items: center; min-height: 36px; padding: 6px 12px;
+      font-size: 14px; font-weight: 600; color: var(--accent-on); background: var(--accent);
+      border-radius: var(--radius); text-decoration: none;
+    }
+    .portal-link:hover { background: var(--accent-hover); }
+    .portal-link:active { transform: translateY(1px); }
+    .github-link { display: flex; align-items: center; color: var(--text-secondary); padding: 8px; }
     .github-link:hover { color: var(--text-primary); }
     .mobile-menu-btn {
       display: none; background: none; border: none; cursor: pointer;
-      color: var(--text-secondary); padding: 4px;
+      color: var(--text-primary); padding: 8px; min-width: 40px; min-height: 40px;
     }
 
-    /* ---- Tab Content ---- */
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
-    /* ---- Section spacing ---- */
-    .section { padding: 72px 0; }
+    .section { padding: 56px 0; }
     .section-title {
-      font-family: var(--font-display); font-size: 26px; font-weight: 400;
-      letter-spacing: -0.325px; margin-bottom: 32px; color: var(--text-primary);
+      font-size: 22px; font-weight: 600; letter-spacing: -0.02em;
+      line-height: 1.25; margin-bottom: 20px;
     }
-    .section-title-center { text-align: center; }
 
-    /* ---- Hero ---- */
-    .hero { padding: 96px 0 64px; text-align: center; }
+    .hero { padding: 48px 0 8px; }
+    .request {
+      margin-top: 14px; max-width: 720px;
+      font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+      color: var(--text-secondary); overflow-x: auto; white-space: nowrap;
+    }
+    .request-method { color: var(--accent-text); font-weight: 500; margin-right: 8px; }
+    .hero-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; }
+    .hero-links a { color: var(--accent-text); font-size: 14px; font-weight: 600; text-underline-offset: 3px; }
+    .page-intro { padding: 48px 0 8px; }
+    .page-intro h1 { font-size: clamp(32px, 4vw, 44px); font-weight: 600; letter-spacing: -0.03em; line-height: 1.15; margin-bottom: 12px; max-width: 16em; }
+    .page-intro p { color: var(--text-secondary); font-size: 17px; line-height: 1.6; max-width: 62ch; }
+    .exhibit {
+      display: grid; grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+      gap: 20px 40px; align-items: start; padding: 32px 0; border-top: 1px solid var(--border);
+    }
+    .exhibit-copy h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; margin-bottom: 8px; }
+    .exhibit-copy p { color: var(--text-secondary); font-size: 16px; line-height: 1.65; }
+    .compare { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); background: var(--bg-surface); min-width: 0; }
+    .compare-col { padding: 16px 18px 18px; min-width: 0; }
+    .compare-col + .compare-col { border-left: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 55%, var(--bg-surface)); }
+    .compare-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 10px; }
+    .compare-kicker, .compare-meta, .compare-note { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    .compare-kicker { margin-bottom: 6px; }
+    .compare h3 { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.35; margin-bottom: 8px; }
+    .compare-meta { margin-bottom: 12px; }
+    .compare-note { margin-top: 10px; }
+    .compare-block { margin-top: 10px; padding: 12px 14px; background: var(--bg-elevated); border: 1px solid var(--border); border-left: 2px solid var(--warning); font-size: 14px; line-height: 1.5; }
+    .specimen-md { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.65; color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+    .transcript p, .transcript li { font-size: 15px; line-height: 1.6; color: var(--text-secondary); }
+    .transcript p { margin-bottom: 10px; }
+    .transcript .who { font-weight: 600; color: var(--text-primary); margin-right: 6px; }
+    .transcript .tool { font-family: var(--font-mono); font-size: 13px; line-height: 1.55; background: var(--bg-surface); border: 1px solid var(--border); padding: 10px 12px; margin: 0 0 12px; white-space: pre-wrap; color: var(--text-primary); }
+    .transcript ol { margin: 0 0 10px 1.2em; }
+    .paths { list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .paths a { display: block; padding: 16px 0; border-top: 1px solid var(--border); text-decoration: none; color: inherit; min-height: 100%; }
+    .paths a:hover strong { color: var(--accent-text); }
+    .paths strong { display: block; font-size: 16px; margin-bottom: 6px; }
+    .paths span { color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+    .more-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 8px; }
+    .more-links a { color: var(--accent-text); font-weight: 600; text-underline-offset: 3px; }
+    .spec-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr); gap: 40px 56px; align-items: start; }
+    .spec-block { margin-top: 40px; }
+    .spec-block h2, .spec-grid h2 {
+      font-size: 15px; font-weight: 600; margin-bottom: 8px;
+    }
+    .spec-lead { color: var(--text-secondary); font-size: 15px; line-height: 1.6; max-width: 68ch; margin-bottom: 12px; }
+    .order { list-style: none; border-top: 1px solid var(--border); max-width: 720px; }
+    .order li {
+      display: grid; grid-template-columns: 14rem minmax(0, 1fr); gap: 12px 24px;
+      padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 15px;
+    }
+    .order li span:last-child { color: var(--text-secondary); }
+    .adapters { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; max-width: 720px; }
+    .adapters li { font-size: 14px; font-weight: 600; }
     .hero h1 {
-      font-family: var(--font-display); font-size: clamp(26px, 5vw, 42px);
-      font-weight: 400; letter-spacing: -0.325px; line-height: 1.15;
-      margin-bottom: 16px; color: var(--text-primary);
+      font-size: clamp(32px, 4vw, 44px); font-weight: 600;
+      letter-spacing: -0.03em; line-height: 1.15; margin-bottom: 12px;
+      max-width: 14em; text-wrap: balance;
     }
-    .hero h1 em {
-      font-style: italic;
-      background: linear-gradient(135deg, var(--accent) 0%, #67e8f9 50%, var(--accent-hover) 100%);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-    }
+    .nowrap { white-space: nowrap; }
     .hero-subtitle {
-      font-size: 16px; color: var(--text-secondary); max-width: 560px;
-      margin: 0 auto 40px; line-height: 1.6; font-weight: 400;
+      font-size: 17px; color: var(--text-secondary); max-width: 62ch;
+      margin: 0 0 28px; line-height: 1.6;
     }
 
-    /* ---- Input Form ---- */
     .input-wrapper {
-      max-width: 640px; margin: 0 auto 12px; border-radius: var(--radius);
-      background: var(--bg-surface); overflow: hidden;
-      transition: box-shadow 0.3s ease;
+      max-width: 720px; border-radius: var(--radius);
+      background: var(--bg-surface); border: 1px solid var(--border);
     }
-    .input-wrapper:focus-within {
-      box-shadow: 0 0 0 2px var(--accent), 0 4px 24px rgba(34,211,238,0.08);
-    }
-    .input-group { display: flex; width: 100%; }
+    .input-wrapper:focus-within { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .input-group { display: flex; width: 100%; align-items: stretch; }
     .input-prefix {
-      display: flex; align-items: center; padding: 0 0 0 16px;
-      color: var(--accent-text); font-family: var(--font-mono);
-      font-size: 12px; font-weight: 500; white-space: nowrap;
-      user-select: none; opacity: 0.8;
+      display: flex; align-items: center; padding: 0 0 0 14px;
+      color: var(--text-muted); font-family: var(--font-mono);
+      font-size: 13px; white-space: nowrap; user-select: none;
     }
     .input-group input {
-      flex: 1; padding: 14px 12px; background: transparent; border: none; outline: none;
-      color: var(--text-primary); font-size: 14px; font-family: var(--font-mono); font-weight: 400;
+      flex: 1; padding: 12px; background: transparent; border: none;
+      color: var(--text-primary); font-size: 15px; font-family: var(--font-mono);
       min-width: 0;
     }
+    .input-group input:focus { outline: none; }
     .input-group input::placeholder { color: var(--text-muted); }
     .convert-btn {
-      padding: 0 24px; background: var(--accent); border: none;
-      color: var(--accent-on); font-weight: 600; font-size: 13px;
-      font-family: var(--font-body); cursor: pointer; border-radius: 999px;
-      margin: 6px; transition: background 0.2s, transform 0.1s; white-space: nowrap;
+      margin: 6px; padding: 0 18px; background: var(--accent); border: none;
+      color: var(--accent-on); font-weight: 600; font-size: 15px;
+      font-family: inherit; cursor: pointer; border-radius: var(--radius);
       min-height: 36px;
     }
     .convert-btn:hover { background: var(--accent-hover); }
-    .convert-btn:active { transform: scale(0.97); }
-    .convert-btn:disabled { opacity: 0.5; cursor: wait; }
+    .convert-btn:active { transform: translateY(1px); }
+    .convert-btn:disabled { opacity: 0.6; cursor: wait; }
     .btn-spinner {
-      display: inline-block; width: 12px; height: 12px;
-      border: 2px solid rgba(0,0,0,0.2); border-top-color: var(--accent-on);
-      border-radius: 50%; animation: spin 0.6s linear infinite;
-      vertical-align: middle; margin-right: 4px;
+      display: inline-block; width: 12px; height: 12px; margin-right: 6px;
+      border: 2px solid color-mix(in srgb, var(--accent-on) 35%, transparent);
+      border-top-color: var(--accent-on); border-radius: 50%;
+      animation: spin 0.7s linear infinite; vertical-align: -1px;
     }
-    .input-hint {
-      font-size: 12px; color: var(--text-muted); text-align: center;
-      font-family: var(--font-mono);
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .input-hint { margin-top: 10px; font-size: 13px; color: var(--text-muted); font-family: var(--font-mono); }
+    .form-error { margin-top: 8px; font-size: 14px; color: var(--danger); }
+    .form-error[hidden] { display: none; }
 
-    /* ---- Cards ---- */
-    .card {
-      background: var(--bg-surface); border-radius: var(--radius);
-      padding: 28px 24px; transition: background 0.2s ease;
-    }
-    .card:hover { background: var(--bg-elevated); }
-    .card-title {
-      font-family: var(--font-display); font-size: 18px; font-weight: 400;
-      margin-bottom: 8px; color: var(--text-primary);
-    }
-    .card-desc {
-      font-size: 14px; color: var(--text-secondary); line-height: 1.6; font-weight: 400;
-    }
-
-    /* ---- Why Grid (3 cols) ---- */
-    .why-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-    }
-
-    /* ---- Use Cases Grid (2x3) ---- */
-    .uc-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-    }
-    .uc-card { display: flex; flex-direction: column; min-height: 140px; }
-    .uc-icon { color: var(--accent-text); margin-bottom: 16px; opacity: 0.8; }
-
-    /* ---- Platform strip ---- */
-    .platforms { margin-top: 32px; text-align: center; }
-    .platforms-title {
-      font-size: 13px; font-weight: 500; color: var(--text-muted);
-      text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 16px;
-    }
-    .platform-pills {
-      display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
-    }
-    .platform-pill {
-      font-size: 12px; font-weight: 500; color: var(--text-secondary);
-      background: var(--bg-surface); padding: 5px 12px; border-radius: 999px;
-      white-space: nowrap;
-    }
-
-    /* ---- Steps (3 col) ---- */
-    .steps-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
-    }
-    .step-card { text-align: center; }
-    .step-num {
-      font-family: var(--font-display); font-size: 32px; font-style: italic;
-      color: var(--accent-text); opacity: 0.4; margin-bottom: 12px; line-height: 1;
-    }
-    .step-title {
-      font-size: 15px; font-weight: 600; margin-bottom: 6px; color: var(--text-primary);
-    }
-    .step-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
-
-    /* ---- FAQ ---- */
-    .faq-list { max-width: 720px; margin: 0 auto; }
-    .faq-item {
-      border-bottom: 1px solid var(--border);
-    }
+    .faq-list { max-width: 720px; border-top: 1px solid var(--border); }
+    .faq-item { border-bottom: 1px solid var(--border); }
     .faq-item summary {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 20px 0; cursor: pointer; font-size: 15px; font-weight: 500;
-      color: var(--text-primary); list-style: none;
-      transition: color 0.2s;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 16px 0; cursor: pointer; font-size: 16px; font-weight: 600; list-style: none;
     }
-    .faq-item summary:hover { color: var(--accent-text); }
     .faq-item summary::-webkit-details-marker { display: none; }
-    .faq-item summary::after {
-      content: '+'; font-size: 20px; font-weight: 300; color: var(--text-muted);
-      transition: transform 0.2s;
-    }
-    .faq-item[open] summary::after { content: '-'; }
-    .faq-answer {
-      padding: 0 0 20px; font-size: 14px; color: var(--text-secondary); line-height: 1.7;
-    }
+    .faq-item summary::after { content: "+"; font-weight: 500; color: var(--text-muted); }
+    .faq-item[open] summary::after { content: "–"; }
+    .faq-answer { padding: 0 0 16px; font-size: 15px; color: var(--text-secondary); line-height: 1.7; max-width: 65ch; }
 
-    /* ---- CTA ---- */
-    .cta-section { padding: 80px 0; text-align: center; }
-    .cta-title {
-      font-family: var(--font-display); font-size: clamp(32px, 5vw, 56px);
-      font-weight: 400; letter-spacing: -0.5px; margin-bottom: 40px;
-      color: var(--text-primary);
+    .cta-section { padding: 24px 0 72px; }
+    .cta-title { font-size: clamp(28px, 4vw, 40px); font-weight: 600; letter-spacing: -0.03em; margin-bottom: 16px; }
+    .example-link {
+      display: inline-flex; align-items: center; min-height: 40px; padding: 8px 14px;
+      background: var(--accent); color: var(--accent-on); text-decoration: none;
+      font-weight: 600; font-size: 15px; border-radius: var(--radius);
     }
+    .example-link:hover { background: var(--accent-hover); }
+    .example-link:active { transform: translateY(1px); }
 
-    /* ---- Docs tab ---- */
-    .docs-section { max-width: 840px; margin: 0 auto; }
-    .code-block {
-      background: var(--bg-surface); border-radius: var(--radius);
-      padding: 16px 20px; font-family: var(--font-mono); font-size: 12px;
-      line-height: 1.8; color: var(--text-secondary); overflow-x: auto;
-      margin-bottom: 12px; white-space: pre-wrap; word-break: break-all;
+    .docs-section, .integration-section { max-width: 800px; margin: 0 auto; }
+    .doc-card, .int-card, .decision-tree {
+      padding: 8px 0 28px; margin-bottom: 8px; border-bottom: 1px solid var(--border);
+      scroll-margin-top: 72px;
     }
-    [data-theme="dark"] .code-block,
-    .dark .code-block {
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.08);
+    .doc-card h3, .int-card h3, .decision-tree h3 {
+      font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 12px;
     }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) .code-block {
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.08);
-      }
+    .copy-host { display: grid; justify-items: end; gap: 6px; margin-bottom: 10px; }
+    .code-block, .cmd-block, .config-block {
+      width: 100%;
+      background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px; font-family: var(--font-mono); font-size: 12.5px;
+      line-height: 1.7; color: var(--text-secondary); overflow-x: auto; margin: 0;
     }
+    .code-block { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .cmd-block, .config-block { display: block; white-space: pre; color: var(--text-primary); }
     .code-block code { font-family: inherit; font-size: inherit; }
     .code-comment { color: var(--text-muted); }
     .code-hl { color: var(--accent-text); }
-    .doc-card {
-      background: var(--bg-surface); border-radius: var(--radius);
-      padding: 28px 24px; margin-bottom: 12px;
+    .code-str { color: var(--text-primary); }
+    .copy-inline {
+      border: 1px solid var(--border); background: var(--bg); color: var(--text-primary);
+      font-family: inherit; font-size: 13px; font-weight: 600;
+      padding: 4px 8px; border-radius: var(--radius); cursor: pointer; min-height: 28px;
     }
-    .doc-card h3 {
-      font-family: var(--font-display); font-size: 20px; font-weight: 400;
-      margin-bottom: 16px; color: var(--text-primary);
+    .copy-inline:hover { background: var(--bg-elevated); }
+    .copy-inline:active { transform: translateY(1px); }
+    .route-table, .param-table, .comp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .route-table th, .param-table th, .comp-table th {
+      text-align: left; padding: 8px 12px 8px 0; font-weight: 600; font-size: 13px;
+      color: var(--text-secondary); border-bottom: 1px solid var(--border);
     }
-    .route-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .route-table th {
-      text-align: left; padding: 8px 12px; font-weight: 600; font-size: 11px;
-      text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
-      border-bottom: 1px solid var(--border);
-    }
-    .route-table td {
-      padding: 10px 12px; border-bottom: 1px solid var(--border);
+    .route-table td, .param-table td, .comp-table td {
+      padding: 10px 12px 10px 0; border-bottom: 1px solid var(--border);
       color: var(--text-secondary); vertical-align: top;
     }
-    .route-table code {
-      font-family: var(--font-mono); font-size: 12px; color: var(--accent-text);
-      background: rgba(34,211,238,0.06); padding: 2px 6px; border-radius: 3px;
+    .route-table code, .param-table code, .auth-code {
+      font-family: var(--font-mono); font-size: 12.5px; color: var(--accent-text);
+      background: var(--accent-soft); padding: 1px 5px; border-radius: 3px;
     }
-    .param-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .param-table th {
-      text-align: left; padding: 8px 12px; font-weight: 600; font-size: 11px;
-      text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
-      border-bottom: 1px solid var(--border);
-    }
-    .param-table td {
-      padding: 10px 12px; border-bottom: 1px solid var(--border);
-      color: var(--text-secondary); vertical-align: top;
-    }
-    .param-table code {
-      font-family: var(--font-mono); font-size: 12px; color: var(--accent-text);
-      background: rgba(34,211,238,0.06); padding: 2px 6px; border-radius: 3px;
-    }
+    .decision-item { font-size: 15px; color: var(--text-secondary); padding: 4px 0; line-height: 1.55; }
+    .decision-item strong { color: var(--text-primary); font-weight: 600; }
+    .int-card .for-line { font-size: 14px; color: var(--text-muted); margin-bottom: 8px; }
+    .int-card p { font-size: 15px; color: var(--text-secondary); line-height: 1.65; margin-bottom: 14px; max-width: 65ch; }
+    .cmd-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin: 14px 0 6px; }
+    .int-note { font-size: 14px; color: var(--text-secondary); margin-top: 8px; }
+    .accent-link { color: var(--accent-text); text-underline-offset: 3px; }
+    .auth-line { font-size: 15px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 8px; }
 
-    /* ---- Integration tab ---- */
-    .integration-section { max-width: 840px; margin: 0 auto; }
-    .decision-tree {
-      background: var(--bg-surface); border-radius: var(--radius);
-      padding: 28px 24px; margin-bottom: 24px;
-    }
-    .decision-tree h3 {
-      font-family: var(--font-display); font-size: 20px; font-weight: 400;
-      margin-bottom: 16px; color: var(--text-primary);
-    }
-    .decision-item {
-      font-size: 14px; color: var(--text-secondary); padding: 6px 0 6px 20px;
-      border-left: 2px solid var(--border); margin-left: 8px;
-    }
-    .decision-item strong { color: var(--text-primary); }
-    .int-card {
-      background: var(--bg-surface); border-radius: var(--radius);
-      padding: 28px 24px; margin-bottom: 12px;
-    }
-    .int-card h3 {
-      font-family: var(--font-display); font-size: 20px; font-weight: 400;
-      margin-bottom: 4px; color: var(--text-primary);
-    }
-    .int-card .for-line {
-      font-size: 12px; color: var(--text-muted); margin-bottom: 12px;
-    }
-    .int-card p {
-      font-size: 14px; color: var(--text-secondary); line-height: 1.6;
-      margin-bottom: 16px;
-    }
-    .cmd-block {
-      font-family: var(--font-mono); font-size: 12px; display: block;
-      padding: 10px 14px; background: var(--bg-elevated); border-radius: var(--radius);
-      color: var(--accent-text); word-break: break-all; line-height: 1.6;
-      margin-bottom: 8px;
-    }
-    .cmd-label {
-      font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);
-      margin-bottom: 4px; margin-top: 12px;
-    }
-    .config-block {
-      font-family: var(--font-mono); font-size: 11px; display: block;
-      padding: 14px; background: var(--bg-elevated); border-radius: var(--radius);
-      color: var(--text-secondary); white-space: pre; overflow-x: auto;
-      line-height: 1.7; margin-top: 8px;
-    }
-    [data-theme="dark"] .cmd-block,
-    .dark .cmd-block,
-    [data-theme="dark"] .config-block,
-    .dark .config-block {
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.08);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) .cmd-block,
-      :root:not([data-theme="light"]) .config-block {
-        background: rgba(255,255,255,0.06);
-        border: 1px solid rgba(255,255,255,0.08);
-      }
-    }
-    .comp-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
-    .comp-table th {
-      text-align: left; padding: 10px 14px; font-weight: 600; font-size: 12px;
-      color: var(--text-muted); border-bottom: 1px solid var(--border);
-    }
-    .comp-table td {
-      padding: 10px 14px; border-bottom: 1px solid var(--border);
-      color: var(--text-secondary);
-    }
-    .int-note {
-      font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 8px;
-    }
-    .accent-link {
-      color: var(--accent-text); text-decoration: none;
-    }
-    .accent-link:hover { text-decoration: underline; text-underline-offset: 4px; }
-
-    /* ---- Footer ---- */
-    .site-footer { background: var(--bg-surface); padding: 48px 0 24px; margin-top: 64px; }
-    .footer-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px;
-      margin-bottom: 40px;
-    }
-    .footer-col-title {
-      font-size: 12px; font-weight: 600; text-transform: uppercase;
-      letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 16px;
-    }
-    .footer-col a {
-      display: block; font-size: 14px; color: var(--text-secondary);
-      text-decoration: none; padding: 3px 0; transition: color 0.2s;
-    }
-    .footer-col a:hover { color: var(--text-primary); }
+    .site-footer { border-top: 1px solid var(--border); padding: 40px 0 24px; margin-top: 24px; }
+    .footer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-bottom: 32px; }
+    .footer-col-title { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+    .footer-col a { display: block; font-size: 14px; color: var(--text-secondary); text-decoration: none; padding: 3px 0; }
+    .footer-col a:hover { color: var(--text-primary); text-decoration: underline; text-underline-offset: 3px; }
     .footer-bottom {
-      display: flex; align-items: center; justify-content: space-between;
-      padding-top: 24px; border-top: 1px solid var(--border);
-      font-size: 12px; color: var(--text-muted);
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding-top: 16px; border-top: 1px solid var(--border);
+      font-size: 13px; color: var(--text-muted);
     }
-    .theme-toggle {
-      display: inline-flex; gap: 2px; padding: 3px;
-      background: var(--bg); border-radius: 999px;
-      border: 1px solid var(--border);
-    }
+    .theme-toggle { display: inline-flex; gap: 4px; }
     .theme-btn {
-      background: none; border: none; cursor: pointer; font-size: 12px;
-      font-family: var(--font-body); color: var(--text-secondary);
-      padding: 5px 12px; border-radius: 999px; transition: all 0.2s;
-      min-height: 30px;
+      background: none; border: 1px solid transparent; cursor: pointer;
+      font-family: inherit; font-size: 13px; color: var(--text-secondary);
+      padding: 4px 8px; border-radius: var(--radius); min-height: 32px;
     }
-    .theme-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
-    .theme-btn.active { color: var(--text-primary); background: var(--bg-surface); font-weight: 600; border: 1px solid var(--border); }
+    .theme-btn:hover { color: var(--text-primary); }
+    .theme-btn.active { color: var(--text-primary); border-color: var(--border); background: var(--bg-surface); font-weight: 600; }
 
-    /* ---- Example link ---- */
-    .example-link {
-      display: inline-flex; align-items: center; gap: 8px;
-      font-family: var(--font-mono); font-size: 13px;
-      color: var(--text-secondary); text-decoration: none;
-      padding: 14px 28px; background: var(--bg-surface);
-      border-radius: 999px; transition: all 0.2s;
-      border: 1px solid var(--border); cursor: pointer;
-      min-height: 44px;
-    }
-    .example-link:hover { background: var(--bg-elevated); color: var(--text-primary); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-    .example-link .hl { color: var(--accent-text); }
-
-    /* ---- Browser Mockup Window ---- */
-    .mockup-window {
-      border-radius: 10px; overflow: hidden;
-      background: var(--bg-surface);
-      box-shadow: rgba(0,0,0,0.14) 0px 28px 70px 0px, rgba(0,0,0,0.1) 0px 14px 32px 0px, rgba(0,0,0,0.1) 0px 4px 12px 0px;
-      transition: transform 0.3s ease;
-    }
-    [data-theme="dark"] .mockup-window,
-    .dark .mockup-window {
-      border: 1px solid rgba(255,255,255,0.08);
-      box-shadow: rgba(0,0,0,0.4) 0px 28px 70px, rgba(0,0,0,0.3) 0px 14px 32px;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) .mockup-window {
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: rgba(0,0,0,0.4) 0px 28px 70px, rgba(0,0,0,0.3) 0px 14px 32px;
-      }
-    }
-    .mockup-window:hover { transform: translateY(-2px); }
-    .mockup-titlebar {
-      height: 28px; display: flex; align-items: center; padding: 0 12px;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-elevated);
-    }
-    .mockup-dots { display: flex; gap: 6px; }
-    .mockup-dot { width: 9px; height: 9px; border-radius: 50%; }
-    .mockup-dot-red { background: #ff5f57; }
-    .mockup-dot-yellow { background: #febc2e; }
-    .mockup-dot-green { background: #28c840; }
-    .mockup-addressbar {
-      flex: 1; margin: 0 12px; height: 20px; border-radius: 4px;
-      background: rgba(0,0,0,0.04); padding: 0 8px; font-size: 11px;
-      font-family: var(--font-body); color: var(--text-secondary);
-      display: flex; align-items: center; overflow: hidden;
-      white-space: nowrap; text-overflow: ellipsis;
-    }
-    [data-theme="dark"] .mockup-addressbar,
-    .dark .mockup-addressbar { background: rgba(255,255,255,0.06); }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) .mockup-addressbar { background: rgba(255,255,255,0.06); }
-    }
-    .mockup-addressbar .hl { color: var(--accent-text); font-weight: 500; }
-    .mockup-body {
-      padding: 16px; font-family: var(--font-mono); font-size: 12px;
-      line-height: 1.7; color: var(--text-secondary); overflow: hidden;
-    }
-    .mockup-prompt { color: var(--accent); font-weight: 500; }
-    .mockup-muted { color: var(--text-muted); font-size: 11px; }
-    .mockup-heading { color: var(--text-primary); font-weight: 600; }
-    .mockup-accent { color: var(--accent-text); }
-    .mockup-success { color: #22c55e; }
-    .mockup-warn { color: #f59e0b; }
-
-    /* ---- Hero Stage: overlapping browser windows ---- */
-    .hero-stage {
-      position: relative; border-radius: 12px; overflow: hidden;
-      background: linear-gradient(135deg, #f0eeea 0%, #e6e4df 50%, #dbd8d2 100%);
-      height: clamp(400px, 48vw, 560px); margin-top: 56px;
-      box-shadow: 0 0 0 1px var(--border);
-    }
-    [data-theme="dark"] .hero-stage,
-    .dark .hero-stage {
-      background: linear-gradient(135deg, #1a1812 0%, #15130c 50%, #1e1c15 100%);
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) .hero-stage {
-        background: linear-gradient(135deg, #1a1812 0%, #15130c 50%, #1e1c15 100%);
-      }
-    }
-    .hero-stage::before {
-      content: ""; position: absolute; inset: 0;
-      background: radial-gradient(circle at 40% 50%, rgba(34,211,238,0.04) 0%, transparent 60%);
-    }
-    .hero-back-window {
-      position: absolute; top: 28px; left: 5%; width: 56%; max-width: 520px;
-      border-radius: 10px; overflow: hidden;
-      background: var(--bg-surface); opacity: 0.88;
-      box-shadow: rgba(0,0,0,0.1) 0px 20px 60px;
-      z-index: 1;
-    }
-    .hero-front-window {
-      position: absolute; top: 48px; right: 5%; width: 56%; max-width: 520px;
-      border-radius: 10px; overflow: hidden;
-      background: var(--bg-surface);
-      box-shadow: rgba(0,0,0,0.18) 0px 28px 70px, rgba(0,0,0,0.12) 0px 14px 32px, rgba(34,211,238,0.15) 0px 0px 30px;
-      z-index: 2;
-    }
-    .hero-back-window .mockup-body { filter: saturate(0.7); }
-
-    /* ---- Feature split browser ---- */
-    .browser-split {
-      display: grid; grid-template-columns: 1fr 1fr; min-height: 280px;
-    }
-    .browser-split-left {
-      background: color-mix(in srgb, #ef4444 6%, var(--bg));
-      border-right: 1px solid var(--border);
-      padding: 20px; position: relative; overflow: hidden;
-    }
-    .browser-split-right {
-      background: color-mix(in srgb, #22c55e 5%, var(--bg));
-      padding: 20px; position: relative;
-    }
-    .split-badge {
-      display: inline-flex; align-items: center; gap: 4px;
-      font-size: 9px; font-family: var(--font-mono);
-      background: rgba(34,197,94,0.1); color: #16a34a;
-      padding: 3px 8px; border-radius: 999px;
-      margin-top: 12px;
-    }
-    .split-divider-arrow {
-      position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
-      z-index: 2; width: 24px; height: 24px; border-radius: 50%;
-      background: var(--accent); color: #fff;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 12px; box-shadow: 0 2px 8px rgba(34,211,238,0.3);
-    }
-
-    /* ---- AI Chat mockup ---- */
-    .chat-body { padding: 0; }
-    .chat-msg {
-      padding: 14px 20px; font-size: 12px; line-height: 1.7;
-      font-family: var(--font-body);
-    }
-    .chat-msg-user {
-      background: var(--bg-elevated);
-      border-bottom: 1px solid var(--border);
-    }
-    .chat-msg-ai {
-      background: var(--bg);
-    }
-    .chat-sender {
-      font-size: 10px; font-weight: 600; color: var(--text-muted);
-      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;
-    }
-    .chat-tool-call {
-      margin: 10px 0; padding: 10px 14px;
-      background: var(--bg-elevated); border-radius: 6px;
-      font-family: var(--font-mono); font-size: 11px;
-      border-left: 3px solid var(--accent);
-    }
-
-    /* ---- Pipeline visualization ---- */
-    .pipeline-body {
-      padding: 24px; background: var(--bg); font-family: var(--font-mono); font-size: 11px;
-    }
-    .pipeline-request {
-      text-align: center; padding: 8px 16px; margin-bottom: 16px;
-      font-size: 11px; color: var(--text-secondary);
-    }
-    .pipeline-request code { color: var(--accent-text); font-family: var(--font-mono); }
-    .pipeline-layer {
-      display: flex; align-items: center; gap: 12px;
-      padding: 10px 16px; border-radius: 6px;
-      margin-bottom: 4px; transition: all 0.2s;
-    }
-    .pipeline-layer-fast { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.15); }
-    .pipeline-layer-medium { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.15); }
-    .pipeline-layer-slow { background: rgba(156,163,175,0.08); border: 1px solid rgba(156,163,175,0.15); }
-    .pipeline-layer-active {
-      box-shadow: 0 0 0 2px var(--accent), 0 0 12px rgba(34,211,238,0.15);
-      border-color: var(--accent);
-    }
-    .pipeline-layer-name { font-weight: 600; color: var(--text-primary); flex: 1; }
-    .pipeline-layer-detail { font-size: 10px; color: var(--text-secondary); }
-    .pipeline-layer-speed { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
-    .pipeline-connector {
-      display: flex; justify-content: center; padding: 2px 0;
-      color: var(--text-muted); font-size: 10px;
-    }
-    .pipeline-result {
-      text-align: center; margin-top: 16px; padding: 10px;
-      font-size: 12px; color: var(--text-primary); font-weight: 500;
-    }
-    .pipeline-result .mockup-success { font-weight: 700; }
-
-    /* ---- Feature Sections (alternating text + mockup) ---- */
-    .feature-section { padding: 56px 0; }
-    .feature-grid {
-      display: grid; grid-template-columns: 1fr 1.4fr; gap: 64px; align-items: center;
-    }
-    .feature-grid.reverse { grid-template-columns: 1.4fr 1fr; }
-    .feature-text {}
-    .feature-text .card-title {
-      font-family: var(--font-display); font-size: 28px; font-weight: 400;
-      margin-bottom: 16px; color: var(--text-primary); letter-spacing: -0.4px;
-    }
-    .feature-text .card-desc {
-      font-size: 16px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 0;
-    }
-
-    /* Mockup divider */
-    .mockup-divider {
-      border: none; border-top: 1px solid var(--border); margin: 8px 0;
-    }
-
-    /* ---- Responsive ---- */
-    @media (max-width: 768px) {
-      .why-grid, .uc-grid, .steps-grid { grid-template-columns: 1fr; }
-      .feature-grid, .feature-grid.reverse { grid-template-columns: 1fr; gap: 24px; }
-      .feature-grid.reverse .feature-mockup { order: 2; }
-      .feature-grid.reverse .feature-text { order: 1; }
-      .hero-stage { display: none; }
-      .feature-mockup { display: none; }
-      .feature-mockup.mobile-show { display: block; }
-      .footer-grid { grid-template-columns: 1fr; gap: 24px; }
+    @media (max-width: 800px) {
+      .container { padding: 0 16px; }
+      .hero { padding-top: 32px; }
+      .hero h1 { max-width: none; }
+      .footer-grid, .spec-grid, .order li, .exhibit, .compare, .paths { grid-template-columns: 1fr; }
+      .order li { gap: 2px; }
+      .compare-col + .compare-col { border-left: 0; border-top: 1px solid var(--border); }
+      .input-group { flex-direction: column; align-items: stretch; }
+      .input-prefix { padding: 10px 12px 0; }
+      .convert-btn { margin: 8px; }
+      .github-link { display: none; }
+      .site-name { min-width: 0; }
+      .site-header { height: auto; }
+      .header-inner { height: auto; flex-wrap: wrap; padding: 8px 12px; row-gap: 4px; }
+      .header-right { margin-left: auto; gap: 2px; }
+      .portal-link { font-size: 13px; padding: 6px 8px; }
+      .lang-link { padding: 6px; }
       .header-nav { display: none; }
       .header-nav.open {
         display: flex; flex-direction: column; position: absolute;
-        top: 52px; left: 0; right: 0; background: var(--bg);
-        border-bottom: 1px solid var(--border); padding: 8px 20px 16px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        top: 100%; left: 0; right: 0; background: var(--bg);
+        border-bottom: 1px solid var(--border); padding: 8px 12px 12px; z-index: 20;
       }
-      .mobile-menu-btn { display: block; }
-      .portal-link { padding: 4px 10px; font-size: 12px; }
-      .input-prefix { display: none; }
-      .hero { padding: 48px 0 32px; }
-      .footer-bottom { flex-direction: column; gap: 12px; }
-    }
-
-    @media (min-width: 769px) and (max-width: 1024px) {
-      .uc-grid { grid-template-columns: repeat(2, 1fr); }
+      .header-nav.open .tab-btn { width: 100%; text-align: left; min-height: 44px; }
+      .mobile-menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+      .footer-bottom { flex-direction: column; align-items: flex-start; }
     }
   </style>
+
 </head>
 <body>
-  <!-- ===== HEADER ===== -->
+  <a class="skip" href="#content">${isZh ? "跳到内容" : "Skip to content"}</a>
   <header class="site-header" id="siteHeader">
     <div class="header-inner">
-      <a href="/" class="site-name">${h}</a>
-      <nav class="header-nav" id="headerNav" role="tablist" aria-label="Main navigation">
-        <button class="tab-btn active" data-tab="home" role="tab" aria-selected="true" aria-controls="tab-home" onclick="switchTab('home')">${t.tabHome}</button>
-        <button class="tab-btn" data-tab="docs" role="tab" aria-selected="false" aria-controls="tab-docs" onclick="switchTab('docs')">${t.tabDocs}</button>
-        <button class="tab-btn" data-tab="integration" role="tab" aria-selected="false" aria-controls="tab-integration" onclick="switchTab('integration')">${t.tabIntegration}</button>
+      <a href="${stay("/")}" class="site-name">${h}</a>
+      <nav class="header-nav" id="headerNav" aria-label="${isZh ? "站点" : "Site"}">
+        <a class="tab-btn ${page === "home" ? "active" : ""}" href="${stay("/")}">${t.tabHome}</a>
+        <a class="tab-btn ${page === "examples" ? "active" : ""}" href="${stay("/examples")}">${isZh ? "示例" : "Examples"}</a>
+        <a class="tab-btn ${page === "docs" ? "active" : ""}" href="${stay("/docs")}">${t.tabDocs}</a>
+        <a class="tab-btn ${page === "integration" ? "active" : ""}" href="${stay("/integrations")}">${t.tabIntegration}</a>
       </nav>
       <div class="header-right">
         <a href="/portal/" class="portal-link">${t.portalLabel}</a>
         <nav class="lang-switch" aria-label="${t.langSwitchAria}">
-          <a class="lang-link ${isZh ? "" : "active"}" href="/?lang=en">EN</a>
-          <a class="lang-link ${isZh ? "active" : ""}" href="/?lang=zh">中文</a>
+          <a class="lang-link ${isZh ? "" : "active"}" href="${page === "home" ? "/?lang=en" : langHref(canonicalPath, "en")}">EN</a>
+          <a class="lang-link ${isZh ? "active" : ""}" href="${page === "home" ? "/?lang=zh" : langHref(canonicalPath, "zh")}">中文</a>
         </nav>
         <a href="https://github.com/Digidai/website2markdown" target="_blank" class="github-link" aria-label="GitHub">${iconGithub}</a>
         <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu" aria-expanded="false" onclick="toggleMobileMenu()">
@@ -1248,333 +956,61 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
     </div>
   </header>
 
-  <main>
+  <main id="content">
     <!-- ==================== TAB 1: HOME ==================== -->
-    <div class="tab-content active" id="tab-home" role="tabpanel" aria-labelledby="tab-home-btn">
+    <!--PAGE:home-->
+    <div class="tab-content ${page === "home" ? "active" : ""}" id="tab-home">
 
-      <!-- Hero -->
       <section class="hero">
         <div class="container">
-          <h1 class="reveal">${t.heroTitleHtml}</h1>
-          <p class="hero-subtitle reveal">${t.heroSubtitle}</p>
-          <div class="input-wrapper reveal">
+          <h1>${t.heroTitleHtml}</h1>
+          <p class="hero-subtitle" id="direct-answer">${t.heroSubtitle}</p>
+          <div class="input-wrapper">
             <form class="input-group" id="urlForm" onsubmit="return handleSubmit(event)">
               <label for="urlInput" class="sr-only">${isZh ? "输入要转换的 URL" : "Enter URL to convert"}</label>
               <div class="input-prefix">${h}/</div>
-              <input type="text" id="urlInput" placeholder="${t.inputPlaceholder}" autocomplete="off" autofocus />
+              <input type="text" id="urlInput" name="url" inputmode="url" placeholder="${t.inputPlaceholder}" autocomplete="off" spellcheck="false" autofocus>
               <button type="submit" class="convert-btn">${t.convertButton}</button>
             </form>
           </div>
-          <p class="input-hint reveal">${t.hintKeys}</p>
-
-          <!-- Hero: Overlapping browser windows -->
-          <div class="hero-stage reveal">
-            <!-- Back window: "Before" — messy WeChat page -->
-            <div class="hero-back-window">
-              <div class="mockup-titlebar">
-                <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
-                <div class="mockup-addressbar">mp.weixin.qq.com/s/abc123def</div>
-              </div>
-              <div class="mockup-body" style="padding:0; text-align:left; font-family:var(--font-body); background:var(--bg);">
-                <!-- WeChat header bar -->
-                <div style="padding:10px 16px; background:var(--bg-elevated); display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border);">
-                  <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">&#128241; ${t.mockupWechatBadge}</span>
-                  <span style="font-size:9px; padding:3px 10px; border-radius:999px; background:rgba(34,197,94,0.12); color:#16a34a;">${t.mockupFollow}</span>
-                </div>
-                <!-- Article title -->
-                <div style="padding:14px 16px 8px;">
-                  <div style="font-size:14px; font-weight:700; color:var(--text-primary); line-height:1.4;">${t.mockupArticleTitle}</div>
-                  <div style="font-size:9px; color:var(--text-muted); margin-top:6px;">${t.mockupAuthorDate}</div>
-                </div>
-                <!-- Blocking modal overlay -->
-                <div style="margin:8px 16px; padding:20px; background:var(--bg-elevated); border-radius:8px; text-align:center; border:1px solid var(--border);">
-                  <div style="font-size:16px; margin-bottom:8px;">&#9888;&#65039;</div>
-                  <div style="font-size:11px; font-weight:600; color:var(--text-primary); margin-bottom:4px;">${t.mockupWechatBlock}</div>
-                  <div style="font-size:9px; color:var(--text-muted); margin-bottom:10px;">${t.mockupQrHint}</div>
-                  <div style="width:48px; height:48px; margin:0 auto 10px; background:var(--bg-surface); border:1px solid var(--border); border-radius:4px; display:flex; align-items:center; justify-content:center;">
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="color:var(--text-muted);opacity:0.4"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="4" height="4" rx="0.5"/><rect x="18" y="18" width="4" height="4" rx="0.5"/></svg>
-                  </div>
-                  <div style="display:inline-block; font-size:10px; padding:5px 14px; background:#07c160; color:#fff; border-radius:4px;">${t.mockupOpenWechat}</div>
-                </div>
-                <!-- Recommended / Ads -->
-                <div style="padding:8px 16px 12px;">
-                  <div style="font-size:10px; color:var(--text-muted); margin-bottom:6px;">${t.mockupRecommended} &#9660;</div>
-                  <div style="display:flex; gap:6px;">
-                    <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
-                    <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
-                    <div style="flex:1; height:36px; background:var(--bg-elevated); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:8px; color:var(--text-muted);">Ad</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Front window: "After" — clean Markdown output -->
-            <div class="hero-front-window">
-              <div class="mockup-titlebar">
-                <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
-                <div class="mockup-addressbar"><span class="hl">${h}/</span>mp.weixin.qq.com/s/abc123def</div>
-              </div>
-              <div class="mockup-body" style="padding:20px; text-align:left; font-size:12px; background:var(--bg);">
-<div style="font-size:16px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:10px;"># ${t.mockupArticleTitle}</div>
-<div style="font-size:11px; color:var(--accent-text); margin-bottom:14px; font-style:italic;">&gt; ${t.mockupAuthorDate}</div>
-<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;">## ${t.mockupH2KeyPoints}</div>
-<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">1. ${t.mockupBullet1}<br>2. ${t.mockupBullet2}<br>3. ${t.mockupBullet3}</div>
-<div style="font-size:13px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## ${t.mockupH2Background}</div>
-<div style="font-size:11px; color:var(--text-secondary); line-height:1.8; margin-bottom:12px;">${t.mockupBgParagraph}</div>
-<div style="background:var(--bg-elevated); border-radius:4px; padding:10px 12px; font-family:var(--font-mono); font-size:10px; color:var(--accent-text); margin-bottom:14px; line-height:1.6;"><span style="color:var(--text-muted);">\`\`\`python</span><br>from langchain import ChatOpenAI<br>llm = ChatOpenAI(model=<span style="color:#f59e0b;">"gpt-4"</span>)<br><span style="color:var(--text-muted);">\`\`\`</span></div>
-<div style="font-size:9px; color:var(--text-muted); border-top:1px solid var(--border); padding-top:8px; text-align:center; font-family:var(--font-mono);">
-  <span class="mockup-success">&#10003;</span> X-Method: browser+readability &middot; 2.1s &middot; cached
-</div>
-              </div>
-            </div>
-          </div>
+          <p class="form-error" id="formError" hidden></p>
+          <p class="input-hint">${t.hintKeys}</p>
+          <p class="request" id="requestPreview"><span class="request-method">GET</span><span id="requestUrl">https://${h}/https://example.com</span></p>
+          <p class="hero-links">
+            <a href="/https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/">${isZh ? "试一篇 Cloudflare 文档" : "Try a Cloudflare docs page"}</a>
+            <a href="${stay("/examples")}">${isZh ? "看打不开的页面" : "See pages that block you"}</a>
+            <a href="${stay("/docs")}">${isZh ? "接口文档" : "API reference"}</a>
+          </p>
         </div>
       </section>
 
-      <!-- Why — Feature 1: Works where others fail (left text, right mockup) -->
-      <section class="feature-section">
-        <div class="container">
-          <div class="feature-grid reveal">
-            <div class="feature-text">
-              <div class="card-title">${t.why1Title}</div>
-              <div class="card-desc">${t.why1Desc}</div>
-            </div>
-            <div class="feature-mockup">
-              <div class="mockup-window">
-                <div class="mockup-titlebar">
-                  <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
-                  <div class="mockup-addressbar">zhihu.com/p/123456789</div>
-                </div>
-                <div class="browser-split">
-                  <!-- Left: blocked Zhihu page -->
-                  <div class="browser-split-left" style="font-family:var(--font-body); text-align:left;">
-                    <div class="split-divider-arrow">&rarr;</div>
-                    <div style="font-size:8px; font-family:var(--font-mono); color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; opacity:0.7;">${t.mockupLabelBlocked}</div>
-                    <!-- Zhihu nav -->
-                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:12px;">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--accent-text)" style="opacity:0.5;"><circle cx="12" cy="12" r="10"/><text x="6" y="17" font-size="12" fill="#fff" font-weight="bold">Z</text></svg>
-                      <span style="font-size:10px; color:var(--text-muted);">${t.mockupZhihuSlogan}</span>
-                    </div>
-                    <!-- Content behind blur -->
-                    <div style="filter:blur(3px); opacity:0.5; font-size:10px; color:var(--text-secondary); line-height:1.6; margin-bottom:12px;">
-                      <div style="font-size:13px; font-weight:600; margin-bottom:4px;">${t.mockupZhihuTitle}</div>
-                      ${t.mockupZhihuContent}
-                    </div>
-                    <!-- Login modal overlay -->
-                    <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:8px; padding:16px; text-align:center; box-shadow:0 4px 16px rgba(0,0,0,0.08);">
-                      <div style="font-size:12px; font-weight:600; color:var(--text-primary); margin-bottom:6px;">${t.mockupLoginRequired}</div>
-                      <div style="font-size:10px; color:var(--text-muted); margin-bottom:10px;">${t.mockupLoginRequiredSub}</div>
-                      <div style="display:flex; gap:8px; justify-content:center;">
-                        <span style="font-size:9px; padding:4px 12px; background:#0066ff; color:#fff; border-radius:4px;">${t.mockupLogin}</span>
-                        <span style="font-size:9px; padding:4px 12px; border:1px solid var(--border); border-radius:4px; color:var(--text-secondary);">${t.mockupRegister}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Right: clean Markdown output -->
-                  <div class="browser-split-right" style="font-family:var(--font-mono); text-align:left; font-size:11px; line-height:1.7;">
-                    <div style="font-size:8px; font-family:var(--font-mono); color:var(--text-muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; opacity:0.7;">${t.mockupLabelClean}</div>
-                    <div style="font-size:14px; font-weight:700; color:var(--text-primary); font-family:var(--font-body); margin-bottom:8px;"># ${t.mockupZhihuAnswer}</div>
-                    <div style="font-size:11px; color:var(--text-secondary); margin-bottom:10px;">${t.mockupZhihuParagraph}</div>
-                    <div style="font-size:12px; font-weight:600; color:var(--text-primary); font-family:var(--font-body); margin-bottom:6px;">## ${t.mockupZhihuH3}</div>
-                    <div style="font-size:11px; color:var(--text-secondary); line-height:1.8;">
-                      - ${t.mockupZhihuBullet1}<br>
-                      - ${t.mockupZhihuBullet2}<br>
-                      - ${t.mockupZhihuBullet3}
-                    </div>
-                    <div class="split-badge"><span class="mockup-success">&#10003;</span> ${t.mockupExtractedBadge}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Why — Feature 2: AI-native (right text, left mockup) -->
-      <section class="feature-section">
-        <div class="container">
-          <div class="feature-grid reverse reveal">
-            <div class="feature-mockup">
-              <div class="mockup-window">
-                <div class="mockup-titlebar">
-                  <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
-                  <div class="mockup-addressbar" style="justify-content:center;">Claude</div>
-                </div>
-                <div class="chat-body" style="text-align:left;">
-                  <!-- User message -->
-                  <div class="chat-msg chat-msg-user">
-                    <div class="chat-sender">User</div>
-                    <div style="color:var(--text-primary); font-size:12px; line-height:1.6;">
-                      ${t.mockupChatUserMsg}<br>
-                      <span style="color:var(--accent-text); font-family:var(--font-mono); font-size:11px;">https://mp.weixin.qq.com/s/abc123</span>
-                    </div>
-                  </div>
-                  <!-- AI message -->
-                  <div class="chat-msg chat-msg-ai">
-                    <div class="chat-sender">Claude</div>
-                    <div class="chat-tool-call">
-                      <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                        <span style="font-size:10px; font-weight:600; color:var(--text-muted);">&#9881; convert_url</span>
-                      </div>
-                      <div style="font-size:10px; color:var(--text-secondary);">url: <span style="color:var(--accent-text);">"https://mp.weixin.qq.com/s/..."</span></div>
-                      <div style="font-size:10px; margin-top:4px;"><span class="mockup-success">&#10003;</span> <span style="color:var(--text-muted);">3,421 chars &middot; 2.1s</span></div>
-                    </div>
-                    <div style="color:var(--text-primary); font-size:12px; line-height:1.7; margin-top:10px;">
-                      ${t.mockupChatSummaryIntro}
-                    </div>
-                    <div style="color:var(--text-secondary); font-size:12px; line-height:1.8; margin-top:6px; padding-left:4px;">
-                      1. ${t.mockupChatPoint1}<br>
-                      2. ${t.mockupChatPoint2}<br>
-                      3. ${t.mockupChatPoint3}
-                    </div>
-                    <div style="color:var(--text-secondary); font-size:12px; line-height:1.7; margin-top:8px;">
-                      ${t.mockupChatEnding}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="feature-text">
-              <div class="card-title">${t.why2Title}</div>
-              <div class="card-desc">${t.why2Desc}</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Why — Feature 3: Production ready (left text, right mockup) -->
-      <section class="feature-section">
-        <div class="container">
-          <div class="feature-grid reveal">
-            <div class="feature-text">
-              <div class="card-title">${t.why3Title}</div>
-              <div class="card-desc">${t.why3Desc}</div>
-            </div>
-            <div class="feature-mockup mobile-show">
-              <div class="mockup-window">
-                <div class="mockup-titlebar">
-                  <div class="mockup-dots"><div class="mockup-dot mockup-dot-red"></div><div class="mockup-dot mockup-dot-yellow"></div><div class="mockup-dot mockup-dot-green"></div></div>
-                  <div class="mockup-addressbar" style="justify-content:center;">5-Layer Fallback Pipeline</div>
-                </div>
-                <div class="pipeline-body" style="text-align:left;">
-                  <div class="pipeline-request">Request: <code>https://example.com/article</code></div>
-
-                  <div class="pipeline-layer pipeline-layer-fast pipeline-layer-active">
-                    <span class="pipeline-layer-name">Layer 1 &mdash; Native Markdown</span>
-                    <span class="pipeline-layer-detail">Cloudflare edge</span>
-                    <span class="pipeline-layer-speed">&#9889; 0.1s &nbsp;<span class="mockup-success">&#10003;</span></span>
-                  </div>
-                  <div class="pipeline-connector">&#9474; fail?</div>
-
-                  <div class="pipeline-layer pipeline-layer-fast">
-                    <span class="pipeline-layer-name">Layer 2 &mdash; Readability + Turndown</span>
-                    <span class="pipeline-layer-detail">HTML parsing</span>
-                    <span class="pipeline-layer-speed">&#9889; 0.5s</span>
-                  </div>
-                  <div class="pipeline-connector">&#9474; fail?</div>
-
-                  <div class="pipeline-layer pipeline-layer-medium">
-                    <span class="pipeline-layer-name">Layer 3 &mdash; Browser Rendering</span>
-                    <span class="pipeline-layer-detail">Headless Chrome</span>
-                    <span class="pipeline-layer-speed">&#9889; 2-5s</span>
-                  </div>
-                  <div class="pipeline-connector">&#9474; fail?</div>
-
-                  <div class="pipeline-layer pipeline-layer-medium">
-                    <span class="pipeline-layer-name">Layer 4 &mdash; CF REST API</span>
-                    <span class="pipeline-layer-detail">Browser Rendering</span>
-                    <span class="pipeline-layer-speed">&#9889; 1-3s</span>
-                  </div>
-                  <div class="pipeline-connector">&#9474; fail?</div>
-
-                  <div class="pipeline-layer pipeline-layer-slow">
-                    <span class="pipeline-layer-name">Layer 5 &mdash; Firecrawl + Jina</span>
-                    <span class="pipeline-layer-detail">External keyless fallback</span>
-                    <span class="pipeline-layer-speed">&#9889; 2-4s</span>
-                  </div>
-
-                  <div class="pipeline-result">
-                    ${t.mockupPipelineResult.replace('99.2%', '<span class="mockup-success">99.2%</span>')}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Use Cases -->
       <section class="section">
         <div class="container">
-          <h2 class="section-title section-title-center reveal">${t.useCasesTitle}</h2>
-          <div class="uc-grid reveal-stagger" id="ucGrid">
-            <div class="card uc-card">
-              <div class="uc-icon">${iconBot}</div>
-              <div class="card-title">${t.uc1Title}</div>
-              <div class="card-desc">${t.uc1Desc}</div>
-            </div>
-            <div class="card uc-card">
-              <div class="uc-icon">${iconBook}</div>
-              <div class="card-title">${t.uc2Title}</div>
-              <div class="card-desc">${t.uc2Desc}</div>
-            </div>
-            <div class="card uc-card">
-              <div class="uc-icon">${iconRefresh}</div>
-              <div class="card-title">${t.uc3Title}</div>
-              <div class="card-desc">${t.uc3Desc}</div>
-            </div>
-            <div class="card uc-card">
-              <div class="uc-icon">${iconSearch}</div>
-              <div class="card-title">${t.uc4Title}</div>
-              <div class="card-desc">${t.uc4Desc}</div>
-            </div>
-            <div class="card uc-card">
-              <div class="uc-icon">${iconGlobe}</div>
-              <div class="card-title">${t.uc5Title}</div>
-              <div class="card-desc">${t.uc5Desc}</div>
-            </div>
-            <div class="card uc-card">
-              <div class="uc-icon">${iconTable}</div>
-              <div class="card-title">${t.uc6Title}</div>
-              <div class="card-desc">${t.uc6Desc}</div>
-            </div>
-          </div>
-          <div class="platforms reveal">
-            <div class="platforms-title">${t.platformsTitle}</div>
-            <div class="platform-pills">${platforms.map((p) => `<span class="platform-pill">${p}</span>`).join("")}</div>
-          </div>
+          <h2 class="section-title">${isZh ? "打开链接时被拦住，返回的是正文" : "The link is blocked. The article comes back."}</h2>
+          <p class="spec-lead">${isZh ? "这是微信公众号的常见情况。左边是人看到的，右边是同一次转换返回的 Markdown。" : "A WeChat article, as people usually meet it. Left is the page. Right is the Markdown from the same conversion."}</p>
+          ${wechatProof}
+          <p class="more-links">
+            <a href="${stay("/examples")}#zhihu">${isZh ? "知乎登录墙" : "Zhihu login wall"}</a>
+            <a href="${stay("/examples")}#agent">${isZh ? "Agent 调用" : "An agent calling it"}</a>
+          </p>
         </div>
       </section>
 
-      <!-- How it works -->
       <section class="section">
         <div class="container">
-          <h2 class="section-title section-title-center reveal">${t.howTitle}</h2>
-          <div class="steps-grid reveal-stagger" id="stepsGrid">
-            <div class="card step-card">
-              <div class="step-num">i</div>
-              <div class="step-title">${t.step1Title}</div>
-              <div class="step-desc">${t.step1Desc}</div>
-            </div>
-            <div class="card step-card">
-              <div class="step-num">ii</div>
-              <div class="step-title">${t.step2Title}</div>
-              <div class="step-desc">${t.step2Desc}</div>
-            </div>
-            <div class="card step-card">
-              <div class="step-num">iii</div>
-              <div class="step-title">${t.step3Title}</div>
-              <div class="step-desc">${t.step3Desc}</div>
-            </div>
-          </div>
+          <h2 class="section-title">${isZh ? "按你现在要做的事" : "Pick up where you are"}</h2>
+          <ul class="paths">
+            <li><a href="${stay("/")}"><strong>${isZh ? "手头有一个链接" : "You have a link"}</strong><span>${isZh ? "贴到上面。Markdown 会在下一页打开。" : "Paste it above. Markdown opens on the next page."}</span></a></li>
+            <li><a href="${stay("/integrations")}"><strong>${isZh ? "Agent 要自己读网页" : "An agent should read the web"}</strong><span>${isZh ? "Skills、MCP，或让它读 llms.txt。" : "Skills, MCP, or point it at llms.txt."}</span></a></li>
+            <li><a href="${stay("/docs")}"><strong>${isZh ? "要接进自己的流程" : "You are wiring a pipeline"}</strong><span>${isZh ? "批量、提取、任务和深爬在文档里。密钥在门户。" : "Batch, extract, jobs, and deep crawl are in the docs. Keys live in the portal."}</span></a></li>
+          </ul>
         </div>
       </section>
 
-      <!-- FAQ -->
       <section class="section" id="faq">
         <div class="container">
-          <h2 class="section-title section-title-center reveal">${t.faqTitle}</h2>
-          <div class="faq-list reveal">
+          <h2 class="section-title">${t.faqTitle}</h2>
+          <div class="faq-list">
             <details class="faq-item">
               <summary>${t.faq1Q}</summary>
               <div class="faq-answer">${t.faq1A}</div>
@@ -1603,41 +1039,60 @@ export function landingPageHTML(host: string, lang: LandingLang = "en"): string 
         </div>
       </section>
 
-      <!-- CTA -->
-      <section class="cta-section">
+    </div>
+    <!--/PAGE:home-->
+
+    <!--PAGE:examples-->
+    <div class="tab-content ${page === "examples" ? "active" : ""}" id="tab-examples">
+      <section class="page-intro">
         <div class="container">
-          <h2 class="cta-title reveal">${t.ctaTitle}</h2>
-          <div class="reveal" style="text-align:center">
-            <a href="/https://developers.cloudflare.com/fundamentals/reference/markdown-for-agents/" class="example-link">
-              <span>${isZh ? "试试转换 Cloudflare 文档页面" : "Try converting a Cloudflare docs page"}</span> <span>&rarr;</span>
-            </a>
-          </div>
+          <h1>${isZh ? "这些页面平时读不到" : "Pages that usually stop you"}</h1>
+          <p>${isZh ? "左边是打开链接时看到的，右边是同一次转换返回的 Markdown。" : "Left is what the link shows a person. Right is the Markdown from that same conversion."}</p>
         </div>
       </section>
-
+      <section class="section">
+        <div class="container">
+          <div id="wechat">${wechatProof}</div>
+          <div id="zhihu">${zhihuProof}</div>
+          <div id="agent">${agentProof}</div>
+          <p class="more-links"><a href="${stay("/")}">${isZh ? "拿一个链接试" : "Try a link"}</a></p>
+        </div>
+      </section>
     </div>
+    <!--/PAGE:examples-->
 
-    <!-- ==================== TAB 2: DOCS ==================== -->
-    <div class="tab-content" id="tab-docs" role="tabpanel" aria-labelledby="tab-docs-btn">
+    <!--PAGE:docs-->
+    <div class="tab-content ${page === "docs" ? "active" : ""}" id="tab-docs">
       <section class="section">
         <div class="docs-section">
-
-          <!-- Quick Start -->
-          <div class="doc-card">
+          <div class="page-intro" style="padding-top:0">
+            <h1>${isZh ? "接口" : "API"}</h1>
+            <p>${isZh ? "在 URL 前加上本站域名就是一次转换。批量、提取、任务和深爬需要 API key。" : "Prepend this host to a URL to convert it. Batch, extract, jobs, and deep crawl need an API key."}</p>
+          </div>
+          <div class="doc-card" id="quickstart">
             <h3>${t.quickStartTitle}</h3>
-            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlRawComment}</span>
+            <div class="code-block"><code><span class="code-comment">${t.curlRawComment}</span>
 curl -H "Accept: text/markdown" https://${h}/https://example.com</code></div>
-            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlJsonComment}</span>
+            <div class="code-block"><code><span class="code-comment">${t.curlJsonComment}</span>
 curl "https://${h}/https://example.com?raw=true&amp;format=json"</code></div>
             <div class="code-block"><code><span class="code-comment">${t.curlBatchComment}</span>
 curl -X POST https://${h}/api/batch \\
   -H "Authorization: Bearer API_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"urls":["https://example.com"]}'</code></div>
+            <div class="code-block"><code><span class="code-comment">${t.curlExtract}</span>
+curl -X POST https://${h}/api/extract \\
+  -H "Authorization: Bearer API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"strategy":"css","url":"https://example.com","schema":{"fields":[{"name":"title","selector":"h1","type":"text","required":true}]}}'</code></div>
+            <div class="code-block"><code><span class="code-comment">${t.curlCrawl}</span>
+curl -X POST https://${h}/api/deepcrawl \\
+  -H "Authorization: Bearer API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"seed":"https://example.com/docs","stream":true}'</code></div>
           </div>
 
-          <!-- API Routes -->
-          <div class="doc-card">
+          <div class="doc-card" id="routes">
             <h3>${t.apiTitle}</h3>
             <table class="route-table">
               <thead><tr><th>${t.apiRouteTitle}</th><th></th></tr></thead>
@@ -1655,8 +1110,7 @@ curl -X POST https://${h}/api/batch \\
             </table>
           </div>
 
-          <!-- Query Parameters -->
-          <div class="doc-card">
+          <div class="doc-card" id="params">
             <h3>${t.queryParamsTitle}</h3>
             <table class="param-table">
               <tbody>
@@ -1671,39 +1125,13 @@ curl -X POST https://${h}/api/batch \\
             </table>
           </div>
 
-          <!-- Authentication -->
-          <div class="doc-card">
+          <div class="doc-card" id="auth">
             <h3>${t.authTitle}</h3>
-            <p style="font-size:14px;color:var(--text-secondary);line-height:1.7;margin-bottom:8px"><code style="font-family:var(--font-mono);font-size:12px;color:var(--accent-text);background:rgba(34,211,238,0.06);padding:2px 6px;border-radius:3px">PUBLIC_API_TOKEN</code> &mdash; ${t.publicAuthDesc}</p>
-            <p style="font-size:14px;color:var(--text-secondary);line-height:1.7"><code style="font-family:var(--font-mono);font-size:12px;color:var(--accent-text);background:rgba(34,211,238,0.06);padding:2px 6px;border-radius:3px">API_TOKEN</code> &mdash; ${t.privateAuthDesc}</p>
+            <p class="auth-line"><code class="auth-code">PUBLIC_API_TOKEN</code> ${t.publicAuthDesc}</p>
+            <p class="auth-line"><code class="auth-code">API_TOKEN</code> ${t.privateAuthDesc}</p>
           </div>
 
-          <!-- curl Examples -->
-          <div class="doc-card">
-            <h3>${t.curlExamplesTitle}</h3>
-            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlRaw}</span>
-curl -H "Accept: text/markdown" https://${h}/https://example.com</code></div>
-            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlJson}</span>
-curl "https://${h}/https://example.com?raw=true&amp;format=json"</code></div>
-            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlBatch}</span>
-curl -X POST https://${h}/api/batch \\
-  -H "Authorization: Bearer API_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{"urls":["https://example.com"]}'</code></div>
-            <div class="code-block" style="margin-bottom:8px"><code><span class="code-comment">${t.curlExtract}</span>
-curl -X POST https://${h}/api/extract \\
-  -H "Authorization: Bearer API_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{"strategy":"css","url":"https://example.com","schema":{"fields":[{"name":"title","selector":"h1","type":"text","required":true}]}}'</code></div>
-            <div class="code-block"><code><span class="code-comment">${t.curlCrawl}</span>
-curl -X POST https://${h}/api/deepcrawl \\
-  -H "Authorization: Bearer API_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{"seed":"https://example.com/docs","stream":true}'</code></div>
-          </div>
-
-          <!-- Response Headers -->
-          <div class="doc-card">
+          <div class="doc-card" id="headers">
             <h3>${t.responseHeadersTitle}</h3>
             <table class="param-table">
               <tbody>
@@ -1719,21 +1147,27 @@ curl -X POST https://${h}/api/deepcrawl \\
     </div>
 
     <!-- ==================== TAB 3: INTEGRATION ==================== -->
-    <div class="tab-content" id="tab-integration" role="tabpanel" aria-labelledby="tab-integration-btn">
+    <!--/PAGE:docs-->
+
+    <!--PAGE:integration-->
+    <div class="tab-content ${page === "integration" ? "active" : ""}" id="tab-integration">
       <section class="section">
         <div class="integration-section">
+          <div class="page-intro" style="padding-top:0">
+            <h1>${isZh ? "接到 Agent" : "Connect an agent"}</h1>
+            <p>${isZh ? "有终端用 Skills。在 IDE 里用 MCP。任何能打开网页的系统读 llms.txt。" : "A terminal gets Skills. An IDE gets MCP. Anything that can open a web page can read llms.txt."}</p>
+          </div>
 
           <!-- Decision Tree -->
           <div class="decision-tree">
             <h3>${t.decisionTreeTitle}</h3>
-            <div class="decision-item"><strong>${t.decisionSkills}</strong></div>
-            <div class="decision-item" style="padding-left:36px">${t.decisionYes}</div>
-            <div class="decision-item" style="padding-left:36px">${t.decisionNo}</div>
-            <div class="decision-item" style="margin-top:8px">${t.decisionAll}</div>
+            <p class="decision-item"><strong>${t.decisionSkills}</strong> ${t.decisionYes}</p>
+            <p class="decision-item"><strong>${t.decisionNo}</strong></p>
+            <p class="decision-item">${t.decisionAll}</p>
           </div>
 
           <!-- Agent Skills -->
-          <div class="int-card">
+          <div class="int-card" id="skills">
             <h3>${t.skillTitle}</h3>
             <div class="for-line">${t.skillFor}</div>
             <p>${t.skillDesc}</p>
@@ -1749,7 +1183,7 @@ curl -X POST https://${h}/api/deepcrawl \\
           </div>
 
           <!-- MCP Server -->
-          <div class="int-card">
+          <div class="int-card" id="mcp">
             <h3>${t.mcpTitle}</h3>
             <div class="for-line">${t.mcpFor}</div>
             <p>${t.mcpDesc}</p>
@@ -1758,9 +1192,9 @@ curl -X POST https://${h}/api/deepcrawl \\
             <code class="config-block">{
   <span class="code-hl">"mcpServers"</span>: {
     <span class="code-hl">"website2markdown"</span>: {
-      <span class="code-hl">"command"</span>: <span style="color:#22c55e">"mcp-website2markdown"</span>,
+      <span class="code-hl">"command"</span>: <span class="code-str">"mcp-website2markdown"</span>,
       <span class="code-hl">"env"</span>: {
-        <span class="code-hl">"WEBSITE2MARKDOWN_API_URL"</span>: <span style="color:#22c55e">"https://${h}"</span>
+        <span class="code-hl">"WEBSITE2MARKDOWN_API_URL"</span>: <span class="code-str">"https://${h}"</span>
       }
     }
   }
@@ -1772,7 +1206,7 @@ curl -X POST https://${h}/api/deepcrawl \\
             <h3>${t.llmsTxtTitle}</h3>
             <div class="for-line">${t.llmsTxtFor}</div>
             <p>${t.llmsTxtDesc}</p>
-            <a href="/llms.txt" class="accent-link" style="font-family:var(--font-mono);font-size:13px">https://${h}/llms.txt &rarr;</a>
+            <a href="/llms.txt" class="accent-link">https://${h}/llms.txt</a>
           </div>
 
           <!-- Comparison Table -->
@@ -1783,8 +1217,8 @@ curl -X POST https://${h}/api/deepcrawl \\
                 <tr><th></th><th>Skills</th><th>MCP</th><th>llms.txt</th></tr>
               </thead>
               <tbody>
-                <tr><td>${t.compLatency}</td><td>&#9733;&#9733;&#9733;</td><td>&#9733;&#9733;</td><td>&#9733;&#9733;&#9733;</td></tr>
-                <tr><td>${t.compContext}</td><td>&#9733;&#9733;&#9733;</td><td>&#9733;</td><td>&#9733;&#9733;</td></tr>
+                <tr><td>${t.compLatency}</td><td>${t.compLatencyHigh}</td><td>${t.compLatencyMid}</td><td>${t.compLatencyHigh}</td></tr>
+                <tr><td>${t.compContext}</td><td>${t.compContextHigh}</td><td>${t.compContextLow}</td><td>${t.compContextMid}</td></tr>
                 <tr><td>${t.compInstall}</td><td>${t.compSkillsInstall}</td><td>${t.compMcpInstall}</td><td>${t.compLlmsInstall}</td></tr>
                 <tr><td>${t.compBestFor}</td><td>${t.compSkillsBest}</td><td>${t.compMcpBest}</td><td>${t.compLlmsBest}</td></tr>
               </tbody>
@@ -1794,6 +1228,7 @@ curl -X POST https://${h}/api/deepcrawl \\
         </div>
       </section>
     </div>
+    <!--/PAGE:integration-->
   </main>
 
   <!-- ===== FOOTER ===== -->
@@ -1802,17 +1237,15 @@ curl -X POST https://${h}/api/deepcrawl \\
       <div class="footer-grid">
         <div class="footer-col">
           <div class="footer-col-title">${t.footerProduct}</div>
-          <a href="/#docs" onclick="switchTab('docs');return false;">API</a>
-          <a href="/#" onclick="switchTab('docs');return false;">Batch</a>
-          <a href="/#" onclick="switchTab('docs');return false;">Extract</a>
-          <a href="/#" onclick="switchTab('docs');return false;">Deep Crawl</a>
-          <a href="/#" onclick="switchTab('docs');return false;">Jobs</a>
+          <a href="${stay("/examples")}">${isZh ? "示例" : "Examples"}</a>
+          <a href="${stay("/docs")}">${isZh ? "文档" : "Docs"}</a>
+          <a href="${stay("/docs")}#params">${isZh ? "参数" : "Parameters"}</a>
           <a href="/api/health">Health</a>
         </div>
         <div class="footer-col">
           <div class="footer-col-title">${t.footerIntegration}</div>
-          <a href="/#integration" onclick="switchTab('integration');return false;">Agent Skills</a>
-          <a href="/#integration" onclick="switchTab('integration');return false;">MCP Server</a>
+          <a href="${stay("/integrations")}#skills">Agent Skills</a>
+          <a href="${stay("/integrations")}#mcp">MCP</a>
           <a href="/llms.txt">llms.txt</a>
           <a href="https://www.npmjs.com/package/@digidai/mcp-website2markdown" target="_blank">npm</a>
         </div>
@@ -1835,31 +1268,50 @@ curl -X POST https://${h}/api/deepcrawl \\
     </div>
   </footer>
 
-  <script type="application/ld+json">${schemaJson}</script>
+  ${page === "home" ? `<script type="application/ld+json">${schemaJson}</script>` : ""}
   <script>
     /* ---- Tab switching ---- */
-    function switchTab(name) {
-      document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
-      document.querySelectorAll('.tab-btn').forEach(function(el) { el.classList.remove('active'); el.setAttribute('aria-selected', 'false'); });
-      var target = document.getElementById('tab-' + name);
-      if (target) target.classList.add('active');
-      var btn = document.querySelector('.tab-btn[data-tab="' + name + '"]');
-      if (btn) { btn.classList.add('active'); btn.setAttribute('aria-selected', 'true'); }
-      history.replaceState(null, '', '#' + name);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    (function() {
+      var hash = location.hash;
+      var search = location.search || '';
+      if (hash === '#docs') location.replace('/docs' + search);
+      else if (hash === '#integration') location.replace('/integrations' + search);
+    })();
+
+    function toggleMobileMenu() {
+      var nav = document.getElementById('headerNav');
+      var btn = document.getElementById('mobileMenuBtn');
+      if (nav) {
+        nav.classList.toggle('open');
+        if (btn) btn.setAttribute('aria-expanded', nav.classList.contains('open') ? 'true' : 'false');
+      }
     }
 
-    /* ---- Hash-based tab on load ---- */
-    (function() {
-      var hash = location.hash.replace('#', '');
-      if (hash === 'docs' || hash === 'integration') switchTab(hash);
-    })();
+    var urlInput = document.getElementById('urlInput');
+    var requestUrl = document.getElementById('requestUrl');
+    if (urlInput && requestUrl) {
+      var requestBase = requestUrl.textContent.replace(/https:\/\/example\.com$/, '');
+      function paintRequest() {
+        var value = urlInput.value.trim() || 'https://example.com';
+        requestUrl.textContent = requestBase + value;
+      }
+      urlInput.addEventListener('input', paintRequest);
+    }
 
     /* ---- URL form submission ---- */
     function handleSubmit(e) {
       e.preventDefault();
       var input = document.getElementById('urlInput').value.trim();
-      if (!input) return false;
+      var err = document.getElementById('formError');
+      if (!input) {
+        if (err) {
+          err.hidden = false;
+          err.textContent = ${JSON.stringify(t.formError)};
+        }
+        document.getElementById('urlInput').focus();
+        return false;
+      }
+      if (err) err.hidden = true;
       var btn = e.target.querySelector('.convert-btn');
       var inp = document.getElementById('urlInput');
       btn.disabled = true;
@@ -1913,51 +1365,42 @@ curl -X POST https://${h}/api/deepcrawl \\
       }
     })();
 
-    /* ---- Scroll reveal (IntersectionObserver) ---- */
-    (function() {
-      if (!('IntersectionObserver' in window)) {
-        document.querySelectorAll('.reveal, .reveal-stagger').forEach(function(el) {
-          el.classList.add('visible');
+    document.querySelectorAll('.code-block, .cmd-block, .config-block').forEach(function(block) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'copy-inline';
+      btn.textContent = ${JSON.stringify(t.copyLabel)};
+      btn.addEventListener('click', function() {
+        var source = block.querySelector('code') || block;
+        navigator.clipboard.writeText(source.innerText).then(function() {
+          btn.textContent = ${JSON.stringify(t.copiedLabel)};
+          setTimeout(function() { btn.textContent = ${JSON.stringify(t.copyLabel)}; }, 1600);
+        }).catch(function() {
+          btn.textContent = ${JSON.stringify(t.copyFailed)};
         });
-        return;
-      }
-      var observer = new IntersectionObserver(function(entries) {
-        entries.forEach(function(entry) {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('visible');
-            observer.unobserve(entry.target);
-          }
-        });
-      }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
-      document.querySelectorAll('.reveal, .reveal-stagger').forEach(function(el) {
-        observer.observe(el);
       });
-    })();
-
-    /* ---- Header scroll shadow ---- */
-    (function() {
-      var header = document.getElementById('siteHeader');
-      if (!header) return;
-      var scrolled = false;
-      window.addEventListener('scroll', function() {
-        var s = window.scrollY > 10;
-        if (s !== scrolled) {
-          scrolled = s;
-          header.classList.toggle('scrolled', s);
-        }
-      }, { passive: true });
-    })();
-
-    /* ---- Mobile menu toggle ---- */
-    function toggleMobileMenu() {
-      var nav = document.getElementById('headerNav');
-      var btn = document.getElementById('mobileMenuBtn');
-      if (nav) {
-        nav.classList.toggle('open');
-        if (btn) btn.setAttribute('aria-expanded', nav.classList.contains('open') ? 'true' : 'false');
-      }
-    }
+      var host = document.createElement('div');
+      host.className = 'copy-host';
+      block.parentNode.insertBefore(host, block);
+      host.appendChild(btn);
+      host.appendChild(block);
+    });
   </script>
 </body>
 </html>`;
+  return keepSitePage(html, page);
+}
+
+function keepSitePage(html: string, page: SitePage): string {
+  const pages: SitePage[] = ["home", "examples", "docs", "integration"];
+  let out = html;
+  for (const name of pages) {
+    if (name === page) continue;
+    const start = `<!--PAGE:${name}-->`;
+    const end = `<!--/PAGE:${name}-->`;
+    const from = out.indexOf(start);
+    const to = out.indexOf(end);
+    if (from !== -1 && to > from) out = out.slice(0, from) + out.slice(to + end.length);
+  }
+  return out;
 }

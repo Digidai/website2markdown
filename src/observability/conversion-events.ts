@@ -1,5 +1,6 @@
 import type { AuthContext, ConvertMethod, Env, OutputFormat } from "../types";
 import type { ConvertResult } from "../handlers/convert";
+import { cleanupAnalytics, recordConversionLog } from "../admin/analytics";
 import { logMetric } from "../runtime-state";
 import { errorMessage } from "../utils";
 
@@ -289,6 +290,44 @@ export async function recordConversionEvent(
     const event = await buildSanitizedConversionEvent(env, input);
     logMetric("conversion.event", { ...event });
     await upsertConversionAggregate(env, event);
+    const outputContent = input.result?.content ?? input.debugOutputContent ?? "";
+    await recordConversionLog(env, {
+      request: input.request,
+      route: event.route,
+      targetUrl: input.targetUrl,
+      platform: event.target_platform,
+      outcome: event.outcome,
+      statusCode: event.status_code,
+      methodUsed: event.method_used,
+      cacheStatus: event.cache_status,
+      durationMs: event.duration_ms,
+      format: event.format,
+      authTier: event.auth_tier,
+      errorCode: event.error_code,
+      outputContent,
+      outputChars: input.outputChars ?? outputContent.length,
+      errorMessage: input.errorMessage ?? "",
+      fallbacks: event.fallbacks,
+      paywall: event.paywall_detected,
+      browserRendered: event.browser_rendered,
+      requestId: event.request_id,
+      engineRequested: event.engine_requested,
+      creditCost: event.credit_cost,
+      selectorPresent: event.selector_present,
+      forceBrowser: event.force_browser,
+      noCache: event.no_cache,
+      quotaBucket: event.quota_remaining_bucket,
+      accountHash: event.account_hash,
+      keyHash: event.key_hash,
+      uaFamily: event.user_agent_family,
+      colo: event.colo,
+      contentType: input.result?.sourceContentType || input.debugSourceContentType || "",
+      durationBucket: event.duration_bucket,
+      outputSizeBucket: event.output_size_bucket,
+      selectorBucket: event.selector_length_bucket,
+      hasAccount: event.has_account,
+      hasKey: event.has_key,
+    });
     if (input.debugTrace?.allowed) {
       await insertConversionDebugTrace(env, input, event);
     }
@@ -316,6 +355,7 @@ export async function cleanupExpiredOperationalRows(env: Env): Promise<number> {
   if (!env.AUTH_DB) return 0;
   const now = new Date().toISOString();
   let total = await cleanupExpiredDebugTraces(env);
+  await cleanupAnalytics(env);
   for (const table of ["sessions", "magic_link_tokens", "rate_limits"]) {
     try {
       const result = await env.AUTH_DB.prepare(`

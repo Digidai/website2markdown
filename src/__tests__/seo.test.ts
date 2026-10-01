@@ -11,9 +11,15 @@ describe("SEO handlers", () => {
     expect(res.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
     return res.text().then(body => {
       expect(body).toContain("User-agent: *");
+      expect(body).toContain("User-agent: GPTBot");
+      expect(body).toContain("User-agent: ClaudeBot");
       expect(body).toContain("Disallow: /api/batch");
-      expect(body).toContain("Sitemap:");
+      expect(body).toContain("Sitemap: https://md.genedai.me/sitemap.xml");
       expect(body).toContain("Allow: /llms.txt");
+      const hosted = handleRobotsTxt("md.example.com");
+      return hosted.text().then(next => {
+        expect(next).toContain("Sitemap: https://md.example.com/sitemap.xml");
+      });
     });
   });
 

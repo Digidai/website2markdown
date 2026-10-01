@@ -34,6 +34,8 @@ describe("getAdapter", () => {
     expect(getAdapter("https://zhuanlan.zhihu.com/p/12345")).toBe(zhihuAdapter);
     expect(getAdapter("https://zhihu.com/p/67890")).toBe(zhihuAdapter);
     expect(getAdapter("https://www.zhihu.com/question/12345")).toBe(zhihuAdapter);
+    expect(getAdapter("https://www.zhihu.com/pin/123456")).toBe(zhihuAdapter);
+    expect(getAdapter("https://www.zhihu.com/zvideo/123456")).toBe(zhihuAdapter);
   });
 
   it("matches Yuque URLs", () => {
@@ -72,6 +74,8 @@ describe("getAdapter", () => {
   it("matches Weibo URLs", () => {
     expect(getAdapter("https://weibo.com/1234567890/abc")).toBe(weiboAdapter);
     expect(getAdapter("https://www.weibo.com/ttarticle/p/show?id=123")).toBe(weiboAdapter);
+    expect(getAdapter("https://m.weibo.cn/status/4999999999999999")).toBe(weiboAdapter);
+    expect(getAdapter("https://weibo.cn/detail/12345")).toBe(weiboAdapter);
   });
 
   it("matches Reddit URLs", () => {

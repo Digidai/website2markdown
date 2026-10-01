@@ -160,6 +160,17 @@ describe("worker endpoints", () => {
     expect(await res.text()).toBe("Invalid image URL encoding");
   });
 
+  it("refuses to proxy images from non-WeChat hosts (not an open proxy)", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const target = encodeURIComponent("https://evil.example.net/tracker.png");
+    const req = new Request(`https://md.example.com/img/${target}`);
+    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
+
+    expect(res.status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects non-image content from /img", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("<html>not image</html>", {
@@ -168,7 +179,7 @@ describe("worker endpoints", () => {
       }),
     ));
 
-    const target = encodeURIComponent("https://example.com/not-image");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/not-image");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
@@ -187,7 +198,7 @@ describe("worker endpoints", () => {
       }),
     ));
 
-    const target = encodeURIComponent("https://example.com/big-image");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/big-image");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 

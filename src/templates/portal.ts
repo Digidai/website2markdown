@@ -13,55 +13,26 @@
  *   4. User clicks email link → /api/auth/verify → sets cookie → redirects /portal/
  *   5. Reload → /api/me → 200 → dashboard
  *
- * Design system tokens match src/templates/landing.ts and DESIGN.md.
+ * Design system tokens match src/templates/theme.ts.
  */
+
+import { FONT_UI, THEME_BASE, THEME_BOOT, THEME_TOKENS } from "./theme";
 
 export function portalPageHTML(): string {
   return `<!DOCTYPE html>
-<html lang="en" data-theme="auto">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Developer Portal — md.genedai.me</title>
 <meta name="robots" content="noindex, nofollow">
+${THEME_BOOT}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="${FONT_UI}" rel="stylesheet">
 <style>
-:root {
-  --bg: #f7f7f4;
-  --bg-surface: #f2f1ed;
-  --bg-elevated: #eae9e4;
-  --text-primary: #26251e;
-  --text-secondary: rgba(38,37,30,0.6);
-  --text-muted: rgba(38,37,30,0.45);
-  --accent: #22d3ee;
-  --accent-hover: #06b6d4;
-  --accent-text: #0e7490;
-  --border: rgba(0,0,0,0.06);
-  --danger: #ef4444;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --font-display: 'Instrument Serif', Georgia, serif;
-  --font-body: 'DM Sans', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --radius: 4px;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14120b;
-    --bg-surface: #1c1a14;
-    --bg-elevated: #191b22;
-    --text-primary: #edecec;
-    --text-secondary: rgba(237,236,236,0.6);
-    --text-muted: rgba(237,236,236,0.3);
-    --accent-text: #22d3ee;
-    --border: rgba(255,255,255,0.06);
-    --danger: #f87171;
-    --success: #4ade80;
-    --warning: #fbbf24;
-  }
-}
+${THEME_TOKENS}
+${THEME_BASE}
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body {
@@ -92,7 +63,7 @@ button:hover { background: var(--bg-surface); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 button.primary {
   background: var(--accent);
-  color: #0e7490;
+  color: var(--accent-on);
   border-color: var(--accent);
 }
 button.primary:hover { background: var(--accent-hover); }
@@ -127,27 +98,24 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   gap: 4px;
 }
 .brand {
-  font-family: var(--font-display);
-  font-size: 22px;
-  font-style: italic;
-  margin: 0 0 24px;
-  padding: 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 20px;
+  padding: 0 12px;
 }
 .brand a { color: var(--text-primary); text-decoration: none; }
 .nav-item {
   padding: 8px 12px;
-  border-radius: var(--radius);
+  border-radius: 0;
   color: var(--text-secondary);
   cursor: pointer;
+  border: 0;
   border-left: 2px solid transparent;
   background: transparent;
-  border-top: none;
-  border-right: none;
-  border-bottom: none;
   text-align: left;
-  font-size: 14px;
+  font-size: 15px;
   width: 100%;
-  min-height: 36px;
+  min-height: 40px;
 }
 .nav-item:hover { background: var(--bg-elevated); }
 .nav-item.active {
@@ -161,10 +129,11 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   max-width: 900px;
   width: 100%;
 }
-.main h1 {
-  font-family: var(--font-display);
-  font-size: 36px;
-  font-weight: normal;
+.main h1, .login-card h1, .modal h2 {
+  font-family: var(--font-body);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   margin: 0 0 8px;
 }
 .main .lead {
@@ -175,11 +144,8 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   margin-bottom: 40px;
 }
 .section h2 {
-  font-family: var(--font-body);
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  font-size: 15px;
+  color: var(--text-primary);
   margin: 0 0 12px;
   font-weight: 600;
 }
@@ -197,10 +163,9 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   padding: 20px 24px;
 }
 .tile-label {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 .tile-value {
@@ -208,6 +173,7 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
   font-size: 28px;
   font-weight: 500;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 .tile-subvalue {
   font-size: 13px;
@@ -216,15 +182,14 @@ input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 }
 .tier-badge {
   display: inline-block;
-  padding: 2px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
 }
 .tier-badge.free { background: var(--bg-elevated); color: var(--text-secondary); }
-.tier-badge.pro { background: var(--accent); color: #0e7490; }
+.tier-badge.pro { background: var(--accent); color: var(--accent-on); }
 
 /* ─── Usage bar ─── */
 .quota-bar {
@@ -255,11 +220,9 @@ table.keys th, table.keys td {
   font-size: 14px;
 }
 table.keys th {
-  font-weight: 500;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 table.keys td.mono { font-family: var(--font-mono); font-size: 13px; }
 table.keys tbody tr:hover { background: var(--bg-surface); }
@@ -282,12 +245,7 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
   border-radius: var(--radius);
   padding: 40px 32px;
 }
-.login-card h1 {
-  font-family: var(--font-display);
-  font-size: 28px;
-  margin: 0 0 8px;
-  font-weight: normal;
-}
+.login-card h1 { font-size: 28px; }
 .login-card .lead {
   color: var(--text-secondary);
   margin: 0 0 24px;
@@ -301,13 +259,14 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
 }
 .login-card button[type="submit"] { width: 100%; margin-top: 12px; }
 .login-card .oauth-divider {
-  text-align: center;
-  margin: 24px 0 16px;
+  margin: 20px 0 12px;
   color: var(--text-muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 13px;
 }
+.create-key { display: grid; gap: 8px; max-width: 360px; margin-bottom: 16px; }
+.create-key label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.create-key-actions { display: flex; gap: 8px; }
+.revoke-note { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
 .login-card .hint {
   font-size: 12px;
   color: var(--text-muted);
@@ -333,12 +292,7 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
   max-width: 520px;
   width: 100%;
 }
-.modal h2 {
-  font-family: var(--font-display);
-  font-size: 24px;
-  margin: 0 0 8px;
-  font-weight: normal;
-}
+.modal h2 { font-size: 22px; }
 .modal .key-display {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -382,10 +336,10 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
 
 /* ─── Empty state ─── */
 .empty {
-  text-align: center;
-  padding: 40px 20px;
-  color: var(--text-muted);
-  font-size: 14px;
+  text-align: left;
+  padding: 8px 0 20px;
+  color: var(--text-secondary);
+  font-size: 15px;
 }
 .empty p { margin: 0 0 12px; }
 
@@ -501,16 +455,16 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
     const card = document.createElement("div");
     card.className = "login-card";
     card.innerHTML = \`
-      <h1>Developer <em>Portal</em></h1>
-      <p class="lead">Sign in to manage your API keys and view usage.</p>
+      <h1>Developer Portal</h1>
+      <p class="lead">Sign in to manage API keys and usage.</p>
       <div id="login-banner"></div>
       <form id="magic-form">
         <label for="email">Email</label>
-        <input type="email" id="email" required placeholder="you@example.com" autocomplete="email">
+        <input type="email" id="email" required placeholder="you@example.com" autocomplete="email" autofocus>
         <button type="submit" class="primary" id="magic-submit">Send login link</button>
       </form>
       <div class="oauth-divider">or</div>
-      <button disabled title="Coming soon">Sign in with GitHub</button>
+      <button type="button" disabled>Sign in with GitHub, not available yet</button>
       <p class="hint">Already have an API key? You can use it directly in the <code>Authorization: Bearer</code> header without signing in.</p>
     \`;
     wrap.appendChild(card);
@@ -589,7 +543,7 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
           <div class="tile">
             <div class="tile-label">Usage This Month</div>
             <div class="tile-value">\${u.used.toLocaleString()} <span style="font-size:14px;color:var(--text-muted)">/ \${u.quota.toLocaleString()}</span></div>
-            <div class="quota-bar"><div class="quota-bar-fill \${barClass}" style="width:\${pct}%"></div></div>
+            <div class="quota-bar" role="meter" aria-label="Credits used this month" aria-valuemin="0" aria-valuemax="\${u.quota}" aria-valuenow="\${u.used}"><div class="quota-bar-fill \${barClass}" style="width:\${pct}%"></div></div>
             <div class="tile-subvalue">\${u.remaining.toLocaleString()} credits remaining</div>
           </div>
         </div>
@@ -637,13 +591,35 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
       <p class="lead">Up to 10 active keys per account. Revoked keys can be removed.</p>
       <div id="keys-banner"></div>
       <div class="section">
-        <button class="primary" id="create-key-btn">+ Create new key</button>
+        <form id="create-key-form" class="create-key" hidden>
+          <label for="key-name">Key name</label>
+          <input type="text" id="key-name" maxlength="80" autocomplete="off" placeholder="prod">
+          <div class="create-key-actions">
+            <button type="submit" class="primary" id="create-key-submit">Create key</button>
+            <button type="button" id="create-key-cancel">Cancel</button>
+          </div>
+        </form>
+        <button type="button" class="primary" id="create-key-btn">Create new key</button>
       </div>
       <div class="section">
         <div id="keys-table"></div>
       </div>
     \`;
-    document.getElementById("create-key-btn").addEventListener("click", handleCreateKey);
+    const createBtn = document.getElementById("create-key-btn");
+    const createForm = document.getElementById("create-key-form");
+    createBtn.addEventListener("click", () => {
+      createForm.hidden = false;
+      createBtn.hidden = true;
+      document.getElementById("key-name").focus();
+    });
+    document.getElementById("create-key-cancel").addEventListener("click", () => {
+      createForm.hidden = true;
+      createBtn.hidden = false;
+    });
+    createForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      handleCreateKey(document.getElementById("key-name").value.trim());
+    });
     refreshKeysTable();
   }
 
@@ -670,7 +646,7 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
               <td>\${escapeHtml(k.name || "—")}</td>
               <td class="mono">\${escapeHtml(k.prefix)}</td>
               <td>\${formatDate(k.created_at)}</td>
-              <td>\${k.active ? '<span class="status-active">● Active</span>' : '<span class="status-revoked">Revoked</span>'}</td>
+              <td>\${k.active ? '<span class="status-active">Active</span>' : '<span class="status-revoked">Revoked</span>'}</td>
               <td>\${k.active ? \`<button class="danger" data-revoke-id="\${escapeHtml(k.id)}">Revoke</button>\` : ""}</td>
             </tr>
           \`).join("")}
@@ -683,7 +659,15 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
     container.querySelectorAll("[data-revoke-id]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.revokeId;
-        if (!confirm("Revoke this key? This cannot be undone.")) return;
+        if (btn.dataset.confirm !== "1") {
+          container.querySelectorAll("[data-revoke-id]").forEach((other) => {
+            other.dataset.confirm = "";
+            other.textContent = "Revoke";
+          });
+          btn.dataset.confirm = "1";
+          btn.textContent = "Confirm revoke";
+          return;
+        }
         btn.disabled = true;
         const resp = await API.revokeKey(id);
         if (resp.ok) {
@@ -691,16 +675,17 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
           if (state.view === "keys") refreshKeysTable();
           else render();
         } else {
-          alert("Failed to revoke key");
+          btn.textContent = "Could not revoke";
           btn.disabled = false;
+          btn.dataset.confirm = "";
+          btn.textContent = "Revoke";
         }
       });
     });
   }
 
-  async function handleCreateKey() {
-    const name = prompt("Name for this key (optional, e.g. 'prod'):") || "";
-    const btn = document.getElementById("create-key-btn");
+  async function handleCreateKey(name) {
+    const btn = document.getElementById("create-key-submit");
     if (btn) { btn.disabled = true; btn.textContent = "Creating..."; }
     try {
       const resp = await API.createKey(name.trim());
@@ -713,9 +698,9 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
       await loadKeys();
       refreshKeysTable();
     } catch (err) {
-      renderBanner("keys-banner", "error", "Network error");
+      renderBanner("keys-banner", "error", "Network error. Try again.");
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = "+ Create new key"; }
+      if (btn) { btn.disabled = false; btn.textContent = "Create key"; }
     }
   }
 
@@ -728,7 +713,7 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
         <p style="color:var(--text-secondary);font-size:14px;">This is the only time you'll see the full key. Store it somewhere safe.</p>
         <div class="key-display" id="key-value">\${escapeHtml(keyData.key)}</div>
         <button id="copy-btn">Copy to clipboard</button>
-        <p class="warning">⚠ After closing, you cannot retrieve this key. Revoke and create a new one if you lose it.</p>
+        <p class="warning">After you close this, the full key cannot be shown again. Revoke it and create another if you lose it.</p>
         <label class="confirm-row">
           <input type="checkbox" id="confirm-saved">
           I have saved this key securely
@@ -747,10 +732,10 @@ table.keys tbody tr:hover { background: var(--bg-surface); }
     copyBtn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(keyData.key);
-        copyBtn.textContent = "Copied ✓";
+        copyBtn.textContent = "Copied";
         setTimeout(() => { copyBtn.textContent = "Copy to clipboard"; }, 2000);
       } catch {
-        alert("Copy failed — select the key manually");
+        copyBtn.textContent = "Select the key and copy it";
       }
     });
 

@@ -58,14 +58,24 @@ export const csdnAdapter: SiteAdapter = {
         noise.forEach(function(sel) {
           try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
         });
-        document.querySelectorAll('.hide-article-box').forEach(function(el) { el.remove(); });
-        var content = document.querySelector('#article_content');
-        if (content) {
-          content.style.height = 'auto';
-          content.style.overflow = 'visible';
+        var readMore = document.querySelector('#btn-readmore, .btn-readmore, .open_full_article');
+        if (readMore) {
+          try { (readMore as any).click(); } catch(e) {}
         }
-        document.querySelectorAll('img[data-src]').forEach(function(img) {
-          var real = img.getAttribute('data-src');
+        document.querySelectorAll('.hide-article-box, .hide-article-pos').forEach(function(el) { el.remove(); });
+        document.querySelectorAll('.article_content, #article_content, .blog-content-box').forEach(function(content) {
+          content.style.height = 'auto';
+          content.style.maxHeight = 'none';
+          content.style.overflow = 'visible';
+        });
+        // Unhide login-restricted code blocks
+        document.querySelectorAll('pre.set-code-hide').forEach(function(el) {
+          el.classList.remove('set-code-hide');
+          el.style.height = 'auto';
+          el.style.maxHeight = 'none';
+        });
+        document.querySelectorAll('img[data-src], img[data-original]').forEach(function(img) {
+          var real = img.getAttribute('data-src') || img.getAttribute('data-original');
           if (real) img.setAttribute('src', real);
         });
       })()

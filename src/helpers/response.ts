@@ -2,6 +2,7 @@
 
 import type { ConvertMethod, OutputFormat } from "../types";
 import { CORS_HEADERS } from "../config";
+import { buildRawRequestPath } from "../security";
 import { errorPageHTML } from "../templates/error";
 import { renderedPageHTML } from "../templates/rendered";
 
@@ -55,6 +56,8 @@ export class ConvertError extends Error {
     public readonly title: string,
     message: string,
     public readonly statusCode: number,
+    /** Origin HTTP status when this failure is safe to remember for anonymous retries. */
+    public readonly targetStatus?: number,
   ) {
     super(message);
   }
@@ -185,6 +188,8 @@ export function buildResponse(
           "style-src https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; " +
           "img-src * data:; font-src https://fonts.gstatic.com; connect-src 'none'",
         "X-Frame-Options": "DENY",
+        "X-Robots-Tag": "noindex, follow",
+        "Link": `<${(rawRequestPath || buildRawRequestPath(sourceUrl)).replace(/[\r\n<>]/g, "")}>; rel="alternate"; type="text/markdown"`,
         ...CORS_HEADERS,
       },
     },

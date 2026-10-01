@@ -469,30 +469,28 @@ describe("index conversion/stream/og routes", () => {
     expect(body).not.toContain("public-token");
   });
 
-  it("allows keyless Jina stream without legacy PUBLIC_API_TOKEN", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        code: 200,
-        data: {
-          url: "https://example.com/stream",
-          title: "Stream Title",
-          content: "# stream markdown",
-        },
-      }), {
-        status: 200,
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-      }),
-    ));
+  it("rejects anonymous Jina stream selection", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const url = "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&engine=jina";
 
-    const req = new Request(
-      "https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&engine=jina",
+    const hosted = await worker.fetch(
+      new Request(url),
+      createMockEnv({ AUTH_DB: createAuthDbMock() }).env,
+      mockCtx(),
     );
-    const res = await worker.fetch(req, createMockEnv().env, mockCtx());
-    const body = await res.text();
+    const hostedPayload = await hosted.json() as { error?: string; message?: string };
+    expect(hosted.status).toBe(401);
+    expect(hostedPayload.error).toBe("Unauthorized");
+    expect(hostedPayload.message).toBe("engine selection requires an API key.");
 
-    expect(res.status).toBe(200);
-    expect(body).toContain("event: done");
-    expect(body).toContain("\"method\":\"jina\"");
+    const legacy = await worker.fetch(new Request(url), createMockEnv().env, mockCtx());
+    const legacyPayload = await legacy.json() as { error?: string; message?: string };
+    expect(legacy.status).toBe(401);
+    expect(legacyPayload.message).toBe(
+      "Parameters no_cache, engine, and force_browser require a valid token.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("streams fail event when conversion throws ConvertError", async () => {

@@ -28,6 +28,9 @@ describe("GET /llms.txt", () => {
     expect(text).toContain("URL-to-Markdown conversion API");
     expect(text).toContain("/api/batch");
     expect(text).toContain("/api/stream");
+    expect(text).toContain('"seed"');
+    expect(text).toContain("Cite the source URL");
+    expect(text).toContain("/examples");
   });
 
   it("GET /.well-known/llms.txt returns same content as /llms.txt", async () => {

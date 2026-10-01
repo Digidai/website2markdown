@@ -17,25 +17,38 @@ export const yuqueAdapter: SiteAdapter = {
   },
 
   async extract(page: any): Promise<ExtractResult | null> {
-    // Yuque is an SPA — wait for content to render
-    await new Promise((r) => setTimeout(r, 3000));
+    // Yuque is an SPA — wait for Lake editor or article content to render
+    try {
+      await page.waitForSelector(
+        ".lake-content, .ne-doc-major, .article-content, #article-content, article",
+        { timeout: 8_000 },
+      );
+    } catch {
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    // Give a brief moment for lazy-rendered blocks
+    await new Promise((r) => setTimeout(r, 1000));
 
     // Remove UI chrome and expand content
     await page.evaluate(`
       (function() {
-        // Remove sidebar, header, toc
+        // Remove sidebar, header, toc, toolbars, helper widgets
         var noise = [
           '[class*="sidebar"]', '[class*="Sidebar"]',
           '[class*="header"]', '[class*="Header"]',
           '[class*="catalogTree"]', '[class*="toc-"]',
-          '[class*="reader-helper"]', '[class*="lake-alert"]'
+          '[class*="reader-helper"]', '[class*="lake-alert"]',
+          '[class*="lake-code-action"]', '[class*="lake-code-linenumber"]',
+          '.lake-toolbar', '.doc-reader-nav', '.ne-ui-fixed'
         ];
         noise.forEach(function(sel) {
           try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
         });
+
         // Swap lazy images
-        document.querySelectorAll('img[data-src]').forEach(function(img) {
-          var real = img.getAttribute('data-src');
+        document.querySelectorAll('img[data-src], img[data-origin-src]').forEach(function(img) {
+          var real = img.getAttribute('data-src') || img.getAttribute('data-origin-src');
           if (real) img.setAttribute('src', real);
         });
       })()

@@ -56,8 +56,8 @@ Fetch target with Accept: text/markdown
 | **Native** | 目标站点支持 Markdown for Agents | 通过 `Accept: text/markdown` 在 Cloudflare 边缘协商原生 Markdown | `native` |
 | **Fallback** | 普通 HTML 页面 | Readability 提取正文 → Turndown 转 Markdown | `readability+turndown` |
 | **Browser** | 反爬或重 JS 页面 | 无头浏览器渲染后再走 Readability + Turndown | `browser+readability+turndown` |
-| **Firecrawl** | 显式指定 `engine=firecrawl`、非文本文档或本地提取内容过薄 | 通过 Firecrawl v2 scrape 转换；默认不带 Authorization，允许上游接受 keyless 免费层 | `firecrawl` |
-| **Jina** | 显式指定 `engine=jina` 或最终兜底 | 通过 Jina Reader API 转换，同时保留相同的输出格式接口 | `jina` |
+| **Firecrawl** | 持有 API key，并显式指定 `engine=firecrawl`、遇到非文本文档或本地提取过薄 | 通过 Firecrawl v2 scrape 转换。匿名请求不会进入这条路径 | `firecrawl` |
+| **Jina** | 持有 API key，并显式指定 `engine=jina`，或作为已登录请求的最后兜底 | 通过 Jina Reader API 转换，同时保留相同的输出格式接口 | `jina` |
 
 ## API 使用
 
@@ -87,24 +87,23 @@ curl https://md.genedai.me/https://example.com/page \
 在 **[md.genedai.me/portal/](https://md.genedai.me/portal/)** 用邮箱注册领取
 API key。无需密码，登录链接会发到你的邮箱。
 
-| 套餐 | 月额度 | 浏览器渲染 | proxy / engine 选择 |
-|------|--------|------------|---------------------|
-| **匿名**（无 key） | — | ❌ 无浏览器渲染 | ✅ keyless `engine=jina` / `engine=firecrawl` |
-| **Free** | 1,000 credits | ✅ | ✅ keyless `engine=jina` / `engine=firecrawl` |
-| **Pro** | 50,000 credits | ✅ | ✅ 全部 engine + `no_cache=` + `force_browser=` |
+| 套餐 | 月额度 | 浏览器渲染 | 引擎 |
+|------|--------|------------|------|
+| **匿名**（无 key） | — | 无 | 只有缓存、直接抓取和 Readability |
+| **Free** | 1,000 credits | 有。一次真实渲染计 3 credits | `engine=jina` 和 `engine=firecrawl`。`engine=cf`、proxy、`no_cache` 需要 Pro |
+| **Pro** | 50,000 credits | 有。一次真实渲染计 3 credits | 全部引擎，以及 `no_cache` 和 `force_browser` |
 
-Credit 成本按**请求类型固定计算**，而不是按实际转换路径计费（这样即使某个
-站点悄悄地从静态 HTML 切换到需要浏览器渲染，你的账单依然可以预测）：
+转换、stream，以及 batch 里的每个 URL 计 1 credit。这些接口上一次成功的真实浏览器渲染计 3 credits。缓存命中保持该接口原价，即使缓存内容当初来自浏览器。失败不计费。
 
 | 端点 | Credits |
 |---|---|
-| `GET /<url>` | 1 |
-| `GET /api/stream` | 1 |
-| `POST /api/batch`（每个 URL） | 1 |
-| `POST /api/extract` | 3 |
-| `POST /api/deepcrawl`（每个 URL） | 2 |
+| `GET /<url>` | 1；真实浏览器渲染成功时为 3 |
+| `GET /api/stream` | 1；真实浏览器渲染成功时为 3 |
+| `POST /api/batch`（每个 URL） | 1；该 URL 真实浏览器渲染成功时为 3 |
+| `POST /api/extract` | 配额检查按 3。这条路由不写入月度账本 |
+| `POST /api/deepcrawl`（每个 URL） | 配额检查按 2。这条路由不写入月度账本 |
 
-付费套餐的缓存命中仍计 1 credit。月度额度用完时，API 仍然会服务已缓存的
+付费套餐的缓存命中仍按该接口原价计费。月度额度用完时，API 仍然会服务已缓存的
 URL（带 `X-Quota-Exceeded: true` 头），只有 cache miss 的请求会返回 `429`。
 
 #### 使用你的 key
@@ -179,28 +178,27 @@ curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_bro
 
 ### Jina Reader 引擎
 
-使用 `engine=jina` 通过 [r.jina.ai](https://r.jina.ai) 转换，跳过内置流程。适用于浏览器渲染不可用时的 JS 重度页面。keyless/免费层限制：无 API key 时 20 RPM、按 IP 限流；配置 Jina key 后可获得更高额度。
+持有 API key 时，可用 `engine=jina` 通过 [r.jina.ai](https://r.jina.ai) 转换，跳过内置流程。Free 和 Pro 都可以选择它。匿名请求会被拒绝。`engine=cf` 仍然需要 Pro。
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=jina"
+curl "https://md.genedai.me/https://example.com?raw=true&engine=jina" \
+  -H "Authorization: Bearer mk_..."
 ```
 
-> 当 Readability 提取内容极少且无浏览器/代理路径时，Jina 也会作为最后兜底自动触发。
+> 持有 API key 时，如果 Readability 提取内容极少且没有走浏览器，Jina 仍会作为最后兜底。匿名请求只使用缓存、直接抓取和 Readability。
 
-### Firecrawl Keyless 兜底
+### Firecrawl
 
-使用 `engine=firecrawl` 通过 Firecrawl v2 scrape 转换。如果未配置
-`FIRECRAWL_API_KEY`，Worker 不会发送 `Authorization` header，从而让
-Firecrawl 在上游接受时走 keyless 免费层。keyless 仍可能返回 `403` 或
-`429`；自动兜底会把它当作非致命失败，并继续尝试 Jina。
+持有 API key 时，可用 `engine=firecrawl` 通过 Firecrawl v2 scrape 转换。如果未配置
+`FIRECRAWL_API_KEY`，Worker 不会发送 `Authorization` header，上游接受时可以使用它自己的免费层。
+匿名请求不能选择这个引擎，Worker 也不会为匿名请求调用 Firecrawl 或 Jina。
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl"
+curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl" \
+  -H "Authorization: Bearer mk_..."
 ```
 
-> 当本地提取内容过薄，或目标是 PDF/Word/Excel 这类非文本 URL 时，系统也会在 Jina 前先尝试 Firecrawl。
-
-> `engine=jina` 和 `engine=firecrawl` 会对匿名用户开放，因为两个上游都提供 keyless/free reader 路径。`engine=cf` 这类消耗账号能力的引擎仍需要 Pro。
+> 持有 API key 时，本地提取过薄，或目标是 PDF 这类非文本 URL，会先尝试 Firecrawl，再尝试 Jina。`engine=cf`、proxy 和 `no_cache` 仍然需要 Pro。
 
 ### 缓存控制
 
@@ -403,9 +401,9 @@ print(data["title"], data["method"])
 | `/<url>?format=html` | GET | 返回用于预览/基础渲染的 HTML 输出 |
 | `/<url>?format=text` | GET | 返回纯文本（无格式） |
 | `/<url>?selector=.class` | GET | 提取指定 CSS 选择器 |
-| `/<url>?force_browser=true` | GET | 强制浏览器渲染 |
-| `/<url>?engine=jina` | GET | 使用 Jina Reader API，并保留相同的输出格式接口 |
-| `/<url>?engine=firecrawl` | GET | 通过 Firecrawl scrape 转换；无 key 时使用 keyless 模式 |
+| `/<url>?force_browser=true` | GET | 强制浏览器渲染。需要 API key。真实渲染成功计 3 credits |
+| `/<url>?engine=jina` | GET | 使用 Jina Reader API。需要 API key |
+| `/<url>?engine=firecrawl` | GET | 通过 Firecrawl scrape 转换。需要 API key |
 | `/<url>?no_cache=true` | GET | 跳过 KV 缓存 |
 | `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`），支持 `selector` / `force_browser` / `no_cache` / `engine` / `token` |
 | `/api/batch` | POST | 批量转换（最多 10 条） |
@@ -428,8 +426,8 @@ fallback 到 legacy 的 `API_TOKEN` / `PUBLIC_API_TOKEN` 单 token 模式。
 
 | 路由组 | 匿名 | Free (`mk_…`) | Pro (`mk_…`) |
 |---|---|---|---|
-| `GET /<url>` | ✅ 缓存 + readability + keyless `engine=jina/firecrawl` | ✅ 完整管线 + keyless `engine=jina/firecrawl` | ✅ + 全部 engine、`no_cache`、`force_browser` |
-| `GET /api/stream` | ✅ 缓存 + readability + keyless `engine=jina/firecrawl` | ✅ 完整管线 + keyless `engine=jina/firecrawl` | ✅ + 参数 |
+| `GET /<url>` | ✅ 缓存、直接抓取、Readability | ✅ 完整管线 + `engine=jina/firecrawl`；真实浏览器成功计 3 credits | ✅ + `engine=cf`、`no_cache`、`force_browser` |
+| `GET /api/stream` | ✅ 缓存、直接抓取、Readability | ✅ 与转换相同 | ✅ + 参数 |
 | `POST /api/batch` | ❌ 401 | ✅ | ✅ |
 | `POST /api/extract` | ❌ 401 | ✅ | ✅ |
 | `POST /api/deepcrawl` | ❌ 401 | ✅ | ✅ |
@@ -458,7 +456,7 @@ batch / extract / deepcrawl / jobs 端点始终需要认证，因为它们要么
 | `X-Paywall-Detected` | 命中付费墙规则时为 `"true"` |
 | `X-RateLimit-Limit` | 月度 credit 配额（仅认证请求） |
 | `X-RateLimit-Remaining` | 本月剩余 credits |
-| `X-Request-Cost` | 该请求类型的固定 credit 成本 |
+| `X-Request-Cost` | 本次消耗的 credits。1 credit 接口上真实浏览器渲染成功时为 3 |
 | `X-Quota-Exceeded` | 配额用完但返回了缓存内容时为 `"true"` |
 | `Retry-After` | 在 `429` 响应中出现（IP 限流或配额超限） |
 | `Access-Control-Allow-Origin` | `*`，已启用 CORS |
@@ -472,7 +470,7 @@ batch / extract / deepcrawl / jobs 端点始终需要认证，因为它们要么
 | **反爬绕过** | Browser Rendering 处理 JS 挑战与验证场景 |
 | **3 层缓存** | 内存 hot cache → Cloudflare Cache API（per-colo 免费）→ KV（全球持久） |
 | **Developer Portal** | 自助注册、API key 管理、实时用量仪表盘 |
-| **套餐系统** | 匿名（只有缓存+readability）、Free（1k/月）、Pro（50k/月） |
+| **套餐系统** | 匿名（缓存、直接抓取、Readability）、Free（1k/月）、Pro（50k/月） |
 | **R2 图片存储** | 图片稳定保存并通过代理地址交付 |
 | **多输出格式** | Markdown、HTML、Text、JSON |
 | **CSS 选择器** | 精准提取指定页面区域 |

@@ -37,7 +37,7 @@ describe("worker fetch hardening", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const target = encodeURIComponent("https://example.com/oversized.png");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/oversized.png");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 

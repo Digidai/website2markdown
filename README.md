@@ -56,8 +56,8 @@ Fetch target with Accept: text/markdown
 | **Native** | Target site supports Markdown for Agents | Cloudflare edge converts via `Accept: text/markdown` content negotiation | `native` |
 | **Fallback** | Normal HTML pages | Readability extracts main content → Turndown converts to Markdown | `readability+turndown` |
 | **Browser** | Anti-bot pages, JS-rendered content | Headless Chrome renders the page → Readability + Turndown | `browser+readability+turndown` |
-| **Firecrawl** | Explicit `engine=firecrawl`, non-text documents, or thin local extraction | Convert via Firecrawl v2 scrape; omits Authorization by default for keyless when accepted | `firecrawl` |
-| **Jina** | Explicit `engine=jina` or last-resort fallback | Convert via Jina Reader API while preserving the same output/query surface | `jina` |
+| **Firecrawl** | API key plus explicit `engine=firecrawl`, a non-text document, or thin local extraction | Convert via Firecrawl v2 scrape. Anonymous callers never reach this path | `firecrawl` |
+| **Jina** | API key plus explicit `engine=jina`, or an authenticated last-resort fallback | Convert via Jina Reader API while preserving the same output/query surface | `jina` |
 
 ## API Usage
 
@@ -87,25 +87,26 @@ curl https://md.genedai.me/https://example.com/page \
 Sign up at **[md.genedai.me/portal/](https://md.genedai.me/portal/)** with
 your email to get an API key. No password; a sign-in link is emailed to you.
 
-| Tier | Credits/month | Browser rendering | Proxy / Engine selection |
-|------|---------------|-------------------|--------------------------|
-| **Anonymous** (no key) | — | ❌ no browser rendering | ✅ keyless `engine=jina` / `engine=firecrawl` |
-| **Free** | 1,000 | ✅ | ✅ keyless `engine=jina` / `engine=firecrawl` |
-| **Pro** | 50,000 | ✅ | ✅ all engines + `no_cache=` + `force_browser=` |
+| Tier | Credits/month | Browser rendering | Engines |
+|------|---------------|-------------------|---------|
+| **Anonymous** (no key) | — | No | Cache, direct fetch, and Readability only |
+| **Free** | 1,000 | Yes. A live render costs 3 credits | `engine=jina` and `engine=firecrawl`. `engine=cf`, proxy, and `no_cache` require Pro |
+| **Pro** | 50,000 | Yes. A live render costs 3 credits | All engines, plus `no_cache` and `force_browser` |
 
-Credit cost is **fixed per request type**, not per actual conversion path
-(so bills are predictable even if a site silently switches from static to
-browser rendering behind the scenes):
+Convert, stream, and each batch URL cost 1 credit. A successful live browser
+render on those routes costs 3. Cache hits stay at the route cost, including
+when the cached page was originally rendered in a browser. Failures are not
+charged.
 
 | Endpoint | Credits |
 |---|---|
-| `GET /<url>` | 1 |
-| `GET /api/stream` | 1 |
-| `POST /api/batch` (per URL) | 1 |
-| `POST /api/extract` | 3 |
-| `POST /api/deepcrawl` (per URL) | 2 |
+| `GET /<url>` | 1, or 3 when a live browser render succeeds |
+| `GET /api/stream` | 1, or 3 when a live browser render succeeds |
+| `POST /api/batch` (per URL) | 1, or 3 when that URL's live browser render succeeds |
+| `POST /api/extract` | Quota check uses 3. This route does not write the monthly ledger |
+| `POST /api/deepcrawl` (per URL) | Quota check uses 2. This route does not write the monthly ledger |
 
-Cache hits on a paying tier still consume 1 credit; when your quota is
+Cache hits on a paying tier still consume the route cost. When the quota is
 exhausted the API keeps serving cached URLs (with `X-Quota-Exceeded: true`)
 but rejects cache-miss requests with `429`.
 
@@ -184,31 +185,28 @@ curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_bro
 
 ### Jina Reader Engine
 
-Use `engine=jina` to convert via [r.jina.ai](https://r.jina.ai) instead of the built-in pipeline. This is useful for JS-heavy pages when browser rendering is unavailable. Keyless/free tier: 20 RPM per IP without an API key; higher limits are available with a Jina key.
+Use `engine=jina` with an API key to convert via [r.jina.ai](https://r.jina.ai) instead of the built-in pipeline. Free and Pro keys can select it. Anonymous requests are rejected. `engine=cf` still requires Pro.
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=jina"
+curl "https://md.genedai.me/https://example.com?raw=true&engine=jina" \
+  -H "Authorization: Bearer mk_..."
 ```
 
-> Jina is also used automatically as a last-resort fallback when Readability extraction produces very little content and no browser/proxy path was used.
+> With an API key, Jina is also a last-resort fallback when Readability extraction produces very little content and no browser path was used. Anonymous callers stay on cache, direct fetch, and Readability.
 
-### Firecrawl Keyless Fallback
+### Firecrawl
 
-Use `engine=firecrawl` to convert via Firecrawl v2 scrape. If `FIRECRAWL_API_KEY`
+Use `engine=firecrawl` with an API key to convert via Firecrawl v2 scrape. If `FIRECRAWL_API_KEY`
 is not configured, the worker sends no `Authorization` header so Firecrawl can
-use its keyless free tier when the upstream accepts the request. Keyless can
-still return `403` or `429`; automatic fallbacks treat that as non-fatal and
-continue to Jina.
+use its upstream free tier when that upstream accepts the request. Anonymous
+callers cannot select this engine, and the worker does not call Firecrawl or Jina for them.
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl"
+curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl" \
+  -H "Authorization: Bearer mk_..."
 ```
 
-> `engine=jina` and `engine=firecrawl` are intentionally available without a
-> Pro key because both upstreams provide keyless/free reader paths. Account-backed
-> engines such as `engine=cf` still require Pro. Firecrawl is also tried before
-> Jina when local extraction is too thin or the target is a non-text document
-> such as a PDF/Word/Excel URL.
+> With an API key, Firecrawl is tried before Jina when local extraction is too thin or the target is a non-text document such as a PDF. `engine=cf`, proxy, and `no_cache` still require Pro.
 
 ### Cache Control
 
@@ -443,9 +441,9 @@ print(data["title"], data["method"])
 | `/<url>?format=html` | GET | Return HTML output for preview/basic rendering |
 | `/<url>?format=text` | GET | Return plain text (no formatting) |
 | `/<url>?selector=.class` | GET | Extract specific CSS selector |
-| `/<url>?force_browser=true` | GET | Force browser rendering |
-| `/<url>?engine=jina` | GET | Convert via Jina Reader API using the same output formats |
-| `/<url>?engine=firecrawl` | GET | Convert via Firecrawl scrape using keyless mode when no key is configured |
+| `/<url>?force_browser=true` | GET | Force browser rendering. Requires an API key. A successful live render costs 3 credits |
+| `/<url>?engine=jina` | GET | Convert via Jina Reader API. Requires an API key |
+| `/<url>?engine=firecrawl` | GET | Convert via Firecrawl scrape. Requires an API key |
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
 | `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) with `selector` / `force_browser` / `no_cache` / `engine` / `token` support |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |
@@ -469,8 +467,8 @@ can skip the `AUTH_DB` binding and fall back to the legacy
 
 | Route Group | Anonymous | Free tier (`mk_…`) | Pro tier (`mk_…`) |
 |---|---|---|---|
-| `GET /<url>` | ✅ cache + readability + keyless `engine=jina/firecrawl` | ✅ full pipeline + keyless `engine=jina/firecrawl` | ✅ + all engines, `no_cache`, `force_browser` |
-| `GET /api/stream` | ✅ cache + readability + keyless `engine=jina/firecrawl` | ✅ full pipeline + keyless `engine=jina/firecrawl` | ✅ full + params |
+| `GET /<url>` | ✅ cache, direct fetch, Readability | ✅ full pipeline + `engine=jina/firecrawl`; live browser success costs 3 | ✅ + `engine=cf`, `no_cache`, `force_browser` |
+| `GET /api/stream` | ✅ cache, direct fetch, Readability | ✅ same as convert | ✅ full + params |
 | `POST /api/batch` | ❌ 401 | ✅ | ✅ |
 | `POST /api/extract` | ❌ 401 | ✅ | ✅ |
 | `POST /api/deepcrawl` | ❌ 401 | ✅ | ✅ |
@@ -500,7 +498,7 @@ directly.
 | `X-Paywall-Detected` | `"true"` when paywall heuristics were triggered |
 | `X-RateLimit-Limit` | Monthly credit quota (authenticated requests only) |
 | `X-RateLimit-Remaining` | Credits remaining this month |
-| `X-Request-Cost` | Fixed per-request-type credit cost |
+| `X-Request-Cost` | Credits consumed. 3 when a live browser render succeeds on a 1-credit route |
 | `X-Quota-Exceeded` | `"true"` when quota is exhausted but a cached response was served |
 | `Retry-After` | Present on `429` responses (IP rate limit or quota exceeded) |
 | `Access-Control-Allow-Origin` | `*` — CORS enabled |
@@ -514,7 +512,7 @@ directly.
 | **Anti-Bot Bypass** | Browser Rendering handles JS challenges, CAPTCHAs, and verification |
 | **3-Tier Cache** | In-memory hot cache → Cloudflare Cache API (per-colo, free) → KV (global, persistent) |
 | **Developer Portal** | Self-service signup, API key management, real-time usage dashboard |
-| **Tier System** | Anonymous (cache+readability only), Free (1k/mo), Pro (50k/mo) |
+| **Tier System** | Anonymous (cache, direct fetch, Readability), Free (1k/mo), Pro (50k/mo) |
 | **R2 Image Storage** | Images stored reliably, served via proxy URLs |
 | **Multiple Formats** | Markdown, HTML, text, or structured JSON output |
 | **CSS Selectors** | Target specific page elements for extraction |

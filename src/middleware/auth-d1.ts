@@ -15,6 +15,7 @@
 
 import type { AuthContext, Env, Tier } from "../types";
 import { TIER_QUOTAS } from "../types";
+import { ensureMonthlyQuota } from "./quota";
 
 const AUTH_LRU_CAPACITY = 1024;
 /**
@@ -112,10 +113,15 @@ export async function resolveAuth(
     if (!row) return ANONYMOUS;
     if (row.revoked_at) return ANONYMOUS;
 
-    // Check if monthly credits need reset (new month)
     const now = new Date();
-    const resetAt = new Date(row.monthly_credits_reset_at);
-    const creditsUsed = now >= resetAt ? 0 : row.monthly_credits_used;
+    const rolled = await ensureMonthlyQuota(
+      env,
+      row.account_id,
+      row.monthly_credits_used,
+      row.monthly_credits_reset_at,
+      now,
+    );
+    const creditsUsed = rolled.used;
 
     const tier = (row.tier === "pro" ? "pro" : "free") as Tier;
     const ctx: AuthContext = {

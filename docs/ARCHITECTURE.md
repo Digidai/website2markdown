@@ -28,16 +28,16 @@ The conversion stack is best understood as a 5-layer capability ladder. Not ever
                 |
                 v
     [5] External Markdown Providers
-        Firecrawl keyless/API-key scrape -> Jina fallback
+        Firecrawl and Jina (API key required)
 ```
 
 Notes:
 
 - Layer 2 is only eligible when Cloudflare REST credentials are configured and the URL is suitable for the generic path.
 - Layer 4 includes 14 adapters total: 13 site-specific adapters plus 1 generic fallback adapter.
-- Layer 5 can be selected explicitly with `engine=firecrawl` or `engine=jina`,
-  or used as a fallback when normal extraction is too thin. Firecrawl is tried
-  before Jina and omitted Authorization is treated as keyless best effort.
+- Layer 5 can be selected with `engine=firecrawl` or `engine=jina` by a free or pro API key.
+  Anonymous callers stay on cache, direct fetch, and Readability. With an API key, Firecrawl
+  is tried before Jina when local extraction is too thin.
 
 ## Request Flow
 
@@ -80,7 +80,7 @@ Route parsing in src/index.ts
             +--> static fetch + Readability/Turndown
             +--> browser adapter path              [if policy.browserAllowed]
             +--> proxy retry / pool                [if policy.proxyAllowed]
-            +--> Firecrawl fallback -> Jina fallback
+            +--> Firecrawl fallback -> Jina fallback [API key required]
             |
             v
       post-processing
@@ -343,10 +343,10 @@ Adapters can:
 ### 5. External Markdown Providers
 
 `src/firecrawl.ts` provides the explicit Firecrawl engine plus a best-effort
-fallback for thin extraction and non-text document URLs. When no
-`FIRECRAWL_API_KEY` is configured it sends no Authorization header so
-Firecrawl can use keyless mode if accepted by the upstream. Firecrawl failures
-are non-fatal in automatic fallback paths.
+fallback for thin extraction and non-text document URLs. Anonymous callers skip
+this layer. When no `FIRECRAWL_API_KEY` is configured, an authenticated request
+sends no Authorization header so Firecrawl can use its upstream free tier if
+accepted. Firecrawl failures are non-fatal in automatic fallback paths.
 
 `src/jina.ts` provides the explicit Jina engine and the final fallback when
 Firecrawl is unavailable or local extraction yields too little useful content.

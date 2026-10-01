@@ -31,6 +31,14 @@ export const RATE_LIMIT_WINDOW_SECONDS = 60;
 export const RATE_LIMIT_CONVERT_PER_WINDOW = 20;
 export const RATE_LIMIT_STREAM_PER_WINDOW = 30;
 export const RATE_LIMIT_BATCH_PER_WINDOW = 10;
+/**
+ * Anonymous callers share one durable counter across isolates.
+ * 20/minute still allows about 864,000 requests a month from one address,
+ * which is large enough to replay a whole month of traffic.
+ */
+export const RATE_LIMIT_ANON_CONVERT_PER_WINDOW = 10;
+export const RATE_LIMIT_ANON_STREAM_PER_WINDOW = 10;
+export const RATE_LIMIT_ANON_BATCH_PER_WINDOW = 5;
 
 /** Valid output formats. */
 export const VALID_FORMATS = new Set(["markdown", "html", "text", "json"]);

@@ -449,6 +449,44 @@ describe("fetchViaProxy", () => {
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
 
+  it("establishes HTTP CONNECT tunnel and upgrades to TLS for HTTPS targets when startTls is supported", async () => {
+    const connectResponse = new TextEncoder().encode("HTTP/1.1 200 Connection Established\r\n\r\n");
+    const targetResponse = new TextEncoder().encode("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nsecure-content");
+
+    let connectReadDone = false;
+    const initialMock = createMockSocket(async () => {
+      if (connectReadDone) return { done: true };
+      connectReadDone = true;
+      return { done: false, value: connectResponse };
+    });
+
+    let targetReadDone = false;
+    const tlsMock = createMockSocket(async () => {
+      if (targetReadDone) return { done: true };
+      targetReadDone = true;
+      return { done: false, value: targetResponse };
+    });
+
+    (initialMock.socket as any).startTls = vi.fn(() => tlsMock.socket);
+    vi.mocked(connect).mockReturnValue(initialMock.socket as never);
+
+    const result = await fetchViaProxy(
+      "https://example.com/secure-path",
+      makeProxyConfig(),
+      { "User-Agent": "test-agent" },
+      1000,
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toBe("secure-content");
+    expect((initialMock.socket as any).startTls).toHaveBeenCalledWith({ expectedServerHostname: "example.com" });
+    const connectPayload = new TextDecoder().decode(initialMock.writtenChunks[0]);
+    expect(connectPayload).toContain("CONNECT example.com:443 HTTP/1.1");
+    const tlsPayload = new TextDecoder().decode(tlsMock.writtenChunks[0]);
+    expect(tlsPayload).toContain("GET /secure-path HTTP/1.1");
+    expect(tlsPayload).toContain("Host: example.com");
+  });
+
   it("rotates proxies until an accepted response is found", async () => {
     const firstSocket = createSocketFromRawResponse(
       "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\n\r\nblocked",

@@ -159,21 +159,19 @@ async function sendMagicLinkEmail(env: Env, email: string, verifyUrl: string): P
   const html = `
 <!DOCTYPE html>
 <html>
-<body style="font-family: -apple-system, system-ui, sans-serif; background: #f7f7f4; color: #26251e; padding: 40px 20px; margin: 0;">
-  <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 4px; padding: 40px 32px; border: 1px solid rgba(0,0,0,0.06);">
-    <h1 style="font-family: Georgia, serif; font-size: 24px; margin: 0 0 16px; font-weight: normal;">
-      Sign in to <em>md.genedai.me</em>
-    </h1>
-    <p style="font-size: 15px; line-height: 1.6; color: rgba(38,37,30,0.7); margin: 0 0 24px;">
-      Click the button below to sign in to your Developer Portal. This link expires in 15 minutes.
+<body style="font-family: system-ui, sans-serif; background: #f3f4f6; color: #1c2128; padding: 40px 20px; margin: 0;">
+  <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 4px; padding: 32px; border: 1px solid #d0d5dc;">
+    <h1 style="font-size: 22px; margin: 0 0 12px; font-weight: 600;">Sign in to md.genedai.me</h1>
+    <p style="font-size: 15px; line-height: 1.6; color: #3d4654; margin: 0 0 24px;">
+      Use the button to open the developer portal. This link expires in 15 minutes.
     </p>
-    <a href="${verifyUrl}" style="display: inline-block; background: #22d3ee; color: #0e7490; padding: 12px 24px; border-radius: 4px; text-decoration: none; font-weight: 500; font-size: 15px;">
-      Sign in &rarr;
+    <a href="${verifyUrl}" style="display: inline-block; background: #1b4f8a; color: #f4f6f8; padding: 10px 16px; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 15px;">
+      Sign in
     </a>
-    <p style="font-size: 13px; color: rgba(38,37,30,0.45); margin: 32px 0 0;">
+    <p style="font-size: 13px; color: #5c6573; margin: 28px 0 0;">
       If you didn't request this, you can ignore this email. Someone may have typed your address by mistake.
     </p>
-    <p style="font-size: 13px; color: rgba(38,37,30,0.45); margin: 16px 0 0; word-break: break-all;">
+    <p style="font-size: 13px; color: #5c6573; margin: 12px 0 0; word-break: break-all;">
       Or copy this link: ${verifyUrl}
     </p>
   </div>
@@ -260,7 +258,7 @@ export async function handleVerifyMagicLink(
     } else {
       accountId = crypto.randomUUID();
       const nowIso = now.toISOString();
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+      const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
       await env.AUTH_DB.prepare(`
         INSERT INTO accounts (id, email, tier, monthly_credits_used, monthly_credits_reset_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)

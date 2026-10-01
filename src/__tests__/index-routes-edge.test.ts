@@ -44,6 +44,39 @@ describe("index route edge coverage", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("returns a short 404 for scanner paths and leaves real pages alone", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const probes = [
+      ["GET", "https://md.example.com/.env", "Not Found"],
+      ["GET", "https://md.example.com/portal/.env", "Not Found"],
+      ["GET", "https://md.example.com/laravel/.env", "Not Found"],
+      ["POST", "https://md.example.com/.env", "Not Found"],
+      ["HEAD", "https://md.example.com/.env", ""],
+    ] as const;
+
+    for (const [method, url, body] of probes) {
+      const res = await worker.fetch(new Request(url, { method }), createMockEnv().env, mockCtx());
+      expect(res.status, `${method} ${url}`).toBe(404);
+      expect(res.headers.get("Content-Type")).toContain("text/plain");
+      const text = await res.text();
+      expect(text, `${method} ${url}`).toBe(body);
+      expect(text).not.toContain("<");
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const docs = await worker.fetch(new Request("https://md.example.com/docs"), createMockEnv().env, mockCtx());
+    expect(docs.status).toBe(200);
+    expect(await docs.text()).toContain("<");
+
+    const favicon = await worker.fetch(new Request("https://md.example.com/favicon.ico"), createMockEnv().env, mockCtx());
+    expect(favicon.status).toBe(204);
+
+    const unknown = await worker.fetch(new Request("https://md.example.com/graphql"), createMockEnv().env, mockCtx());
+    expect(unknown.status).toBe(200);
+    expect((await unknown.text())).toContain("<");
+  });
+
   it("serves landing page when target URL is missing", async () => {
     const req = new Request("https://md.example.com/");
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
@@ -97,7 +130,7 @@ describe("index route edge coverage", () => {
       }),
     ));
 
-    const target = encodeURIComponent("https://example.com/not-found.png");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/not-found.png");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
@@ -113,7 +146,7 @@ describe("index route edge coverage", () => {
       }),
     ));
 
-    const target = encodeURIComponent("https://example.com/icon.svg");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/icon.svg");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
@@ -129,7 +162,7 @@ describe("index route edge coverage", () => {
       }),
     ));
 
-    const target = encodeURIComponent("https://example.com/redirect.png");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/redirect.png");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
@@ -140,7 +173,7 @@ describe("index route edge coverage", () => {
   it("returns 502 when /img fetch throws non-SSRF errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("dial tcp failed")));
 
-    const target = encodeURIComponent("https://example.com/error.png");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/error.png");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
@@ -156,7 +189,7 @@ describe("index route edge coverage", () => {
       }),
     ));
 
-    const target = encodeURIComponent("https://example.com/ok.png");
+    const target = encodeURIComponent("https://mmbiz.qpic.cn/ok.png");
     const req = new Request(`https://md.example.com/img/${target}`);
     const res = await worker.fetch(req, createMockEnv().env, mockCtx());
 
@@ -204,7 +237,7 @@ describe("index route edge coverage", () => {
     const body = await res.text();
 
     expect(res.status).toBe(200);
-    expect(body).toContain("Any URL to");
+    expect(body).toContain("Any web page, read as");
     expect(body).toContain("Markdown");
   });
 });

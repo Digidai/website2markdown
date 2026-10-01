@@ -538,9 +538,13 @@ export function extractTargetUrl(
   // Fix missing colon in protocol (e.g., "https//example.com" → "https://example.com")
   raw = raw.replace(/^(https?)\/\//, "$1://");
 
-  // Auto-prepend https:// for bare domains
+  // Auto-prepend https:// only when the first segment looks like a hostname.
+  // /laravel/.env and /static/.env are scanner paths, not hosts. A dotted
+  // file in the first segment (favicon.ico) still matches; the handler
+  // serves known assets before extraction.
   if (!raw.startsWith("http://") && !raw.startsWith("https://")) {
-    if (raw.includes(".") && !raw.startsWith(".")) {
+    const firstSegment = raw.split(/[/?#]/)[0] || "";
+    if (firstSegment.includes(".") && !firstSegment.startsWith(".")) {
       raw = "https://" + raw;
     } else {
       return null;
@@ -549,14 +553,23 @@ export function extractTargetUrl(
 
   // Re-attach query string (excluding our params)
   const targetSearchParams = new URLSearchParams(search);
-  targetSearchParams.delete("raw");
-  targetSearchParams.delete("force_browser");
-  targetSearchParams.delete("no_cache");
-  targetSearchParams.delete("format");
+  if (targetSearchParams.get("raw") === "true") targetSearchParams.delete("raw");
+  if (targetSearchParams.get("force_browser") === "true") targetSearchParams.delete("force_browser");
+  if (targetSearchParams.get("no_cache") === "true") targetSearchParams.delete("no_cache");
+  if (targetSearchParams.get("debug_trace") === "true") targetSearchParams.delete("debug_trace");
+
+  const formatVal = targetSearchParams.get("format");
+  if (formatVal && ["markdown", "html", "text", "json"].includes(formatVal)) {
+    targetSearchParams.delete("format");
+  }
+
+  const engineVal = targetSearchParams.get("engine");
+  if (engineVal && ["cf", "jina", "firecrawl", "auto", "local"].includes(engineVal)) {
+    targetSearchParams.delete("engine");
+  }
+
   targetSearchParams.delete("selector");
   targetSearchParams.delete("token");
-  targetSearchParams.delete("engine");
-  targetSearchParams.delete("debug_trace");
   const remainingSearch = targetSearchParams.toString();
 
   if (remainingSearch) {

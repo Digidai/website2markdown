@@ -520,7 +520,49 @@ export const twitterAdapter: SiteAdapter = {
     await page.setViewport({ width: 1280, height: 900 });
   },
 
-  async extract(_page: any): Promise<ExtractResult | null> {
-    return null;
+  async extract(page: any): Promise<ExtractResult | null> {
+    try {
+      // Wait for tweet article to render
+      await page.waitForSelector('article[data-testid="tweet"]', { timeout: 8_000 });
+    } catch {
+      // Page might be a login prompt or failed to load
+      return null;
+    }
+
+    // Attempt to expand "Show more" on long tweets
+    try {
+      await page.evaluate(`
+        (function() {
+          var showMore = document.querySelectorAll('[data-testid="tweet-text-show-more-link"]');
+          for (var i = 0; i < showMore.length; i++) {
+            try { showMore[i].click(); } catch(e) {}
+          }
+        })()
+      `);
+      await new Promise((r) => setTimeout(r, 400));
+    } catch {}
+
+    // Clean up login dialogs, bottom banners, and navigation sidebars
+    try {
+      await page.evaluate(`
+        (function() {
+          var noise = [
+            '[data-testid="sheetDialog"]',
+            'div[role="dialog"]',
+            'div[data-testid="BottomBar"]',
+            'header[role="banner"]',
+            '[data-testid="sidebarColumn"]'
+          ];
+          noise.forEach(function(sel) {
+            try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
+          });
+          document.body.style.overflow = 'auto';
+          document.documentElement.style.overflow = 'auto';
+        })()
+      `);
+    } catch {}
+
+    const html = await page.content();
+    return { html };
   },
 };
