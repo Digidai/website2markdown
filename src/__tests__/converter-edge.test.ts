@@ -62,6 +62,20 @@ describe("converter edge behavior", () => {
     );
   });
 
+  it("keeps line breaks inside table cells as <br>", () => {
+    const html = `
+      <html><body>
+        <table>
+          <tr><th>Field</th><th>Value</th></tr>
+          <tr><td>Latest release</td><td>1.0.1<br>December 17, 2004</td></tr>
+          <tr><td>Developed by</td><td><div>John Gruber</div><div>Aaron Swartz</div></td></tr>
+        </table>
+      </body></html>`;
+    const { markdown } = htmlToMarkdown(html, "https://example.com", "body");
+    expect(markdown).toContain("| Latest release | 1.0.1<br>December 17, 2004 |");
+    expect(markdown).toContain("| Developed by | John Gruber<br>Aaron Swartz |");
+  });
+
   it("handles nested tables without crashing conversion", () => {
     const html = `
       <html><body>

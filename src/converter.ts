@@ -32,8 +32,29 @@ turndown.addRule("langCodeBlock", {
   },
 });
 
-// Table support. A colspan cell is followed by empty cells, and every row is
-// padded to the widest row, because GFM drops cells beyond the header width.
+const CELL_BLOCK_TAGS = new Set(["DIV", "P", "LI", "UL", "OL", "DL", "DT", "DD", "TABLE", "TR", "H1", "H2", "H3", "H4", "H5", "H6"]);
+
+// Cell text where <br> and block boundaries become "\n" and other whitespace collapses.
+function cellLines(node: any): string {
+  let out = "";
+  node.childNodes?.forEach((child: any) => {
+    if (child.nodeType === 3) {
+      out += (child.textContent || "").replace(/\s+/g, " ");
+    } else if (child.nodeType === 1) {
+      const tag = child.nodeName;
+      if (tag === "BR") out += "\n";
+      else if (tag === "SCRIPT" || tag === "STYLE") return;
+      else if (CELL_BLOCK_TAGS.has(tag)) out += `\n${cellLines(child)}\n`;
+      else out += cellLines(child);
+    }
+  });
+  return out;
+}
+
+// Table support. A line break inside a cell is written as <br>, the GFM
+// convention, since a raw newline would end the row. A colspan cell is
+// followed by empty cells, and every row is padded to the widest row,
+// because GFM drops cells beyond the header width.
 turndown.addRule("simpleTable", {
   filter: "table",
   replacement: (_content: string, node: any) => {
@@ -46,7 +67,12 @@ turndown.addRule("simpleTable", {
       const cellTexts: string[] = [];
       cells.forEach((cell: any) => {
         cellTexts.push(
-          (cell.textContent || "").trim().replace(/\|/g, "\\|").replace(/\n/g, " "),
+          cellLines(cell)
+            .split("\n")
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .join("<br>")
+            .replace(/\|/g, "\\|"),
         );
         const span = Math.min(Math.max(Number(cell.getAttribute?.("colspan")) || 1, 1), 50);
         for (let i = 1; i < span; i++) cellTexts.push("");

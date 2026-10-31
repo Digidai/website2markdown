@@ -9,6 +9,7 @@
 
 ### Fixed
 - Tables whose cells use `colspan`, such as Wikipedia infoboxes, keep every column. The converter pads each row to the widest row, so Markdown renderers no longer drop the extra cells. Rows whose cells are all empty are left out.
+- Line breaks inside table cells (`<br>` or block elements) are kept as `<br>` instead of running the text together, for example `1.0.1<br>December 17, 2004`.
 
 ## [1.2.0] - 2026-10-01
 
