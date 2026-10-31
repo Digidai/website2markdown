@@ -1,7 +1,7 @@
 /**
  * Server half of the HeroUI front end. The Worker imports this module
  * (alias "@web/server") and returns full HTML documents. The browser bundle
- * (web/client.tsx, built by Vite into web-dist/_app) hydrates the same tree.
+ * (web/entries/*, built by Vite into web-dist/_app) hydrates the same tree.
  */
 import { renderToString } from "react-dom/server";
 import { App, type AppState } from "./app";
@@ -11,7 +11,14 @@ import { landingCopy } from "./pages/landing";
 export type { SitePage };
 
 const ASSET_CSS = "/_app/app.css";
-const ASSET_JS = "/_app/app.js";
+/** Browser entry per view; see the inputs in vite.config.ts. */
+const ASSET_JS: Record<AppState["view"], string> = {
+  landing: "/_app/landing.js",
+  portal: "/_app/portal.js",
+  loading: "/_app/reader.js",
+  reader: "/_app/reader.js",
+  error: "/_app/reader.js",
+};
 
 function esc(value: string): string {
   return value
@@ -44,7 +51,7 @@ function documentHTML(opts: { lang: string; head: string; state: AppState; extra
 <script>${THEME_BOOT_SCRIPT}</script>
 ${opts.head}
 <link rel="stylesheet" href="${ASSET_CSS}">
-<script type="module" src="${ASSET_JS}"></script>
+<script type="module" src="${ASSET_JS[opts.state.view]}"></script>
 </head>
 <body class="bg-background text-foreground antialiased">
 <div id="root">${body}</div>

@@ -440,7 +440,7 @@ describe("GET /portal/ — HTML page", () => {
     const body = await res.text();
     expect(body).toContain("Developer Portal");
     // The portal client (which calls /api/me) ships in the hydration bundle.
-    expect(body).toContain('<script type="module" src="/_app/app.js"></script>');
+    expect(body).toContain('<script type="module" src="/_app/portal.js"></script>');
     expect(body).toContain('"view":"portal"');
   });
 

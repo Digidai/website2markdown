@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Changed
-- The home, examples, docs, integrations, reader, loading, error, and portal pages are rebuilt with React and HeroUI v3 default components and theme. The Worker renders them on the server and a Vite bundle under `/_app/` hydrates them.
+- The home, examples, docs, integrations, reader, loading, error, and portal pages are rebuilt with React and HeroUI v3 default components and theme. The Worker renders them on the server, and per-page Vite bundles under `/_app/` (landing, portal, reader) hydrate them.
 - The theme choice is stored under `localStorage["heroui-theme"]`.
 - Page CSPs no longer allow Google Fonts or the jsDelivr CDN. Marked and DOMPurify ship in the app bundle.
 

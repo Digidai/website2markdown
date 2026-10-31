@@ -4,7 +4,7 @@ The public pages use [HeroUI v3](https://heroui.com) with its default theme. Do 
 
 ## Stack
 
-- Pages are React components in `web/`. The Worker renders them with `renderToString` (`web/server.tsx`), and `web/client.tsx` hydrates them.
+- Pages are React components in `web/`. The Worker renders them with `renderToString` (`web/server.tsx`). Each page family has its own browser entry in `web/entries/` (landing, portal, reader), which hydrates only its own views through `web/client.tsx`. Shared code goes into common chunks.
 - Vite builds the client bundle to `web-dist/_app/` (served as static assets) and the SSR module to `web-server-dist/server.js`. Wrangler runs `npm run build:web` before `dev` and `deploy`.
 - Styles: `web/styles.css` imports Tailwind CSS 4 and `@heroui/styles`. Icons come from `@gravity-ui/icons`.
 - Copy for both languages lives in `web/copy.ts`.
