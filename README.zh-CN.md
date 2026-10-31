@@ -619,7 +619,7 @@ md-genedai/
 
 ## 部署
 
-项目使用 **Cloudflare Git Integration**：推送到 `main` 后会自动构建并发布。
+项目使用 **Cloudflare Git Integration**：推送到 `main` 后会自动构建并发布。GitHub Actions 只做校验（类型检查、测试、构建），不负责部署。Cloudflare 不会执行 D1 迁移：需要迁移的改动，推送前先运行 `npm run db:migrate:remote`。
 
 ### 一次性初始化
 

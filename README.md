@@ -661,7 +661,7 @@ md-genedai/
 
 ## Deployment
 
-This project uses **Cloudflare Git Integration** — push to `main` and Cloudflare automatically builds and deploys.
+This project uses **Cloudflare Git Integration** — push to `main` and Cloudflare automatically builds and deploys. GitHub Actions only validates (typecheck, tests, build) and does not deploy. Cloudflare does not apply D1 migrations: run `npm run db:migrate:remote` before pushing a change that needs one.
 
 ### Setup (one-time)
 

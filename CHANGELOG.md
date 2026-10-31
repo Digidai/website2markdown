@@ -6,6 +6,7 @@
 - The home, examples, docs, integrations, reader, loading, error, and portal pages are rebuilt with React and HeroUI v3 default components and theme. The Worker renders them on the server, and per-page Vite bundles under `/_app/` (landing, portal, reader) hydrate them.
 - The theme choice is stored under `localStorage["heroui-theme"]`.
 - Page CSPs no longer allow Google Fonts or the jsDelivr CDN. Marked and DOMPurify ship in the app bundle.
+- Production deploys come only from Cloudflare Workers Builds. The GitHub Actions deploy job is removed; CI still runs typecheck, tests, and build.
 
 ### Fixed
 - Tables whose cells use `colspan`, such as Wikipedia infoboxes, keep every column. The converter pads each row to the widest row, so Markdown renderers no longer drop the extra cells. Rows whose cells are all empty are left out.
