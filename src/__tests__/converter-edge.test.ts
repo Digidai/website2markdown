@@ -41,6 +41,27 @@ describe("converter edge behavior", () => {
     expect(markdown).toContain("hello\\|world line2");
   });
 
+  it("keeps every column when the header cell spans the table and skips empty rows", () => {
+    const html = `
+      <html><body>
+        <table>
+          <tr><th colspan="2">Markdown</th></tr>
+          <tr><td colspan="2"><img src="logo.png"></td></tr>
+          <tr><td>Filename extensions</td><td>.md, .markdown</td></tr>
+          <tr><td>Website</td></tr>
+        </table>
+      </body></html>`;
+    const { markdown } = htmlToMarkdown(html, "https://example.com", "body");
+    expect(markdown).toContain(
+      [
+        "| Markdown |  |",
+        "| --- | --- |",
+        "| Filename extensions | .md, .markdown |",
+        "| Website |  |",
+      ].join("\n"),
+    );
+  });
+
   it("handles nested tables without crashing conversion", () => {
     const html = `
       <html><body>

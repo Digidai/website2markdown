@@ -32,32 +32,15 @@ turndown.addRule("langCodeBlock", {
   },
 });
 
-// Better table handling — preserve HTML tables that Turndown can't convert well
-turndown.addRule("complexTable", {
-  filter: (node: any) => {
-    if (node.nodeName !== "TABLE") return false;
-    const html = node.innerHTML || "";
-    return (
-      html.includes("colspan") ||
-      html.includes("rowspan") ||
-      html.includes("<table")
-    );
-  },
-  replacement: (_content: string, node: any) => {
-    return "\n\n" + (node.outerHTML || "") + "\n\n";
-  },
-});
-
-// Simple table support
+// Table support. A colspan cell is followed by empty cells, and every row is
+// padded to the widest row, because GFM drops cells beyond the header width.
 turndown.addRule("simpleTable", {
   filter: "table",
   replacement: (_content: string, node: any) => {
     const rows = node.querySelectorAll?.("tr");
     if (!rows || rows.length === 0) return "";
 
-    const result: string[] = [];
-    let headerDone = false;
-
+    const table: string[][] = [];
     rows.forEach((row: any) => {
       const cells = row.querySelectorAll?.("th, td") || [];
       const cellTexts: string[] = [];
@@ -65,15 +48,19 @@ turndown.addRule("simpleTable", {
         cellTexts.push(
           (cell.textContent || "").trim().replace(/\|/g, "\\|").replace(/\n/g, " "),
         );
+        const span = Math.min(Math.max(Number(cell.getAttribute?.("colspan")) || 1, 1), 50);
+        for (let i = 1; i < span; i++) cellTexts.push("");
       });
-      result.push("| " + cellTexts.join(" | ") + " |");
-
-      if (!headerDone) {
-        const sep = cellTexts.map(() => "---").join(" | ");
-        result.push("| " + sep + " |");
-        headerDone = true;
-      }
+      // Skip rows whose cells are all empty, such as image-only infobox rows.
+      if (cellTexts.some(Boolean)) table.push(cellTexts);
     });
+    if (table.length === 0) return "";
+
+    const width = table.reduce((max, cells) => Math.max(max, cells.length), 1);
+    const line = (cells: string[]) =>
+      "| " + [...cells, ...Array(width - cells.length).fill("")].join(" | ") + " |";
+    const result = table.map(line);
+    result.splice(1, 0, line(Array(width).fill("---")));
 
     return "\n\n" + result.join("\n") + "\n\n";
   },

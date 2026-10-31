@@ -7,6 +7,9 @@
 - The theme choice is stored under `localStorage["heroui-theme"]`.
 - Page CSPs no longer allow Google Fonts or the jsDelivr CDN. Marked and DOMPurify ship in the app bundle.
 
+### Fixed
+- Tables whose cells use `colspan`, such as Wikipedia infoboxes, keep every column. The converter pads each row to the widest row, so Markdown renderers no longer drop the extra cells. Rows whose cells are all empty are left out.
+
 ## [1.2.0] - 2026-10-01
 
 ### Added
