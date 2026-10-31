@@ -439,8 +439,9 @@ describe("GET /portal/ — HTML page", () => {
     expect(res.headers.get("Content-Type")).toContain("text/html");
     const body = await res.text();
     expect(body).toContain("Developer Portal");
-    expect(body).toContain("/api/me");
-    expect(body).toContain("/api/auth/magic-link");
+    // The portal client (which calls /api/me) ships in the hydration bundle.
+    expect(body).toContain('<script type="module" src="/_app/app.js"></script>');
+    expect(body).toContain('"view":"portal"');
   });
 
   it("serves HTML at /portal (no trailing slash)", async () => {

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { landingPageHTML } from "../templates/landing";
-import { renderedPageHTML } from "../templates/rendered";
-import { loadingPageHTML } from "../templates/loading";
-import { errorPageHTML } from "../templates/error";
+import { errorPageHTML, landingPageHTML, loadingPageHTML, renderedPageHTML } from "@web/server";
 
 describe("templates", () => {
   it("escapes host in landing page", () => {
@@ -13,14 +10,14 @@ describe("templates", () => {
     const docs = landingPageHTML('md.example.com"><script>alert(1)</script>', "en", "docs");
     expect(docs).toContain("GET /api/stream");
     expect(docs).toContain("POST /api/deepcrawl");
-    expect(docs).toContain('curl -H "Accept: text/markdown" https://md.example.com');
+    expect(docs).toContain("curl -H &quot;Accept: text/markdown&quot; https://md.example.com");
     expect(docs).not.toContain('<script>alert(1)</script>');
   });
 
   it("renders Chinese landing page when lang is zh", () => {
     const html = landingPageHTML("md.example.com", "zh");
     expect(html).toContain('href="/?lang=zh"');
-    expect(html).toContain('class="lang-link active" href="/?lang=zh"');
+    expect(html).toMatch(/href="\/\?lang=zh"[^>]*aria-current="true"/);
     expect(html).toContain("任意 URL 转");
     expect(html).toContain("转换");
     expect(html).toContain('lang="zh-CN"');
@@ -51,7 +48,9 @@ describe("templates", () => {
     expect(html).toContain('/https%3A%2F%2Fexample.com%2Fpath%3Fq%3D%3Cx%3E?raw=true&selector=.main&engine=jina');
     expect(html).toContain("\\u003c");
     expect(html).toContain("selector=.main");
-    expect(html).toContain("C.rawRequestPath");
+    // Hydration props carry both URLs; "<" in the target is escaped inside <script>.
+    expect(html).toContain('"view":"loading"');
+    expect(html).not.toContain("q=<x>");
   });
 
   it("escapes rendered content and metadata", () => {

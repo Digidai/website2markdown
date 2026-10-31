@@ -3,35 +3,24 @@
 import type { ConvertMethod, OutputFormat } from "../types";
 import { CORS_HEADERS } from "../config";
 import { buildRawRequestPath } from "../security";
-import { errorPageHTML } from "../templates/error";
-import { renderedPageHTML } from "../templates/rendered";
+import { errorPageHTML, renderedPageHTML } from "@web/server";
 
-export const LANDING_CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; " +
-  "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://fonts.googleapis.com https://fonts.gstatic.com; " +
-  "base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+// Every HTML page is server-rendered React plus the same-origin HeroUI bundle
+// at /_app/* (web-dist). The only inline script is the theme boot in <head>.
+const PAGE_BASE_CSP =
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+  "font-src 'self' data:; base-uri 'none'; frame-ancestors 'none'";
 
-export const ERROR_CSP =
-  "default-src 'none'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; " +
-  "img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'";
+export const LANDING_CSP = `${PAGE_BASE_CSP}; img-src 'self' data:; connect-src 'self'; form-action 'self'`;
 
-export const LOADING_CSP =
-  "default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; " +
-  "style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
-  "font-src https://fonts.gstatic.com; connect-src 'self'; img-src * data:; " +
-  "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+export const ERROR_CSP = `${PAGE_BASE_CSP}; img-src 'self' data:; connect-src 'self'`;
 
-/**
- * Portal CSP — tighter than landing because the portal shows plaintext API
- * keys in a modal. Only allows self + Google Fonts for styles; all JS is
- * inline; all fetch() calls are same-origin. No form posts.
- */
-export const PORTAL_CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; " +
-  "style-src 'unsafe-inline' https://fonts.googleapis.com; " +
-  "font-src https://fonts.gstatic.com; img-src 'self' data:; " +
-  "connect-src 'self'; base-uri 'none'; form-action 'self'; " +
-  "frame-ancestors 'none'";
+export const LOADING_CSP = `${PAGE_BASE_CSP}; img-src * data:; connect-src 'self'; form-action 'none'`;
+
+/** Portal shows plaintext API keys in a modal: same-origin only, no third parties. */
+export const PORTAL_CSP = `${PAGE_BASE_CSP}; img-src 'self' data:; connect-src 'self'; form-action 'self'`;
+
+export const READER_CSP = `${PAGE_BASE_CSP}; img-src * data:; connect-src 'self'`;
 
 /** HSTS: 1 year, include subdomains, not yet preload-ready */
 export const HSTS_VALUE = "max-age=31536000; includeSubDomains";
@@ -183,10 +172,7 @@ export function buildResponse(
     {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
-        "Content-Security-Policy":
-          "default-src 'none'; script-src https://cdn.jsdelivr.net 'unsafe-inline'; " +
-          "style-src https://fonts.googleapis.com https://cdnjs.cloudflare.com 'unsafe-inline'; " +
-          "img-src * data:; font-src https://fonts.gstatic.com; connect-src 'none'",
+        "Content-Security-Policy": READER_CSP,
         "X-Frame-Options": "DENY",
         "X-Robots-Tag": "noindex, follow",
         "Link": `<${(rawRequestPath || buildRawRequestPath(sourceUrl)).replace(/[\r\n<>]/g, "")}>; rel="alternate"; type="text/markdown"`,

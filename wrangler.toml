@@ -4,6 +4,18 @@ main = "src/index.ts"
 compatibility_date = "2025-02-14"
 compatibility_flags = ["nodejs_compat"]
 
+# HeroUI front end (web/): Vite prebuilds the server renderer that the Worker
+# imports and the browser bundle served from web-dist/ at /_app/*.
+[alias]
+"@web/server" = "./web-server-dist/server.js"
+
+[assets]
+directory = "./web-dist"
+
+[build]
+command = "npm run build:web"
+watch_dir = ["src", "web"]
+
 [browser]
 binding = "MYBROWSER"
 

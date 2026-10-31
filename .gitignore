@@ -4,3 +4,5 @@ dist/
 .dev.vars
 coverage/
 .context/
+web-dist/
+web-server-dist/

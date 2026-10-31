@@ -25,8 +25,7 @@ import {
 } from "./policy/anonymous-guards";
 import { setPaywallRulesFromJson, getPaywallRuleStats } from "./paywall";
 import { errorMessage } from "./utils";
-import { landingPageHTML } from "./templates/landing";
-import { loadingPageHTML } from "./templates/loading";
+import { landingPageHTML, loadingPageHTML, portalPageHTML } from "@web/server";
 
 // 从拆分模块导入
 import { incrementCounter, logMetric } from "./runtime-state";
@@ -56,7 +55,6 @@ import {
   handleVerifyMagicLink,
   handleLogout,
 } from "./handlers/auth";
-import { portalPageHTML } from "./templates/portal";
 import {
   LANDING_CSP,
   LOADING_CSP,
