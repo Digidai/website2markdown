@@ -153,7 +153,7 @@ describe("cache edge behavior", () => {
     const [secondKey] = mocks.kvPut.mock.calls[1] as [string, string, { expirationTtl?: number }];
 
     expect(firstKey.length).toBeLessThanOrEqual(500);
-    expect(firstKey).toMatch(/^https:\/\/md-cache\/v1\//);
+    expect(firstKey).toMatch(/^https:\/\/md-cache\/v2\//);
     expect(secondKey).toBe(firstKey);
     // New unified key format uses a single SHA-256 hash for all inputs
     expect(digestSpy.mock.calls.length - baseline).toBeGreaterThanOrEqual(1);

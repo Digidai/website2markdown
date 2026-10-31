@@ -220,9 +220,13 @@ async function urlHash(str: string): Promise<string> {
  *   │ (15s,mem) │    │ (free,colo)│    │ (global)│
  *   └──────────┘    └───────────┘    └─────────┘
  *
- * Format: https://md-cache/v1/{format}/{engine}/{contentHash}
+ * Format: https://md-cache/v2/{format}/{engine}/{contentHash}
  *   contentHash = SHA-256(url|selector|engine), first 16 hex chars
  *   Under 100 chars total, valid URL for Cache API, valid string for KV.
+ *
+ * Bump the version when converter output changes. That invalidates every tier
+ * at once, including per-colo Cache API entries that cannot be purged remotely.
+ * v2 (2026-10-31): colspan tables and line breaks in table cells.
  */
 async function cacheKey(
   url: string,
@@ -236,7 +240,7 @@ async function cacheKey(
 
   const contentHash = await urlHash(`${url}|${selector || ""}|${engine || ""}`);
   const eng = engine || "default";
-  const key = `https://md-cache/v1/${format}/${eng}/${contentHash}`;
+  const key = `https://md-cache/v2/${format}/${eng}/${contentHash}`;
 
   touchBoundedMap(cacheKeyMemo, memoKey, key, CACHE_KEY_MEMO_CAPACITY);
   return key;
