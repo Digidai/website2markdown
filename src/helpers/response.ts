@@ -7,9 +7,14 @@ import { errorPageHTML, renderedPageHTML } from "@web/server";
 
 // Every HTML page is server-rendered React plus the same-origin HeroUI bundle
 // at /_app/* (web-dist). The only inline script is the theme boot in <head>.
+const PAGE_COMMON_CSP =
+  "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; " +
+  "base-uri 'none'; frame-ancestors 'none'";
+
+// Cloudflare Web Analytics auto-injects its beacon from static.cloudflareinsights.com
+// (path /beacon.min.js/v…, so allow the host) and reports to same-origin /cdn-cgi/rum.
 const PAGE_BASE_CSP =
-  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-  "font-src 'self' data:; base-uri 'none'; frame-ancestors 'none'";
+  `${PAGE_COMMON_CSP}; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com`;
 
 export const LANDING_CSP = `${PAGE_BASE_CSP}; img-src 'self' data:; connect-src 'self'; form-action 'self'`;
 
@@ -17,8 +22,9 @@ export const ERROR_CSP = `${PAGE_BASE_CSP}; img-src 'self' data:; connect-src 's
 
 export const LOADING_CSP = `${PAGE_BASE_CSP}; img-src * data:; connect-src 'self'; form-action 'none'`;
 
-/** Portal shows plaintext API keys in a modal: same-origin only, no third parties. */
-export const PORTAL_CSP = `${PAGE_BASE_CSP}; img-src 'self' data:; connect-src 'self'; form-action 'self'`;
+/** Portal shows plaintext API keys in a modal: same-origin only, no third parties, so no analytics. */
+export const PORTAL_CSP =
+  `${PAGE_COMMON_CSP}; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'self'`;
 
 export const READER_CSP = `${PAGE_BASE_CSP}; img-src * data:; connect-src 'self'`;
 

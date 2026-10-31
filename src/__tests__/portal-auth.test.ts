@@ -437,6 +437,8 @@ describe("GET /portal/ — HTML page", () => {
     const res = await worker.fetch(req, env, mockCtx());
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
+    // The portal shows plaintext API keys, so no third-party scripts, analytics included.
+    expect(res.headers.get("Content-Security-Policy")).not.toContain("cloudflareinsights");
     const body = await res.text();
     expect(body).toContain("Developer Portal");
     // The portal client (which calls /api/me) ships in the hydration bundle.

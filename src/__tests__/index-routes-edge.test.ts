@@ -85,6 +85,10 @@ describe("index route edge coverage", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
     expect(res.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
+    // Cloudflare Web Analytics injects its beacon from this host.
+    expect(res.headers.get("Content-Security-Policy")).toContain(
+      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+    );
     expect(body).toContain("Markdown");
   });
 
