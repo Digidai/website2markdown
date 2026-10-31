@@ -1,54 +1,29 @@
 # Design system — md.genedai.me
 
-A reading tool, not a launch page. One cool paper and ink palette, one sans for the interface, a serif only in the article you are reading, and a single press blue for actions and links.
+The public pages use [HeroUI v3](https://heroui.com) with its default theme. Do not add a custom palette, fonts, or radius scale. When something looks off, first check whether a HeroUI component or token already covers it.
 
-## Fonts
+## Stack
 
-| Role | Font | Fallback | Usage |
-|------|------|----------|-------|
-| UI | Source Sans 3 | PingFang SC, Noto Sans SC, system-ui | All interface text, in both languages |
-| Reading | Source Serif 4 | Songti SC, Noto Serif SC, Georgia | Rendered Markdown only |
-| Code | IBM Plex Mono | Sarasa Mono SC, ui-monospace | URLs, commands, usage numbers |
+- Pages are React components in `web/`. The Worker renders them with `renderToString` (`web/server.tsx`), and `web/client.tsx` hydrates them.
+- Vite builds the client bundle to `web-dist/_app/` (served as static assets) and the SSR module to `web-server-dist/server.js`. Wrangler runs `npm run build:web` before `dev` and `deploy`.
+- Styles: `web/styles.css` imports Tailwind CSS 4 and `@heroui/styles`. Icons come from `@gravity-ui/icons`.
+- Copy for both languages lives in `web/copy.ts`.
+- The `/admin` dashboard still uses `src/templates/theme.ts`.
 
-Load from Google Fonts. Do not use a display serif in the UI. Chinese and English share the same sans so the rhythm stays even.
+## Rules
 
-## Color
+- Use HeroUI compound components (`Card`, `Tabs`, `Accordion`, `Table`, `TextField`, `Dropdown`, `Modal`, `Meter`) instead of hand-built equivalents. Links that look like buttons use `buttonVariants` on an `<a>`.
+- Use semantic tokens only: `bg-background`, `bg-surface`, `bg-surface-secondary`, `text-foreground`, `text-muted`, `border-border`, `border-separator`, `bg-accent`, `text-accent-foreground`, `text-success`, `text-danger`, `text-warning`. Never use raw hex values or Tailwind palette colors.
+- Keep HeroUI's default component padding and radius.
+- Rendered Markdown uses `Typography.Prose`. The reader adds vertical rhythm with `flex flex-col gap-4` (as in the HeroUI docs) and bordered table cells, since Prose has no table styles.
+- Content width is `max-w-6xl`. The reading column is `max-w-3xl`.
 
-| Token | Light | Dark | Usage |
-|-------|-------|------|-------|
-| `--bg` | #f3f4f6 | #14171c | Page background |
-| `--bg-surface` | #ffffff | #1c2027 | Inputs, code, panels |
-| `--bg-elevated` | #e7eaee | #262b34 | Inset blocks |
-| `--text-primary` | #1c2128 | #e7e9ed | Headings and body |
-| `--text-secondary` | #3d4654 | #c5cbd4 | Supporting copy |
-| `--text-muted` | #5c6573 | #9aa3b2 | Hints. Must stay readable |
-| `--accent` | #1b4f8a | #c5d8f5 | Buttons, current nav, links |
-| `--border` | #d0d5dc | #3a4250 | Rules and field borders |
-| `--danger` | #a3262c | #f0a8a8 | Errors |
-| `--success` | #1a6b45 | #8dcea9 | Completed steps, cache hit |
-| `--warning` | #8a5a12 | #e6c48a | Fallback methods |
+## Theme
 
-Dark mode follows `prefers-color-scheme`, or `data-theme` when the visitor picks Light or Dark. The choice is stored in `localStorage` under `theme` and applies on the home page, the reader, the loading page, errors, and the portal.
+`THEME_BOOT_SCRIPT` in `web/contract.ts` runs before paint. It reads `localStorage["heroui-theme"]` (`light`, `dark`, or unset for system) and sets the `dark` class and `data-theme` on `<html>`. The theme switcher in the header writes the same key through HeroUI's `useTheme`.
 
-## Layout
+## Accessibility
 
-- Content width 1120px. Reading column about 44rem.
-- Radius 4px. Borders are visible. No blur, no glow, no gradient washes.
-- Accent color is for actions and the current section, not for decoration.
-- Numbers use tabular figures.
-
-## Interaction
-
-- Every control has a visible `:focus-visible` ring.
-- Pressed buttons move down 1px.
-- Loading, empty, and error states say what happened and what to do next.
-- Motion is the press of a control and the spinner while a conversion runs. The homepage states the API. It does not play a tour.
-- Do not hide content until it scrolls into view.
-
-## Do not
-
-- Italicize one word in a headline.
-- Use three equal icon cards, pill tags, or fake browser windows.
-- Use emoji, star ratings, or made-up success rates.
-- Use uppercase tracked labels.
-- Use a different palette on the reader, the error page, or the portal.
+- Icon-only buttons need an `aria-label` that says what they do, for example `Theme: System`.
+- The current language link carries `aria-current="true"`.
+- Every page must work at 375px wide with no horizontal scroll.
