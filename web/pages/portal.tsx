@@ -302,7 +302,7 @@ function Overview({ session, usage, keys, goToKeys }: { session: Session; usage:
       </section>
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Quick start</h2>
-        <CodeBlock title="curl" code={`curl -H "Authorization: Bearer mk_..." \\\n  "https://md.genedai.me/https://example.com?raw=true"`} />
+        <CodeBlock title="curl" code={`curl -H "Authorization: Bearer mk_..." \\\n  "https://mdget.dev/https://example.com?raw=true"`} />
       </section>
     </>
   );

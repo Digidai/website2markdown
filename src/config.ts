@@ -69,6 +69,16 @@ export const CF_REST_TIMEOUT_MS = 30_000;
 export const CF_CRAWL_POLL_INTERVAL_MS = 3_000;
 export const CF_CRAWL_MAX_POLL_ATTEMPTS = 360;
 
+/** The hosted service's public domain. */
+export const PRIMARY_HOST = "mdget.dev";
+/** Earlier domain, still served. Its public pages name PRIMARY_HOST as canonical. */
+export const LEGACY_HOST = "md.genedai.me";
+
+/** Host to print in canonical links, sitemaps and llms.txt. Self-hosted domains are kept as-is. */
+export function publicHost(host: string): string {
+  return host.toLowerCase() === LEGACY_HOST ? PRIMARY_HOST : host;
+}
+
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",

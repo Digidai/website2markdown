@@ -149,7 +149,7 @@ function TopBar({ children }: { children?: ReactNode }) {
   return (
     <header className="sticky top-0 z-40 border-b border-separator bg-background/80 backdrop-blur-lg">
       <div className="mx-auto flex min-h-16 max-w-7xl items-center gap-x-3 px-4 py-2 sm:px-6">
-        <Brand host="md.genedai.me" href="/admin" />
+        <Brand host="mdget.dev" href="/admin" />
         <Chip size="sm" variant="soft" color="accent" className="max-sm:hidden">运营后台</Chip>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {children}

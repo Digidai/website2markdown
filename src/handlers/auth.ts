@@ -154,14 +154,14 @@ export async function handleSendMagicLink(
 // ─── Resend email helper ────────────────────────────────────
 
 async function sendMagicLinkEmail(env: Env, email: string, verifyUrl: string): Promise<void> {
-  const from = env.AUTH_EMAIL_FROM || "md.genedai.me <noreply@mail.genedai.me>";
-  const subject = "Sign in to md.genedai.me";
+  const from = env.AUTH_EMAIL_FROM || "mdget.dev <noreply@mail.genedai.me>";
+  const subject = "Sign in to mdget.dev";
   const html = `
 <!DOCTYPE html>
 <html>
 <body style="font-family: system-ui, sans-serif; background: #f3f4f6; color: #1c2128; padding: 40px 20px; margin: 0;">
   <div style="max-width: 480px; margin: 0 auto; background: #ffffff; border-radius: 4px; padding: 32px; border: 1px solid #d0d5dc;">
-    <h1 style="font-size: 22px; margin: 0 0 12px; font-weight: 600;">Sign in to md.genedai.me</h1>
+    <h1 style="font-size: 22px; margin: 0 0 12px; font-weight: 600;">Sign in to mdget.dev</h1>
     <p style="font-size: 15px; line-height: 1.6; color: #3d4654; margin: 0 0 24px;">
       Use the button to open the developer portal. This link expires in 15 minutes.
     </p>
@@ -177,7 +177,7 @@ async function sendMagicLinkEmail(env: Env, email: string, verifyUrl: string): P
   </div>
 </body>
 </html>`.trim();
-  const text = `Sign in to md.genedai.me\n\nClick this link to sign in to your Developer Portal:\n${verifyUrl}\n\nThis link expires in 15 minutes.\n\nIf you didn't request this, you can ignore this email.`;
+  const text = `Sign in to mdget.dev\n\nClick this link to sign in to your Developer Portal:\n${verifyUrl}\n\nThis link expires in 15 minutes.\n\nIf you didn't request this, you can ignore this email.`;
 
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",

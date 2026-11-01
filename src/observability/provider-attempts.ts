@@ -144,7 +144,7 @@ export async function checkProviderHealth(env: Env, now = new Date()): Promise<P
     "",
     ...lines,
     "",
-    "Details: https://md.genedai.me/admin",
+    "Details: https://mdget.dev/admin",
   ].join("\n");
   try {
     const resp = await fetch("https://api.resend.com/emails", {
@@ -154,9 +154,9 @@ export async function checkProviderHealth(env: Env, now = new Date()): Promise<P
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: env.AUTH_EMAIL_FROM || "md.genedai.me <noreply@mail.genedai.me>",
+        from: env.AUTH_EMAIL_FROM || "mdget.dev <noreply@mail.genedai.me>",
         to: env.ADMIN_EMAIL,
-        subject: `[md.genedai.me] ${unhealthy.length} fallback path(s) failing: ${unhealthy.map((row) => row.path).join(", ")}`,
+        subject: `[mdget.dev] ${unhealthy.length} fallback path(s) failing: ${unhealthy.map((row) => row.path).join(", ")}`,
         text,
       }),
     });

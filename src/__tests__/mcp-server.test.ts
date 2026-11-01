@@ -5,7 +5,7 @@ describe("MCP Server — buildApiUrl", () => {
   it("builds URL with default API base and markdown format", () => {
     const url = buildApiUrl({ url: "https://example.com/page" });
     expect(url).toBe(
-      "https://md.genedai.me/https%3A%2F%2Fexample.com%2Fpage?format=markdown"
+      "https://mdget.dev/https%3A%2F%2Fexample.com%2Fpage?format=markdown"
     );
   });
 

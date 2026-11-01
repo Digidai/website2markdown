@@ -2,7 +2,7 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-[![Live API](https://img.shields.io/badge/API-md.genedai.me-22d3ee)](https://md.genedai.me)
+[![Live API](https://img.shields.io/badge/API-mdget.dev-22d3ee)](https://mdget.dev)
 [![npm](https://img.shields.io/npm/v/@digidai/mcp-website2markdown?label=MCP%20Server)](https://www.npmjs.com/package/@digidai/mcp-website2markdown)
 [![Agent Skills](https://img.shields.io/badge/Skills-website2markdown--skills-blue?logo=github)](https://github.com/Digidai/website2markdown-skills)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
@@ -10,28 +10,30 @@
 
 把**任意网页**转换为干净的 Markdown —— JS 驱动的 SPA、付费墙内容、中国平台（微信、知乎、飞书）都能搞定。基于 Cloudflare Workers，5 层 fallback 管线 + 14 个站点适配器。
 
+托管服务地址是 **[mdget.dev](https://mdget.dev)**。原来的 `md.genedai.me` 照常可用，已有的接入不用改。
+
 ### 快速开始
 
 ```bash
 # 把任意 URL 转为 Markdown（立即试试！）
-curl -H "Accept: text/markdown" https://md.genedai.me/https://example.com
+curl -H "Accept: text/markdown" https://mdget.dev/https://example.com
 
 # 微信公众号文章
-curl -H "Accept: text/markdown" "https://md.genedai.me/https://mp.weixin.qq.com/s/文章ID"
+curl -H "Accept: text/markdown" "https://mdget.dev/https://mp.weixin.qq.com/s/文章ID"
 
 # JSON 格式输出（含元数据）
-curl "https://md.genedai.me/https://example.com?format=json&raw=true"
+curl "https://mdget.dev/https://example.com?format=json&raw=true"
 ```
 
-或直接在浏览器打开：**[md.genedai.me/https://example.com](https://md.genedai.me/https://example.com)**
+或直接在浏览器打开：**[mdget.dev/https://example.com](https://mdget.dev/https://example.com)**
 
 需要浏览器渲染的页面（微信公众号、飞书、JS 重度 SPA），或需要更高的配额？
-去 **[md.genedai.me/portal/](https://md.genedai.me/portal/)** 领取免费 API key。
+去 **[mdget.dev/portal/](https://mdget.dev/portal/)** 领取免费 API key。
 
 ## 工作原理
 
 ```
-https://md.genedai.me/<目标URL>
+https://mdget.dev/<目标URL>
 ```
 
 ### 转换流程
@@ -65,26 +67,26 @@ Fetch target with Accept: text/markdown
 
 ```
 # 完整 URL
-https://md.genedai.me/https://example.com/page
+https://mdget.dev/https://example.com/page
 
 # 裸域名（自动补 https://）
-https://md.genedai.me/example.com/page
+https://mdget.dev/example.com/page
 ```
 
 ### 原始 Markdown API
 
 ```bash
 # 通过 query 获取 raw markdown
-curl "https://md.genedai.me/https://example.com/page?raw=true"
+curl "https://mdget.dev/https://example.com/page?raw=true"
 
 # 通过 Accept 头获取 raw markdown
-curl https://md.genedai.me/https://example.com/page \
+curl https://mdget.dev/https://example.com/page \
   -H "Accept: text/markdown"
 ```
 
 ### API Key 与套餐
 
-在 **[md.genedai.me/portal/](https://md.genedai.me/portal/)** 用邮箱注册领取
+在 **[mdget.dev/portal/](https://mdget.dev/portal/)** 用邮箱注册领取
 API key。无需密码，登录链接会发到你的邮箱。
 
 | 套餐 | 月额度 | 浏览器渲染 | 引擎 |
@@ -110,7 +112,7 @@ URL（带 `X-Quota-Exceeded: true` 头），只有 cache miss 的请求会返回
 
 ```bash
 # Bearer header（推荐）
-curl "https://md.genedai.me/https://example.com/page?raw=true" \
+curl "https://mdget.dev/https://example.com/page?raw=true" \
   -H "Authorization: Bearer mk_..."
 
 # 旧的 ?token= query 参数形式仍然支持 PUBLIC_API_TOKEN 部署，
@@ -146,26 +148,26 @@ X-Request-Cost:        1
 
 ```bash
 # Markdown（默认）
-curl "https://md.genedai.me/https://example.com?format=markdown&raw=true"
+curl "https://mdget.dev/https://example.com?format=markdown&raw=true"
 
 # Clean HTML
-curl "https://md.genedai.me/https://example.com?format=html&raw=true"
+curl "https://mdget.dev/https://example.com?format=html&raw=true"
 
 # 纯文本（去格式）
-curl "https://md.genedai.me/https://example.com?format=text&raw=true"
+curl "https://mdget.dev/https://example.com?format=text&raw=true"
 
 # JSON（结构化：url, title, markdown, method, timestamp）
-curl "https://md.genedai.me/https://example.com?format=json&raw=true"
+curl "https://mdget.dev/https://example.com?format=json&raw=true"
 ```
 
 ### CSS 选择器提取
 
 ```bash
 # 仅提取文章主体
-curl "https://md.genedai.me/https://example.com?selector=.article-body&raw=true"
+curl "https://mdget.dev/https://example.com?selector=.article-body&raw=true"
 
 # 提取指定区块
-curl "https://md.genedai.me/https://example.com?selector=%23main-content&raw=true"
+curl "https://mdget.dev/https://example.com?selector=%23main-content&raw=true"
 ```
 
 > `selector` 最大长度为 `256`。
@@ -173,7 +175,7 @@ curl "https://md.genedai.me/https://example.com?selector=%23main-content&raw=tru
 ### 强制浏览器渲染
 
 ```bash
-curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_browser=true"
+curl "https://mdget.dev/https://example.com/js-heavy-page?raw=true&force_browser=true"
 ```
 
 ### Jina Reader 引擎
@@ -181,7 +183,7 @@ curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_bro
 持有 API key 时，可用 `engine=jina` 通过 [r.jina.ai](https://r.jina.ai) 转换，跳过内置流程。Free 和 Pro 都可以选择它。匿名请求会被拒绝。`engine=cf` 仍然需要 Pro。
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=jina" \
+curl "https://mdget.dev/https://example.com?raw=true&engine=jina" \
   -H "Authorization: Bearer mk_..."
 ```
 
@@ -194,7 +196,7 @@ curl "https://md.genedai.me/https://example.com?raw=true&engine=jina" \
 匿名请求不能选择这个引擎，Worker 也不会为匿名请求调用 Firecrawl 或 Jina。
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl" \
+curl "https://mdget.dev/https://example.com?raw=true&engine=firecrawl" \
   -H "Authorization: Bearer mk_..."
 ```
 
@@ -205,13 +207,13 @@ curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl" \
 结果会缓存到 KV。若需跳过缓存：
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&no_cache=true"
+curl "https://mdget.dev/https://example.com?raw=true&no_cache=true"
 ```
 
 ### 批量转换
 
 ```bash
-curl -X POST https://md.genedai.me/api/batch \
+curl -X POST https://mdget.dev/api/batch \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -235,7 +237,7 @@ curl -X POST https://md.genedai.me/api/batch \
 ### 结构化提取 API
 
 ```bash
-curl -X POST https://md.genedai.me/api/extract \
+curl -X POST https://mdget.dev/api/extract \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -266,7 +268,7 @@ curl -X POST https://md.genedai.me/api/extract \
 
 ```bash
 # 1) 创建任务
-curl -X POST https://md.genedai.me/api/jobs \
+curl -X POST https://mdget.dev/api/jobs \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: demo-job-1" \
@@ -282,15 +284,15 @@ curl -X POST https://md.genedai.me/api/jobs \
 
 # 2) 查询状态
 curl -H "Authorization: Bearer <api-token>" \
-  https://md.genedai.me/api/jobs/<job-id>
+  https://mdget.dev/api/jobs/<job-id>
 
 # 3) 订阅状态流（SSE）
 curl -N -H "Authorization: Bearer <api-token>" \
-  https://md.genedai.me/api/jobs/<job-id>/stream
+  https://mdget.dev/api/jobs/<job-id>/stream
 
 # 4) 执行队列中的任务
 curl -X POST -H "Authorization: Bearer <api-token>" \
-  https://md.genedai.me/api/jobs/<job-id>/run
+  https://mdget.dev/api/jobs/<job-id>/run
 ```
 
 Job API 补充：
@@ -308,7 +310,7 @@ Job API 补充：
 
 ```bash
 # non-stream
-curl -X POST https://md.genedai.me/api/deepcrawl \
+curl -X POST https://mdget.dev/api/deepcrawl \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -331,7 +333,7 @@ curl -X POST https://md.genedai.me/api/deepcrawl \
   }'
 
 # stream mode（SSE: start/node/done/fail）
-curl -N -X POST https://md.genedai.me/api/deepcrawl \
+curl -N -X POST https://mdget.dev/api/deepcrawl \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -372,7 +374,7 @@ Deep Crawl 还支持：
 
 ```ts
 const res = await fetch(
-  "https://md.genedai.me/https://example.com/page?raw=true"
+  "https://mdget.dev/https://example.com/page?raw=true"
 );
 const markdown = await res.text();
 console.log(res.headers.get("X-Markdown-Method"));
@@ -384,7 +386,7 @@ console.log(res.headers.get("X-Cache-Status")); // "HIT" 或 "MISS"
 ```python
 import requests
 
-url = "https://md.genedai.me/https://example.com/page"
+url = "https://mdget.dev/https://example.com/page"
 resp = requests.get(url, params={"raw": "true", "format": "json"})
 data = resp.json()
 print(data["title"], data["method"])
@@ -420,7 +422,7 @@ print(data["title"], data["method"])
 
 ## 鉴权矩阵
 
-托管版 `md.genedai.me` 使用 D1 支持的 API key + 套餐系统（见
+托管版 `mdget.dev` 使用 D1 支持的 API key + 套餐系统（见
 [API Key 与套餐](#api-key-与套餐)）。自部署可以不配置 `AUTH_DB` binding，
 fallback 到 legacy 的 `API_TOKEN` / `PUBLIC_API_TOKEN` 单 token 模式。
 
@@ -544,7 +546,7 @@ Claude Desktop 配置（`~/.claude/claude_desktop_config.json`）：
     "website2markdown": {
       "command": "mcp-website2markdown",
       "env": {
-        "WEBSITE2MARKDOWN_API_URL": "https://md.genedai.me"
+        "WEBSITE2MARKDOWN_API_URL": "https://mdget.dev"
       }
     }
   }
@@ -556,7 +558,7 @@ Claude Desktop 配置（`~/.claude/claude_desktop_config.json`）：
 遵循 llms.txt 标准的机器可读 API 描述，AI 系统可自动发现：
 
 ```
-https://md.genedai.me/llms.txt
+https://mdget.dev/llms.txt
 ```
 
 ### 如何选择？
@@ -704,7 +706,7 @@ Checkpoint 行为：
 冒烟测试示例：
 
 ```bash
-BASE_URL="https://md.genedai.me" \
+BASE_URL="https://mdget.dev" \
 API_TOKEN="<api-token>" \
 TARGET_URL="https://example.com" \
 npm run smoke:api

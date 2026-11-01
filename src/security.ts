@@ -498,7 +498,7 @@ export async function fetchWithSafeRedirects(
 const MAX_SELF_UNWRAP_DEPTH = 5;
 
 /** Our own hostnames — a target on any of these would make the Worker fetch itself. */
-const KNOWN_SELF_HOSTS = ["md.genedai.me"];
+const KNOWN_SELF_HOSTS = ["mdget.dev", "md.genedai.me"];
 
 /** Is `host` one of our own hostnames (case-insensitive)? */
 function isSelfHost(host: string, selfHost: string): boolean {

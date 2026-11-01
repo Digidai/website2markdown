@@ -9,6 +9,7 @@ import {
   VALID_FORMATS,
   BROWSER_TIMEOUT,
   IMAGE_MAX_BYTES,
+  publicHost,
 } from "./config";
 import {
   isSafeUrl,
@@ -447,10 +448,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 
     // SEO files
     if (path === "/robots.txt") {
-      return handleRobotsTxt(host);
+      return handleRobotsTxt(publicHost(host));
     }
     if (path === "/sitemap.xml") {
-      return handleSitemap(host);
+      return handleSitemap(publicHost(host));
     }
 
     // Favicon
@@ -460,7 +461,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 
     // llms.txt — AI discoverability
     if (path === "/llms.txt" || path === "/.well-known/llms.txt") {
-      return handleLlmsTxt(host);
+      return handleLlmsTxt(publicHost(host));
     }
 
     // Developer Portal (SPA — single HTML page, client-side routing)
@@ -761,7 +762,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         : path === "/docs" ? "docs"
         : path === "/integrations" || path === "/integration" ? "integration"
         : "home";
-      return new Response(landingPageHTML(host, landingLang, sitePage), {
+      return new Response(landingPageHTML(publicHost(host), landingLang, sitePage), {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Content-Security-Policy": LANDING_CSP,

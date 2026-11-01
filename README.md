@@ -2,7 +2,7 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-[![Live API](https://img.shields.io/badge/API-md.genedai.me-22d3ee)](https://md.genedai.me)
+[![Live API](https://img.shields.io/badge/API-mdget.dev-22d3ee)](https://mdget.dev)
 [![npm](https://img.shields.io/npm/v/@digidai/mcp-website2markdown?label=MCP%20Server)](https://www.npmjs.com/package/@digidai/mcp-website2markdown)
 [![Agent Skills](https://img.shields.io/badge/Skills-website2markdown--skills-blue?logo=github)](https://github.com/Digidai/website2markdown-skills)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
@@ -10,28 +10,30 @@
 
 Convert **any** web page to clean Markdown — JS-heavy SPAs, paywalled content, Chinese platforms (WeChat, Zhihu, Feishu), and more. Powered by Cloudflare Workers with a 5-layer fallback pipeline and 14 site adapters.
 
+The hosted service lives at **[mdget.dev](https://mdget.dev)**. The old address `md.genedai.me` still works the same way, so existing integrations need no change.
+
 ### Quick Start
 
 ```bash
 # Convert any URL to Markdown (try it now!)
-curl -H "Accept: text/markdown" https://md.genedai.me/https://example.com
+curl -H "Accept: text/markdown" https://mdget.dev/https://example.com
 
 # WeChat article
-curl -H "Accept: text/markdown" "https://md.genedai.me/https://mp.weixin.qq.com/s/YOUR_ARTICLE_ID"
+curl -H "Accept: text/markdown" "https://mdget.dev/https://mp.weixin.qq.com/s/YOUR_ARTICLE_ID"
 
 # JSON output with metadata
-curl "https://md.genedai.me/https://example.com?format=json&raw=true"
+curl "https://mdget.dev/https://example.com?format=json&raw=true"
 ```
 
-Or just open in your browser: **[md.genedai.me/https://example.com](https://md.genedai.me/https://example.com)**
+Or just open in your browser: **[mdget.dev/https://example.com](https://mdget.dev/https://example.com)**
 
 Need browser-rendered pages (WeChat, Feishu, JS-heavy SPAs) or higher limits?
-Get a free API key at **[md.genedai.me/portal/](https://md.genedai.me/portal/)**.
+Get a free API key at **[mdget.dev/portal/](https://mdget.dev/portal/)**.
 
 ## How It Works
 
 ```
-https://md.genedai.me/<target-url>
+https://mdget.dev/<target-url>
 ```
 
 ### Conversion Flow
@@ -65,26 +67,26 @@ Fetch target with Accept: text/markdown
 
 ```
 # Full URL
-https://md.genedai.me/https://example.com/page
+https://mdget.dev/https://example.com/page
 
 # Bare domain (auto-prepends https://)
-https://md.genedai.me/example.com/page
+https://mdget.dev/example.com/page
 ```
 
 ### Raw Markdown API
 
 ```bash
 # Get raw Markdown via query param
-curl "https://md.genedai.me/https://example.com/page?raw=true"
+curl "https://mdget.dev/https://example.com/page?raw=true"
 
 # Get raw Markdown via Accept header
-curl https://md.genedai.me/https://example.com/page \
+curl https://mdget.dev/https://example.com/page \
   -H "Accept: text/markdown"
 ```
 
 ### API Keys and Tiers
 
-Sign up at **[md.genedai.me/portal/](https://md.genedai.me/portal/)** with
+Sign up at **[mdget.dev/portal/](https://mdget.dev/portal/)** with
 your email to get an API key. No password; a sign-in link is emailed to you.
 
 | Tier | Credits/month | Browser rendering | Engines |
@@ -114,7 +116,7 @@ but rejects cache-miss requests with `429`.
 
 ```bash
 # Bearer header (recommended)
-curl "https://md.genedai.me/https://example.com/page?raw=true" \
+curl "https://mdget.dev/https://example.com/page?raw=true" \
   -H "Authorization: Bearer mk_..."
 
 # The old ?token= query-parameter form is supported for legacy
@@ -151,16 +153,16 @@ and CLI tools can poll usage without a session.
 
 ```bash
 # Markdown (default)
-curl "https://md.genedai.me/https://example.com?format=markdown&raw=true"
+curl "https://mdget.dev/https://example.com?format=markdown&raw=true"
 
 # Clean HTML
-curl "https://md.genedai.me/https://example.com?format=html&raw=true"
+curl "https://mdget.dev/https://example.com?format=html&raw=true"
 
 # Plain text (no formatting)
-curl "https://md.genedai.me/https://example.com?format=text&raw=true"
+curl "https://mdget.dev/https://example.com?format=text&raw=true"
 
 # JSON (structured: url, title, markdown, method, timestamp)
-curl "https://md.genedai.me/https://example.com?format=json&raw=true"
+curl "https://mdget.dev/https://example.com?format=json&raw=true"
 ```
 
 ### CSS Selector Extraction
@@ -169,10 +171,10 @@ Extract specific page elements instead of the full article:
 
 ```bash
 # Extract only the article body
-curl "https://md.genedai.me/https://example.com?selector=.article-body&raw=true"
+curl "https://mdget.dev/https://example.com?selector=.article-body&raw=true"
 
 # Extract a specific section
-curl "https://md.genedai.me/https://example.com?selector=%23main-content&raw=true"
+curl "https://mdget.dev/https://example.com?selector=%23main-content&raw=true"
 ```
 
 > `selector` maximum length is `256` characters.
@@ -180,7 +182,7 @@ curl "https://md.genedai.me/https://example.com?selector=%23main-content&raw=tru
 ### Force Browser Rendering
 
 ```bash
-curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_browser=true"
+curl "https://mdget.dev/https://example.com/js-heavy-page?raw=true&force_browser=true"
 ```
 
 ### Jina Reader Engine
@@ -188,7 +190,7 @@ curl "https://md.genedai.me/https://example.com/js-heavy-page?raw=true&force_bro
 Use `engine=jina` with an API key to convert via [r.jina.ai](https://r.jina.ai) instead of the built-in pipeline. Free and Pro keys can select it. Anonymous requests are rejected. `engine=cf` still requires Pro.
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=jina" \
+curl "https://mdget.dev/https://example.com?raw=true&engine=jina" \
   -H "Authorization: Bearer mk_..."
 ```
 
@@ -202,7 +204,7 @@ use its upstream free tier when that upstream accepts the request. Anonymous
 callers cannot select this engine, and the worker does not call Firecrawl or Jina for them.
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl" \
+curl "https://mdget.dev/https://example.com?raw=true&engine=firecrawl" \
   -H "Authorization: Bearer mk_..."
 ```
 
@@ -213,7 +215,7 @@ curl "https://md.genedai.me/https://example.com?raw=true&engine=firecrawl" \
 Results are cached in KV for fast repeat access. To bypass cache:
 
 ```bash
-curl "https://md.genedai.me/https://example.com?raw=true&no_cache=true"
+curl "https://mdget.dev/https://example.com?raw=true&no_cache=true"
 ```
 
 ### Batch Conversion
@@ -221,7 +223,7 @@ curl "https://md.genedai.me/https://example.com?raw=true&no_cache=true"
 Convert multiple URLs in a single request:
 
 ```bash
-curl -X POST https://md.genedai.me/api/batch \
+curl -X POST https://mdget.dev/api/batch \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -273,7 +275,7 @@ Response:
 Extract structured fields from URL or raw HTML.
 
 ```bash
-curl -X POST https://md.genedai.me/api/extract \
+curl -X POST https://mdget.dev/api/extract \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -304,7 +306,7 @@ Submit crawl/extract tasks as queued jobs, then run and monitor. Jobs are persis
 
 ```bash
 # 1) Create job
-curl -X POST https://md.genedai.me/api/jobs \
+curl -X POST https://mdget.dev/api/jobs \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: demo-job-1" \
@@ -320,15 +322,15 @@ curl -X POST https://md.genedai.me/api/jobs \
 
 # 2) Query status
 curl -H "Authorization: Bearer <api-token>" \
-  https://md.genedai.me/api/jobs/<job-id>
+  https://mdget.dev/api/jobs/<job-id>
 
 # 3) Watch status stream (SSE)
 curl -N -H "Authorization: Bearer <api-token>" \
-  https://md.genedai.me/api/jobs/<job-id>/stream
+  https://mdget.dev/api/jobs/<job-id>/stream
 
 # 4) Execute queued tasks
 curl -X POST -H "Authorization: Bearer <api-token>" \
-  https://md.genedai.me/api/jobs/<job-id>/run
+  https://mdget.dev/api/jobs/<job-id>/run
 ```
 
 Job API notes:
@@ -346,7 +348,7 @@ Run BFS/BestFirst deep crawl with filters/scoring and opt-in checkpoint resume.
 
 ```bash
 # non-stream
-curl -X POST https://md.genedai.me/api/deepcrawl \
+curl -X POST https://mdget.dev/api/deepcrawl \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -369,7 +371,7 @@ curl -X POST https://md.genedai.me/api/deepcrawl \
   }'
 
 # stream mode (SSE: start/node/done/fail)
-curl -N -X POST https://md.genedai.me/api/deepcrawl \
+curl -N -X POST https://mdget.dev/api/deepcrawl \
   -H "Authorization: Bearer <api-token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -412,7 +414,7 @@ Special adapters for optimal extraction on these platforms:
 
 ```ts
 const res = await fetch(
-  "https://md.genedai.me/https://example.com/page?raw=true"
+  "https://mdget.dev/https://example.com/page?raw=true"
 );
 const markdown = await res.text();
 console.log(res.headers.get("X-Markdown-Method"));
@@ -424,7 +426,7 @@ console.log(res.headers.get("X-Cache-Status")); // "HIT" or "MISS"
 ```python
 import requests
 
-url = "https://md.genedai.me/https://example.com/page"
+url = "https://mdget.dev/https://example.com/page"
 resp = requests.get(url, params={"raw": "true", "format": "json"})
 data = resp.json()
 print(data["title"], data["method"])
@@ -460,7 +462,7 @@ print(data["title"], data["method"])
 
 ## Authentication Matrix
 
-The hosted instance at `md.genedai.me` uses D1-backed API keys with tiers
+The hosted instance at `mdget.dev` uses D1-backed API keys with tiers
 (see [API Keys and Tiers](#api-keys-and-tiers)). Self-hosted deployments
 can skip the `AUTH_DB` binding and fall back to the legacy
 `API_TOKEN` / `PUBLIC_API_TOKEN` secrets.
@@ -586,7 +588,7 @@ Claude Desktop config (`~/.claude/claude_desktop_config.json`):
     "website2markdown": {
       "command": "mcp-website2markdown",
       "env": {
-        "WEBSITE2MARKDOWN_API_URL": "https://md.genedai.me"
+        "WEBSITE2MARKDOWN_API_URL": "https://mdget.dev"
       }
     }
   }
@@ -598,7 +600,7 @@ Claude Desktop config (`~/.claude/claude_desktop_config.json`):
 Machine-readable API description for AI system auto-discovery:
 
 ```
-https://md.genedai.me/llms.txt
+https://mdget.dev/llms.txt
 ```
 
 ### Which to choose?
@@ -746,7 +748,7 @@ Checkpoint behavior:
 Smoke example:
 
 ```bash
-BASE_URL="https://md.genedai.me" \
+BASE_URL="https://mdget.dev" \
 API_TOKEN="<api-token>" \
 TARGET_URL="https://example.com" \
 npm run smoke:api

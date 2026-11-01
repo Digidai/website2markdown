@@ -158,8 +158,8 @@ export const landingPageHTML: WebRenderers["landingPageHTML"] = (host, lang: Lan
 export const portalPageHTML: WebRenderers["portalPageHTML"] = () =>
   documentHTML({
     lang: "en",
-    head: `<title>Developer Portal — md.genedai.me</title>\n<meta name="robots" content="noindex, nofollow">`,
-    state: { view: "portal", props: { host: "md.genedai.me" } },
+    head: `<title>Developer Portal — mdget.dev</title>\n<meta name="robots" content="noindex, nofollow">`,
+    state: { view: "portal", props: { host: "mdget.dev" } },
   });
 
 export const loadingPageHTML: WebRenderers["loadingPageHTML"] = (host, targetUrl, extraStreamParams, rawRequestPath = rawPath(targetUrl)) => {
@@ -243,7 +243,7 @@ export const adminPageHTML: WebRenderers["adminPageHTML"] = (state) => {
   const title = state.mode === "login" ? "登录" : state.mode === "detail" ? "转换记录" : "运营后台";
   return documentHTML({
     lang: "zh-CN",
-    head: `<title>${title} — md.genedai.me</title>\n<meta name="robots" content="noindex, nofollow">`,
+    head: `<title>${title} — mdget.dev</title>\n<meta name="robots" content="noindex, nofollow">`,
     state: { view: "admin", props: state },
   });
 };
