@@ -5,6 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import { connect } from "cloudflare:sockets";
+import { sanitizeErrorMessage } from "../observability/conversion-events";
 import {
   fetchViaProxy,
   fetchViaProxyPool,
@@ -572,8 +573,10 @@ describe("proxy CONNECT rejection reason", () => {
       .catch((e: Error) => e);
 
     expect(String(error)).toContain("status 407");
-    expect(String(error)).toContain("x-brd-err-code=client_10030");
-    expect(String(error)).toContain("x-brd-error=Auth Failed (code: ip_forbidden)");
+    // The code must survive the sanitizer that stores errors and shows them in /admin.
+    const stored = sanitizeErrorMessage(error);
+    expect(stored).toContain("x-brd-err-code client_10030");
+    expect(stored).toContain("x-brd-error Auth Failed");
     expect(String(error)).not.toContain("hl_secret");
   });
 });
