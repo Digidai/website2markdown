@@ -15,7 +15,7 @@ import {
   type AdminReport,
   type ConversionRow,
 } from "../admin/dashboard";
-import { listChannels, parseBrightDataUser } from "../admin/channels";
+import { listChannels } from "../admin/channels";
 import type { Env } from "../types";
 import { createMockEnv, mockCtx } from "./test-helpers";
 
@@ -179,6 +179,7 @@ describe("admin report", () => {
     const channels = listChannels(env, [
       { path: "proxy_pool", attempts: 30, failures: 28, lastError: "Proxy pool exhausted", lastFailureAt: "2026-09-29T08:00:00.000Z" },
       { path: "proxy", attempts: 10, failures: 1, lastError: "407 client_10000", lastFailureAt: "2026-09-29T09:00:00.000Z" },
+      { path: "substack_proxy", attempts: 5, failures: 0, lastError: "", lastFailureAt: "" },
     ]);
     const byId = new Map(channels.map((c) => [c.id, c]));
     expect(byId.get("cf_markdown")?.status).toBe("missing");
@@ -187,20 +188,19 @@ describe("admin report", () => {
     expect(byId.get("proxy")?.status).toBe("active");
     // Both proxy paths roll up into one channel, and the newest failure wins.
     expect(byId.get("proxy")?.health).toMatchObject({ attempts: 40, failures: 29, lastError: "407 client_10000" });
+    // Substack's retry has its own card and does not roll into the proxy card.
+    expect(byId.get("substack_proxy")?.health).toMatchObject({ attempts: 5, failures: 0 });
     expect(byId.get("jina")?.health).toBeNull();
     // Status comes from presence only; secret values never reach the page model.
     expect(JSON.stringify(channels)).not.toContain(":pw@");
 
     const html = adminPageHTML({ mode: "dashboard", report: sampleReport([]), channels, tab: "channels" });
-    expect(html).toContain("Bright Data 住宅代理");
+    expect(html).toContain("Swiftproxy 代理");
+    expect(html).toContain("Substack 代理重试");
     expect(html).toContain("407 client_10000");
     expect(html).not.toContain(":pw@");
   });
 
-  it("parses the Bright Data zone username", () => {
-    expect(parseBrightDataUser("brd-customer-hl_abc123-zone-residential1-country-us")).toEqual({ customer: "hl_abc123", zone: "residential1" });
-    expect(parseBrightDataUser("user")).toBeNull();
-  });
 
   it("counts useful results as substantial successes without a paywall", async () => {
     const { env, sqls } = captureDb();
