@@ -6,6 +6,36 @@ import { createProxyRetrySignal } from "../proxy-retry";
 
 const CONTENT_SELECTOR = '.Feed_body, [class*="wbpro-feed"], [class*="detail_wbtext"], .card-feed';
 
+/** Same endpoint RSSHub uses for Weibo articles (lib/routes/weibo/utils.ts). */
+async function fetchArticle(id: string): Promise<string | null> {
+  try {
+    const resp = await fetch(`https://card.weibo.com/article/m/aj/detail?id=${id}`, {
+      headers: {
+        "User-Agent": MOBILE_UA,
+        "Accept": "application/json, text/plain, */*",
+        "Referer": `https://card.weibo.com/article/m/show/id/${id}`,
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as any;
+    const data = json?.data;
+    if (String(json?.code) !== "100000" || !data?.content) return null;
+
+    const title = data.title || "微博文章";
+    const author = data.userinfo?.screen_name || data.writer || "";
+    const byline = [author, data.create_at].filter(Boolean).join(" · ");
+    return `<html><head><title>${escapeHtml(title)}</title></head><body><article data-adapter="weibo">` +
+      `<h1>${escapeHtml(title)}</h1>` +
+      (byline ? `<p>${escapeHtml(byline)}</p>` : "") +
+      `<div class="weibo-article">${data.content}</div>` +
+      `</article></body></html>`;
+  } catch {
+    return null;
+  }
+}
+
 export const weiboAdapter: SiteAdapter = {
   match(url: string): boolean {
     return (
@@ -18,6 +48,13 @@ export const weiboAdapter: SiteAdapter = {
   alwaysBrowser: true,
 
   async fetchDirect(url: string): Promise<string | null> {
+    // Long-form articles (头条文章) have their own JSON endpoint; the status API
+    // below does not know these IDs.
+    const articleId = /(?:\/ttarticle\/|card\.weibo\.com\/article\/)/.test(url)
+      ? url.match(/[?&#/]id[=/](\d+)/)?.[1]
+      : undefined;
+    if (articleId) return fetchArticle(articleId);
+
     // Extract status ID from various Weibo URL formats
     const match =
       url.match(/(?:weibo\.com\/\d+\/|weibo\.com\/detail\/|m\.weibo\.cn\/(?:status|detail)\/)([A-Za-z0-9]+)/) ||

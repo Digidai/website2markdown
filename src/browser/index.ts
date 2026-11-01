@@ -41,6 +41,7 @@ import { neteaseAdapter } from "./adapters/netease";
 import { weiboAdapter } from "./adapters/weibo";
 import { redditAdapter } from "./adapters/reddit";
 import { twitterAdapter } from "./adapters/twitter";
+import { substackAdapter } from "./adapters/substack";
 import { genericAdapter } from "./adapters/generic";
 export { genericAdapter } from "./adapters/generic";
 // Feishu has its own dedicated function (not adapter-based)
@@ -345,6 +346,7 @@ const adapters: SiteAdapter[] = [
   weiboAdapter,
   redditAdapter,
   twitterAdapter,
+  substackAdapter,
   genericAdapter, // Must be last
 ];
 
