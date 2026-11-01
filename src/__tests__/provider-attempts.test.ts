@@ -105,7 +105,8 @@ describe("provider attempt tracking", () => {
   it("emails only paths with enough calls and a failure rate at or above 50%", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { env, db } = sqliteEnv({ RESEND_API_KEY: "re_test", ADMIN_EMAIL: "ops@example.com" });
+    const send = vi.fn(async () => ({ messageId: "m-1" }));
+    const { env, db } = sqliteEnv({ EMAIL: { send } as unknown as SendEmail, ADMIN_EMAIL: "ops@example.com" });
     db.exec(`
       INSERT INTO provider_attempts_daily VALUES
         ('2026-10-31', 'proxy_pool', 20, 10, 'Proxy pool exhausted', '2026-10-31T10:00:00.000Z', '2026-10-31T10:00:00.000Z'),
@@ -113,16 +114,12 @@ describe("provider attempt tracking", () => {
         ('2026-10-31', 'firecrawl', 40, 19, 'timeout', '2026-10-31T10:00:00.000Z', '2026-10-31T10:00:00.000Z'),
         ('2026-10-29', 'browser', 50, 50, 'too old', '2026-10-29T10:00:00.000Z', '2026-10-29T10:00:00.000Z')
     `);
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
     const unhealthy = await checkProviderHealth(env, new Date("2026-11-01T03:17:00.000Z"));
 
     expect(unhealthy.map((row) => row.path)).toEqual(["proxy_pool"]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://api.resend.com/emails");
-    const body = JSON.parse(String(init.body));
+    expect(send).toHaveBeenCalledTimes(1);
+    const body = (send.mock.calls[0] as unknown as [{ from: string; to: string; text: string }])[0];
+    expect(body.from).toBe("mdget.dev <noreply@mdget.dev>");
     expect(body.to).toBe("ops@example.com");
     expect(body.text).toContain("proxy_pool: 10/20 failed (50%)");
     expect(body.text).not.toContain("jina");
@@ -130,12 +127,11 @@ describe("provider attempt tracking", () => {
 
   it("sends nothing when every path is healthy", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
-    const { env } = sqliteEnv({ RESEND_API_KEY: "re_test", ADMIN_EMAIL: "ops@example.com" });
+    const send = vi.fn();
+    const { env } = sqliteEnv({ EMAIL: { send } as unknown as SendEmail, ADMIN_EMAIL: "ops@example.com" });
     await recordProviderAttempt(env, "jina", true);
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
 
     expect(await checkProviderHealth(env)).toEqual([]);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 });

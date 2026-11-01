@@ -3,7 +3,7 @@
  *
  *   POST /api/auth/magic-link
  *        body: { email }
- *        → Creates magic_link_tokens row, sends email via Resend.
+ *        → Creates magic_link_tokens row, sends email via Cloudflare Email Sending.
  *        Always returns 200 (does NOT reveal if email is registered).
  *
  *   GET /api/auth/verify?token=<token>
@@ -33,6 +33,7 @@ import {
 } from "../middleware/session";
 import { bumpLimit } from "../middleware/rate-limit-d1";
 import { sanitizeErrorMessage } from "../observability/conversion-events";
+import { sendEmail } from "../helpers/email";
 
 const TOKEN_TTL_MINUTES = 15;
 const EMAIL_RATE_LIMIT_PER_HOUR = 3;
@@ -79,7 +80,7 @@ export async function handleSendMagicLink(
 
   // ── Rate limiting (two-dimensional, D1-backed for atomicity) ────
   // 1) Per-email cap: prevents mailbox flooding for a specific victim
-  // 2) Per-IP cap: prevents a single attacker from burning Resend quota
+  // 2) Per-IP cap: prevents a single attacker from burning email quota
   //    by rotating across many victim emails
   //
   // Uses D1 INSERT ... ON CONFLICT UPDATE RETURNING for atomic counter
@@ -129,20 +130,15 @@ export async function handleSendMagicLink(
     return Response.json({ error: "Internal Error" }, { status: 500, headers: CORS_HEADERS });
   }
 
-  // Send email via Resend (if configured).
   // Rate counters were already incremented atomically by bumpLimit() above,
-  // so they're "spent" even if Resend fails. This is intentional: it prevents
-  // attackers from retrying by burning the Resend failure path.
+  // so they're "spent" even if sending fails. This is intentional: it prevents
+  // attackers from retrying by burning the send failure path.
   const verifyUrl = `https://${host}/api/auth/verify?token=${token}`;
-  if (env.RESEND_API_KEY) {
-    try {
-      await sendMagicLinkEmail(env, email, verifyUrl);
-    } catch (err) {
-      console.error("Resend send failed:", sanitizeErrorMessage(err));
-      // Don't leak the error to the client, but log it
-    }
-  } else {
-    console.warn("RESEND_API_KEY not configured; magic link email was not sent.");
+  try {
+    await sendMagicLinkEmail(env, email, verifyUrl);
+  } catch (err) {
+    // Don't leak the error to the client, but log it
+    console.error("Magic link email failed:", sanitizeErrorMessage(err));
   }
 
   return Response.json({
@@ -151,10 +147,9 @@ export async function handleSendMagicLink(
   }, { status: 200, headers: CORS_HEADERS });
 }
 
-// ─── Resend email helper ────────────────────────────────────
+// ─── Magic link email ───────────────────────────────────────
 
 async function sendMagicLinkEmail(env: Env, email: string, verifyUrl: string): Promise<void> {
-  const from = env.AUTH_EMAIL_FROM || "mdget.dev <noreply@mail.genedai.me>";
   const subject = "Sign in to mdget.dev";
   const html = `
 <!DOCTYPE html>
@@ -179,19 +174,7 @@ async function sendMagicLinkEmail(env: Env, email: string, verifyUrl: string): P
 </html>`.trim();
   const text = `Sign in to mdget.dev\n\nClick this link to sign in to your Developer Portal:\n${verifyUrl}\n\nThis link expires in 15 minutes.\n\nIf you didn't request this, you can ignore this email.`;
 
-  const resp = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${env.RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from, to: email, subject, html, text }),
-  });
-
-  if (!resp.ok) {
-    const errBody = await resp.text();
-    throw new Error(`Resend API ${resp.status}: ${errBody}`);
-  }
+  await sendEmail(env, { to: email, subject, html, text });
 }
 
 // ─── GET /api/auth/verify?token=xxx ─────────────────────────

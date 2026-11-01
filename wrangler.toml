@@ -47,6 +47,11 @@ new_sqlite_classes = ["JobCoordinator"]
 [observability]
 enabled = true
 
+# Cloudflare Email Sending, for sign-in and alert emails. The sender domain
+# (mdget.dev) is onboarded under Email Service > Email Sending.
+[[send_email]]
+name = "EMAIL"
+
 [triggers]
 crons = ["17 3 * * *"]
 
