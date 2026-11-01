@@ -42,7 +42,7 @@ export const substackAdapter: SiteAdapter = {
           name: "default",
           headers: { ...headers, "Accept-Encoding": "identity" },
         }], { timeoutMs: 10_000, acceptResult: (r) => r.status === 200 || (r.status >= 301 && r.status <= 308) });
-        const proxied = await trackProvider(env, "proxy_pool", undefined, async () => {
+        const proxied = await trackProvider(env, "substack_proxy", undefined, async () => {
           const first = await viaProxy(apiUrl);
           // Publications with a custom domain answer the proxy with a redirect
           // to that domain, which fetchViaProxy does not follow. Follow it once.
