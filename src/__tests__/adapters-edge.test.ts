@@ -625,6 +625,27 @@ describe("API-first fetchDirect paths", () => {
     expect(proxies).toEqual([{ host: "proxy.test", port: 3000, username: "u", password: "p" }]);
   });
 
+  it("records each Substack proxy retry as a proxy_pool attempt", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("slow down", { status: 429 })));
+    const binds: unknown[][] = [];
+    const env = {
+      PROXY_URL: "u:p@proxy.test:3000",
+      AUTH_DB: { prepare: () => ({ bind: (...args: unknown[]) => { binds.push(args); return { run: async () => ({}) }; } }) },
+    } as never;
+    const url = "https://example.substack.com/p/my-post";
+
+    vi.mocked(fetchViaProxyPool).mockReset().mockResolvedValueOnce({
+      status: 200, headers: {}, body: JSON.stringify({ title: "Proxied", body_html: "<p>Via proxy.</p>" }),
+    } as never);
+    expect(await substackAdapter.fetchDirect!(url, env)).toContain("Via proxy.");
+
+    vi.mocked(fetchViaProxyPool).mockRejectedValueOnce(new Error("All proxy attempts failed"));
+    expect(await substackAdapter.fetchDirect!(url, env)).toBeNull();
+
+    // bind(date, path, failures, ...): one success, then one failure.
+    expect(binds.map((b) => [b[1], b[2]])).toEqual([["proxy_pool", 0], ["proxy_pool", 1]]);
+  });
+
   it("follows the proxy's redirect to a custom-domain API URL", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("slow down", { status: 429 })));
     vi.mocked(fetchViaProxyPool).mockReset()

@@ -3,6 +3,7 @@ import { DESKTOP_UA } from "../../config";
 import { escapeHtml } from "../../security";
 import { genericAdapter } from "./generic";
 import { fetchViaProxyPool, parseProxyPool } from "../../proxy";
+import { trackProvider } from "../../observability/provider-attempts";
 
 /**
  * Substack serves each post as JSON at /api/v1/posts/<slug>. One small API
@@ -36,17 +37,19 @@ export const substackAdapter: SiteAdapter = {
         json = await resp.json();
       } else {
         const proxies = resp.status === 429 ? parseProxyPool(env?.PROXY_POOL || env?.PROXY_URL || "") : [];
-        if (proxies.length === 0) return null;
+        if (!env || proxies.length === 0) return null;
         const viaProxy = (target: string) => fetchViaProxyPool(target, proxies, [{
           name: "default",
           headers: { ...headers, "Accept-Encoding": "identity" },
         }], { timeoutMs: 10_000, acceptResult: (r) => r.status === 200 || (r.status >= 301 && r.status <= 308) });
-        let proxied = await viaProxy(apiUrl);
-        // Publications with a custom domain answer the proxy with a redirect
-        // to that domain, which fetchViaProxy does not follow. Follow it once.
-        if (proxied.status !== 200 && proxied.headers.location) {
-          proxied = await viaProxy(new URL(proxied.headers.location, apiUrl).href);
-        }
+        const proxied = await trackProvider(env, "proxy_pool", undefined, async () => {
+          const first = await viaProxy(apiUrl);
+          // Publications with a custom domain answer the proxy with a redirect
+          // to that domain, which fetchViaProxy does not follow. Follow it once.
+          return first.status !== 200 && first.headers.location
+            ? viaProxy(new URL(first.headers.location, apiUrl).href)
+            : first;
+        }, (r) => r.status === 200);
         if (proxied.status !== 200) return null;
         json = JSON.parse(proxied.body);
       }
