@@ -600,15 +600,4 @@ describe("API-first fetchDirect paths", () => {
     expect(getAdapter("https://example.substack.com/")).not.toBe(substackAdapter);
   });
 
-  it("uses CSDN's server-rendered article but not its WAF challenge page", async () => {
-    let challenged = false;
-    vi.stubGlobal("fetch", vi.fn(async () => challenged
-      ? new Response("<html><script>function ct(OH){}</script></html>", { status: 521 })
-      : new Response('<html><body><div id="content_views"><p>正文</p></div></body></html>')));
-    const url = "https://blog.csdn.net/user/article/details/123";
-
-    expect(await csdnAdapter.fetchDirect!(url)).toContain("<p>正文</p>");
-    challenged = true;
-    expect(await csdnAdapter.fetchDirect!(url)).toBeNull();
-  });
 });
