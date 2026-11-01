@@ -1,5 +1,6 @@
 import type { IpRiskLevel, SuspiciousIp } from "../../web/contract";
 import type { Env } from "../types";
+import { AE_COUNT, aeCountIf, aeTime, queryAccessEvents } from "./access-ae";
 
 /**
  * Rule-based risk score for anonymous caller IPs over a recent window.
@@ -12,7 +13,7 @@ export interface IpActivity {
   asOrg: string;
   country: string;
   uaFamily: string;
-  /** API and probe requests seen in access_events. */
+  /** API and probe requests in the access_events Analytics Engine dataset. */
   requests: number;
   /** Requests answered 401 or 429 (blocked targets, rate limits). */
   blocked: number;
@@ -107,19 +108,20 @@ export async function loadSuspiciousIps(env: Env, since: string, limit = 50): Pr
   const db = env.AUTH_DB;
   if (!db) return [];
   const [access, conversions] = await Promise.all([
-    db.prepare(`
-      SELECT client_ip AS ip, COUNT(*) AS requests,
-        SUM(CASE WHEN status IN (401, 429) THEN 1 ELSE 0 END) AS blocked,
-        SUM(CASE WHEN status = 400 THEN 1 ELSE 0 END) AS malformed,
-        SUM(CASE WHEN kind = 'probe' THEN 1 ELSE 0 END) AS probes,
-        COUNT(DISTINCT substr(created_at, 12, 2)) AS active_hours,
-        MAX(ua_family) AS ua_family, MAX(as_org) AS as_org, MAX(asn) AS asn, MAX(country) AS country
+    queryAccessEvents<AccessAgg>(env, `
+      SELECT blob14 AS ip, ${AE_COUNT} AS requests,
+        ${aeCountIf("(double1 = 401 OR double1 = 429)")} AS blocked,
+        ${aeCountIf("double1 = 400")} AS malformed,
+        ${aeCountIf("blob1 = 'probe'")} AS probes,
+        COUNT(DISTINCT toHour(timestamp)) AS active_hours,
+        argMax(blob6, timestamp) AS ua_family, argMax(blob16, timestamp) AS as_org,
+        max(double3) AS asn, argMax(blob4, timestamp) AS country
       FROM access_events
-      WHERE created_at >= ? AND client_ip != '' AND kind IN ('api', 'probe')
-        AND auth_present NOT IN ('bearer', 'both')
-      GROUP BY client_ip HAVING COUNT(*) >= ?
-      ORDER BY requests DESC LIMIT ?
-    `).bind(since, MIN_REQUESTS, MAX_IPS).all<AccessAgg>(),
+      WHERE timestamp >= ${aeTime(since)} AND blob14 != '' AND blob1 IN ('api', 'probe')
+        AND blob9 NOT IN ('bearer', 'both')
+      GROUP BY ip HAVING ${AE_COUNT} >= ${MIN_REQUESTS}
+      ORDER BY requests DESC LIMIT ${MAX_IPS}
+    `),
     db.prepare(`
       SELECT ip, SUM(n) AS conversions, SUM(f) AS failures, COUNT(*) AS hosts,
         -- SQLite takes a bare column from the row that MAX() picked.
@@ -136,11 +138,11 @@ export async function loadSuspiciousIps(env: Env, since: string, limit = 50): Pr
   ]);
   const byIp = new Map((conversions.results ?? []).map((row) => [row.ip, row]));
   const scored: SuspiciousIp[] = [];
-  for (const row of access.results ?? []) {
+  for (const row of access) {
     const conv = byIp.get(row.ip);
     const activity: IpActivity = {
       ip: row.ip,
-      asn: row.asn == null ? null : Number(row.asn),
+      asn: Number(row.asn) ? Number(row.asn) : null,
       asOrg: row.as_org || "",
       country: row.country || "",
       uaFamily: row.ua_family || "",

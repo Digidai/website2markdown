@@ -213,6 +213,14 @@ describe("admin report", () => {
     expect(totals).toContain("AS useful_today");
   });
 
+  it("keeps the D1 conversion stats when Analytics Engine access stats fail", async () => {
+    const { env, sqls } = captureDb();
+    const report = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin")));
+    expect(report.error).toContain("转化统计不受影响");
+    expect(sqls.some((sql) => sql.includes("FROM conversion_log"))).toBe(true);
+    expect(sqls.some((sql) => sql.includes("access_events"))).toBe(false);
+  });
+
   it("asks for every matching conversion when the failure filter is on", async () => {
     const { env, sqls } = captureDb();
     await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=failures&days=30&q=weixin")));
