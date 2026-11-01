@@ -701,6 +701,55 @@ describe("index mocked branch coverage", () => {
     expect(mocked.paywall.fetchArchiveToday).toHaveBeenCalled();
   });
 
+  it("rescues a bot-walled page through Context.dev for signed-in requests only", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith("https://api.context.dev/")) {
+        return Response.json({
+          html: { success: true, data: `<html><body><article>CONTEXT-DEV-BODY ${"c".repeat(1600)}</article></body></html>` },
+          metadata: { finalUrl: "https://example.com/walled" },
+          key_metadata: { credits_remaining: 998 },
+        });
+      }
+      return new Response("<html><body>FORBIDDEN-BLOCK-PAGE</body></html>", {
+        status: 403,
+        headers: { "Content-Type": "text/html" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const env = createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", API_TOKEN: "test-token" }).env;
+    const contextDevCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("https://api.context.dev/")).length;
+
+    const anon = await worker.fetch(new Request("https://md.example.com/https://example.com/walled?raw=true", {
+      headers: { Accept: "text/markdown" },
+    }), env, mockCtx());
+    expect(anon.status).toBe(502);
+    // Anonymous traffic must not spend the small Context.dev quota.
+    expect(contextDevCalls()).toBe(0);
+
+    const signed = await worker.fetch(new Request("https://md.example.com/https://example.com/walled?raw=true&no_cache=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    }), env, mockCtx());
+    expect(signed.status).toBe(200);
+    expect(contextDevCalls()).toBe(1);
+    expect(signed.headers.get("X-Markdown-Fallbacks")).toContain("context_dev");
+    const converted = mocked.converter.htmlToMarkdown.mock.calls.map((c: any[]) => String(c[0])).join("\n");
+    expect(converted).toContain("CONTEXT-DEV-BODY");
+    expect(converted).not.toContain("FORBIDDEN-BLOCK-PAGE");
+  });
+
+  it("keeps a real 404 as an error instead of spending Context.dev credits", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    const fetchMock = vi.fn(async () => new Response("not found", { status: 404, headers: { "Content-Type": "text/html" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", API_TOKEN: "test-token" }).env;
+    const res = await worker.fetch(new Request("https://md.example.com/https://example.com/missing?raw=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    }), env, mockCtx());
+    expect(res.status).not.toBe(200);
+    expect(fetchMock.mock.calls.some((c: unknown[]) => String(c[0]).startsWith("https://api.context.dev/"))).toBe(false);
+  });
+
   it("returns fetch failed when paywall archives are unavailable", async () => {
     mocked.paywall.getPaywallRule.mockReturnValue({ domains: ["example.com"] });
     mocked.paywall.fetchWaybackSnapshot.mockResolvedValueOnce(null);

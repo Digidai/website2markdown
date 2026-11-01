@@ -25,6 +25,8 @@ export interface Env {
   CF_API_TOKEN?: string;
   /** Optional Firecrawl API key. Omit to use Firecrawl keyless when available. */
   FIRECRAWL_API_KEY?: string;
+  /** Context.dev API key; signed-in last-resort fallback for blocked pages. */
+  CONTEXT_DEV_API_KEY?: string;
   /** Optional Firecrawl API base URL. Defaults to https://api.firecrawl.dev. */
   FIRECRAWL_API_URL?: string;
   /** Optional Firecrawl timeout in milliseconds. */

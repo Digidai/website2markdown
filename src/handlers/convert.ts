@@ -36,6 +36,7 @@ import {
   ensureBrightDataAllowlisted,
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
+import { fetchViaContextDev } from "../context-dev";
 import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/wechat";
 import {
   applyPaywallHeaders,
@@ -778,6 +779,7 @@ async function tryFetchAndParse(
       abortSignal,
       progress,
       sessionProfileScope,
+      providerApiKeysAllowed,
     );
     finalHtml = result.html;
     if (result.rendered) {
@@ -1143,6 +1145,42 @@ async function tryFetchAndParse(
 
 // ─── 子函数：浏览器渲染 ──────────────────────────────────────
 
+// ─── 子函数：Context.dev 兜底 ────────────────────────────────
+
+/**
+ * Last resort for a page our own fetch and browser could not get. Context.dev
+ * renders in a real browser behind escalating proxies. Its free quota is small,
+ * so callers use it only for signed-in requests and only where the request
+ * would otherwise fail.
+ */
+async function tryContextDev(
+  targetUrl: string,
+  env: Env,
+  fallbacks: Set<string>,
+  abortSignal?: AbortSignal,
+  progress?: (step: string, label: string) => void | Promise<void>,
+): Promise<string | null> {
+  const apiKey = env.CONTEXT_DEV_API_KEY;
+  if (!apiKey) return null;
+  throwIfAborted(abortSignal);
+  await progress?.("fetch", "Fetching via Context.dev");
+  const usable = (html: string) => html.length > 1000 && !isLikelyChallengeHtml(html);
+  try {
+    const result = await trackProvider(
+      env, "context_dev", abortSignal,
+      () => fetchViaContextDev(targetUrl, apiKey, 30_000, abortSignal),
+      (r) => usable(r.html),
+    );
+    if (!usable(result.html)) return null;
+    fallbacks.add("context_dev");
+    return result.html;
+  } catch (error) {
+    if (abortSignal?.aborted) throw new RequestAbortedError();
+    console.error("Context.dev fallback failed:", errorMessage(error));
+    return null;
+  }
+}
+
 async function tryBrowserRendering(
   targetUrl: string,
   env: Env,
@@ -1151,6 +1189,7 @@ async function tryBrowserRendering(
   abortSignal?: AbortSignal,
   progress?: (step: string, label: string) => void | Promise<void>,
   sessionProfileScope?: string,
+  providerApiKeysAllowed: boolean = false,
 ): Promise<{ html: string; rendered: boolean }> {
   const _progress = progress || (() => {});
   throwIfAborted(abortSignal);
@@ -1172,14 +1211,25 @@ async function tryBrowserRendering(
     const legacyCookies = extractLegacyProxyRetryCookies(msg);
 
     // 混合代理路径：浏览器解决了 JS 挑战但数据中心 IP 被屏蔽
+    let failure: ConvertError;
     if (retryToken || legacyCookies) {
-      return tryProxyRetry(
-        targetUrl, env, fallbacks, retryToken, legacyCookies, abortSignal, _progress,
-      );
+      try {
+        return await tryProxyRetry(
+          targetUrl, env, fallbacks, retryToken, legacyCookies, abortSignal, _progress,
+        );
+      } catch (proxyError) {
+        if (!(proxyError instanceof ConvertError)) throw proxyError;
+        failure = proxyError;
+      }
     } else {
       console.error("Browser rendering failed:", errorMessage(error));
-      throw new ConvertError("Fetch Failed", "Browser rendering failed for this URL.", 502);
+      failure = new ConvertError("Fetch Failed", "Browser rendering failed for this URL.", 502);
     }
+    const rescued = providerApiKeysAllowed
+      ? await tryContextDev(targetUrl, env, fallbacks, abortSignal, _progress)
+      : null;
+    if (rescued) return { html: rescued, rendered: true };
+    throw failure;
   }
 }
 
@@ -1466,7 +1516,15 @@ async function tryStaticFetch(
         }
       }
     } else {
-      throw originStatusError(response);
+      // Bot walls answer 401/403/429/503; other statuses are the page's real answer.
+      const blocked = [401, 403, 429, 503].includes(response.status);
+      const rescued = blocked && providerApiKeysAllowed
+        ? await tryContextDev(resolvedUrl, env, fallbacks, abortSignal, progress)
+        : null;
+      if (!rescued) throw originStatusError(response);
+      finalHtml = rescued;
+      method = "proxy+readability+turndown";
+      browserRendered = true;
     }
   }
 
@@ -1495,11 +1553,19 @@ async function tryStaticFetch(
     } catch (error) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
       console.error("Browser fallback failed:", errorMessage(error));
-      throw new ConvertError(
-        "Fetch Failed",
-        `Static fetch returned ${response.status} and browser rendering also failed.`,
-        502,
-      );
+      const rescued = providerApiKeysAllowed
+        ? await tryContextDev(targetUrl, env, fallbacks, abortSignal, progress)
+        : null;
+      if (!rescued) {
+        throw new ConvertError(
+          "Fetch Failed",
+          `Static fetch returned ${response.status} and browser rendering also failed.`,
+          502,
+        );
+      }
+      finalHtml = rescued;
+      method = "proxy+readability+turndown";
+      browserRendered = true;
     }
   } else if (!staticFailed) {
     // Only parse the response body when the fetch actually succeeded. If the
