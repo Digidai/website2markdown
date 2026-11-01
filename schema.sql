@@ -181,35 +181,6 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 );
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires ON rate_limits(expires_at);
 
-CREATE TABLE IF NOT EXISTS access_events (
-  id TEXT PRIMARY KEY,
-  created_at TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  method TEXT NOT NULL,
-  path TEXT NOT NULL,
-  status INTEGER NOT NULL,
-  country TEXT NOT NULL DEFAULT '',
-  colo TEXT NOT NULL DEFAULT '',
-  ua_family TEXT NOT NULL DEFAULT '',
-  referrer_host TEXT NOT NULL DEFAULT '',
-  surface TEXT NOT NULL DEFAULT '',
-  route_name TEXT NOT NULL DEFAULT '',
-  auth_present TEXT NOT NULL DEFAULT '',
-  duration_ms INTEGER,
-  cache_status TEXT NOT NULL DEFAULT '',
-  format TEXT NOT NULL DEFAULT '',
-  query_redacted TEXT NOT NULL DEFAULT '',
-  request_id TEXT NOT NULL DEFAULT '',
-  client_ip TEXT NOT NULL DEFAULT '',
-  user_agent TEXT NOT NULL DEFAULT '',
-  asn INTEGER,
-  as_org TEXT NOT NULL DEFAULT '',
-  city TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_access_events_created ON access_events(created_at);
-CREATE INDEX IF NOT EXISTS idx_access_events_kind ON access_events(kind, created_at);
-CREATE INDEX IF NOT EXISTS idx_access_events_surface ON access_events(surface, created_at);
-
 CREATE TABLE IF NOT EXISTS conversion_log (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL,
@@ -260,8 +231,6 @@ CREATE TABLE IF NOT EXISTS conversion_log (
 CREATE INDEX IF NOT EXISTS idx_conversion_log_created ON conversion_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_outcome ON conversion_log(outcome, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_status ON conversion_log(status_code, created_at);
-CREATE INDEX IF NOT EXISTS idx_access_events_status ON access_events(status, created_at);
-CREATE INDEX IF NOT EXISTS idx_access_events_ip ON access_events(client_ip, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_ip ON conversion_log(client_ip, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_account ON conversion_log(account_id, created_at);
 -- Per-day outcome counts for each fallback path (Firecrawl, Jina, proxy pool,

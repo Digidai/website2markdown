@@ -771,7 +771,6 @@ describe("conversion observability", () => {
       .map((statement) => statement.sql.replace(/\s+/g, " ").trim());
     expect(deletes).toEqual([
       expect.stringContaining("DELETE FROM conversion_debug_traces"),
-      expect.stringContaining("DELETE FROM access_events"),
       expect.stringContaining("DELETE FROM conversion_log"),
       expect.stringContaining("DELETE FROM sessions"),
       expect.stringContaining("DELETE FROM magic_link_tokens"),
