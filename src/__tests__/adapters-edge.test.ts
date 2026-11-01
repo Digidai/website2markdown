@@ -689,16 +689,30 @@ describe("Feishu crawler-rendered document data", () => {
 });
 
 describe("Juejin and Yuque public paths", () => {
-  it("uses Juejin's server-rendered post but not the WAF challenge page", async () => {
-    let challenged = false;
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(challenged
-      ? '<html><script>var _wafchallengeid="x";</script></html>'
-      : '<html><body><div class="article-viewer markdown-body"><p>正文</p></div></body></html>')));
-    const url = "https://juejin.cn/post/7637856870833635343";
+  it("solves Juejin's WAF challenge and retries with the cookie", async () => {
+    // Captured from a Workers egress; sha256(a + "9") === c.
+    const cs = "eyJ2Ijp7ImEiOiJuWFQwTS9PZ2lZYnAvU1p1eDQ3U0VVajM2OC94MnNJWm9mL3hsS3Q4OWE0PSIsImIiOjE3OTM1MzIyMTAsImMiOiJ1RXlYSlFmMGlDWU9ic3o4RnRDRUtjUit2WGZnZGh6RzNxN0p1RVNwUUpjPSJ9LCJzIjoiQmNhMnBhR2Q4akNvWW9vTWR4Ri9Ub0NFeHZyc0svWlZPRW1uYy9Nay9FOD0ifQ";
+    const challengePage = `<script>var wci="_wafchallengeid",cs="${cs}",c=JSON.parse(atob(cs));</script>`;
+    const article = '<html><body><div class="article-viewer markdown-body"><p>正文</p></div></body></html>';
+    const cookies: Array<string | undefined> = [];
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const cookie = (init?.headers as Record<string, string>).Cookie;
+      cookies.push(cookie);
+      if (!cookie) return new Response(challengePage);
+      // The first retry left from another egress IP and was rejected.
+      return cookies.length === 2 ? new Response("", { status: 403 }) : new Response(article);
+    }));
 
-    expect(await juejinAdapter.fetchDirect!(url)).toContain("<p>正文</p>");
-    challenged = true;
-    expect(await juejinAdapter.fetchDirect!(url)).toBeNull();
+    expect(await juejinAdapter.fetchDirect!("https://juejin.cn/post/7637856870833635343")).toContain("<p>正文</p>");
+    expect(cookies).toHaveLength(4);
+    const solved = JSON.parse(atob(cookies[3]!.replace("_wafchallengeid=", "")));
+    expect(solved.d).toBe(btoa("9"));
+    expect(solved.s).toBe("Bca2paGd8jCoYooMdxF/ToCExvrsK/ZVOEmnc/Mk/E8=");
+  });
+
+  it("gives up on Juejin when the retry is still not an article", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('<script>var _wafchallengeid="x";</script>')));
+    expect(await juejinAdapter.fetchDirect!("https://juejin.cn/post/1")).toBeNull();
   });
 
   it("reads a Yuque doc via appData's book id and turns lake cards into HTML", async () => {
