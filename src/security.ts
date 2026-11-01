@@ -387,7 +387,10 @@ export function isValidUrl(url: string): boolean {
   if (url.length > MAX_URL_LENGTH) return false;
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    // A dotless host such as https://wp-content/... is a mis-joined relative path or a probe.
+    // IPv6 literals keep their colons in the hostname.
+    return /[.:]/.test(parsed.hostname);
   } catch {
     return false;
   }

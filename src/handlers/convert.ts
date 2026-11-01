@@ -55,10 +55,9 @@ import { errorMessage } from "../utils";
 import { ConvertError, type ConvertDiagnostics } from "../helpers/response";
 import {
   GOV_EMPTY_SHELL_MESSAGE,
-  SEARCH_PAGE_API_KEY_MESSAGE,
   isGovEmptyShell,
   isNegativeOriginStatus,
-  isSearchResultPage,
+  anonymousBlockMessage,
 } from "../policy/anonymous-guards";
 import { formatOutput } from "../helpers/format";
 import { trackProvider } from "../observability/provider-attempts";
@@ -334,9 +333,10 @@ export async function convertUrl(
 ): Promise<ConvertResult> {
   const progress = onProgress || (() => {});
   throwIfAborted(abortSignal);
-  // Search pages are rejected before either cache, and are not remembered as origin failures.
-  if (anonymousCaller && isSearchResultPage(targetUrl)) {
-    throw new ConvertError("Unauthorized", SEARCH_PAGE_API_KEY_MESSAGE, 401);
+  // Search pages and proxy services are rejected before either cache, and are not remembered as origin failures.
+  const anonymousBlock = anonymousCaller ? anonymousBlockMessage(targetUrl) : null;
+  if (anonymousBlock) {
+    throw new ConvertError("Unauthorized", anonymousBlock, 401);
   }
   const fallbacks = new Set<string>();
   let browserRendered = false;

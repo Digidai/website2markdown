@@ -42,6 +42,33 @@ export function isSearchResultPage(raw: string): boolean {
   return SEARCH_RESULT_PATHS[url.hostname.toLowerCase()]?.includes(url.pathname) ?? false;
 }
 
+export const PROXY_SERVICE_API_KEY_MESSAGE =
+  "Converting another proxy or scraping service requires an API key.";
+
+/** Proxy and scraping services anonymous callers were chaining through us. */
+const PROXY_SERVICE_HOSTS = new Set([
+  "r.jina.ai",
+  "proxy.cors.dev",
+  "api.microlink.io",
+  "httpbin.org",
+  "validator.w3.org",
+]);
+
+/** Why an anonymous caller may not convert this URL, or null when it may. */
+export function anonymousBlockMessage(raw: string): string | null {
+  if (isSearchResultPage(raw)) return SEARCH_PAGE_API_KEY_MESSAGE;
+  try {
+    if (PROXY_SERVICE_HOSTS.has(new URL(raw).hostname.toLowerCase())) return PROXY_SERVICE_API_KEY_MESSAGE;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+export function isAnonymousBlockMessage(message: string): boolean {
+  return message === SEARCH_PAGE_API_KEY_MESSAGE || message === PROXY_SERVICE_API_KEY_MESSAGE;
+}
+
 export function isGovCnHost(raw: string): boolean {
   let host = "";
   try {
