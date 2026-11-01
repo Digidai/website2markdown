@@ -40,6 +40,7 @@ import { bumpLimit } from "../middleware/rate-limit-d1";
 import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/wechat";
 import { isFeishuDocumentUrl } from "../browser/adapters/feishu";
 import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
+import { substackAdapter } from "../browser/adapters/substack";
 import {
   applyPaywallHeaders,
   extractJsonLdArticle,
@@ -206,6 +207,9 @@ export function asFetchConvertError(error: unknown): ConvertError {
     502,
   );
 }
+
+/** Bot walls answer these; other statuses are the page's real answer. */
+const BLOCKED_STATUSES = [401, 403, 429, 503];
 
 /** Attach targetStatus only for origin statuses that anonymous callers may remember. */
 function originStatusError(response: Response): ConvertError {
@@ -1538,7 +1542,20 @@ async function tryStaticFetch(
 
   const staticFailed = !response.ok;
 
-  if (staticFailed && !forceBrowser) {
+  // A Substack publication on its own domain cannot be recognised from the
+  // URL, but its blocked page still carries x-served-by: Substack. The post
+  // API on that domain usually answers, and the adapter retries its 429s
+  // through the proxy.
+  if (staticFailed && !forceBrowser && BLOCKED_STATUSES.includes(response.status)
+    && response.headers.get("x-served-by") === "Substack") {
+    const substackHtml = await substackAdapter.fetchDirect!(resolvedUrl, env).catch(() => null);
+    if (substackHtml) {
+      finalHtml = substackHtml;
+      fallbacks.add("substack_api");
+    }
+  }
+
+  if (staticFailed && !forceBrowser && !finalHtml) {
     if (getPaywallRule(resolvedUrl)) {
       paywallDetected = true;
       const waybackHtml = await trackProvider(env, "wayback", abortSignal, () => fetchWaybackSnapshot(resolvedUrl, abortSignal), (html) => Boolean(html));
@@ -1555,8 +1572,7 @@ async function tryStaticFetch(
         }
       }
     } else {
-      // Bot walls answer 401/403/429/503; other statuses are the page's real answer.
-      const blocked = [401, 403, 429, 503].includes(response.status);
+      const blocked = BLOCKED_STATUSES.includes(response.status);
       const rescued = blocked && providerApiKeysAllowed
         ? await tryContextDev(resolvedUrl, env, fallbacks, abortSignal, progress)
         : null;

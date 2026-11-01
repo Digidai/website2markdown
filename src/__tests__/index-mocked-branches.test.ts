@@ -1236,4 +1236,42 @@ describe("index mocked branch coverage", () => {
     expect(body).not.toContain("bing results that must stay hidden");
     expect(mocked.cache.getCached).not.toHaveBeenCalled();
   });
+
+  it("reads a blocked Substack custom-domain post from the post API, and only when Substack served the block", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/posts/my-post")) {
+        return Response.json({ title: "Custom Domain Post", body_html: "<p>Body from the API.</p>" });
+      }
+      const fromSubstack = url.startsWith("https://www.example-newsletter.com/");
+      return new Response("Too Many Requests", {
+        status: 429,
+        headers: fromSubstack ? { "x-served-by": "Substack" } : {},
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
+      markdown: html.includes("Body from the API.") ? "# Custom Domain Post\n\nBody from the API." : "",
+      title: "Custom Domain Post",
+      contentHtml: "<p>Body from the API.</p>",
+    }));
+    const apiCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/v1/posts/")).length;
+
+    const ok = await worker.fetch(new Request("https://md.example.com/https://www.example-newsletter.com/p/my-post?raw=true", {
+      headers: { Accept: "text/markdown" },
+    }), createMockEnv().env, mockCtx());
+    const okBody = await ok.text();
+    expect(okBody, okBody).toContain("Body from the API.");
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("X-Markdown-Fallbacks")).toContain("substack_api");
+    expect(String(fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/v1/posts/"))?.[0]))
+      .toBe("https://www.example-newsletter.com/api/v1/posts/my-post");
+
+    // The same 429 from a site that is not Substack does not probe a post API.
+    const other = await worker.fetch(new Request("https://md.example.com/https://www.example-other.com/p/my-post?raw=true", {
+      headers: { Accept: "text/markdown" },
+    }), createMockEnv().env, mockCtx());
+    expect(other.status).toBe(502);
+    expect(apiCalls()).toBe(1);
+  });
 });
