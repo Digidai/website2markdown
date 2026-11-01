@@ -37,6 +37,7 @@ import {
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
 import { fetchViaContextDev } from "../context-dev";
+import { bumpLimit } from "../middleware/rate-limit-d1";
 import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/wechat";
 import {
   applyPaywallHeaders,
@@ -858,6 +859,19 @@ async function tryFetchAndParse(
         }
       }
     }
+    if (!finalHtml) {
+      const rescued = await tryContextDev(
+        targetUrl, env, fallbacks, abortSignal, progress, !providerApiKeysAllowed,
+      );
+      if (rescued) {
+        if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(rescued)) {
+          wechatShellSeen = true;
+        } else {
+          finalHtml = rescued;
+          method = "proxy+readability+turndown";
+        }
+      }
+    }
 
     if (!finalHtml) {
       throw new ConvertError(
@@ -1147,6 +1161,9 @@ async function tryFetchAndParse(
 
 // ─── 子函数：Context.dev 兜底 ────────────────────────────────
 
+/** Anonymous Context.dev calls allowed per UTC day across the whole site. */
+const CONTEXT_DEV_ANON_DAILY_LIMIT = 40;
+
 /**
  * Last resort for a page our own fetch and browser could not get. Context.dev
  * renders in a real browser behind escalating proxies. Its free quota is small,
@@ -1159,9 +1176,20 @@ async function tryContextDev(
   fallbacks: Set<string>,
   abortSignal?: AbortSignal,
   progress?: (step: string, label: string) => void | Promise<void>,
+  anonymous: boolean = false,
 ): Promise<string | null> {
   const apiKey = env.CONTEXT_DEV_API_KEY;
   if (!apiKey) return null;
+  if (anonymous) {
+    // One site-wide daily budget for anonymous callers, so they cannot drain
+    // the monthly quota that signed-in requests rely on.
+    const day = new Date().toISOString().slice(0, 10);
+    const budget = await bumpLimit(env, `context-dev-anon:${day}`, CONTEXT_DEV_ANON_DAILY_LIMIT, 86_400);
+    if (budget.blocked) {
+      fallbacks.add("context_dev_anon_budget_exhausted");
+      return null;
+    }
+  }
   throwIfAborted(abortSignal);
   await progress?.("fetch", "Fetching via Context.dev");
   const usable = (html: string) => html.length > 1000 && !isLikelyChallengeHtml(html);
