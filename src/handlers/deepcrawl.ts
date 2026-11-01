@@ -30,14 +30,11 @@ import { incrementCounter, logMetric } from "../runtime-state";
 import { recordDeepCrawlRun } from "../observability/metrics";
 import { errorMessage } from "../utils";
 import { stableStringify } from "../helpers/crypto";
-import { fetchViaCfContent } from "../cf-rest";
 import {
   convertUrlWithMetrics,
   RequestAbortedError,
   readBodyWithLimit,
   BodyTooLargeError,
-  getCfRestConfig,
-  isCfEligible,
 } from "./convert";
 import { sseResponse } from "./stream";
 import { authorizeApiAccess, type ApiAccessContext, sessionProfileScopeForAuth } from "../middleware/api-access";
@@ -571,36 +568,12 @@ export async function executeDeepCrawl(
       throw new DeepCrawlRequestError(policyError, 401);
     }
 
-    let cfAttempted = false;
-    const needsRender = payload.forceBrowser || alwaysNeedsBrowser(url);
-    const cfConfig = getCfRestConfig(env);
-    if (!needsRender && cfConfig && await isCfEligible(url, env)) {
-      cfAttempted = true;
-      try {
-        const cfHtml = await fetchViaCfContent(url, cfConfig, {
-          render: false,
-          signal: context.signal,
-        });
-        if (cfHtml && cfHtml.length > 200
-            && new TextEncoder().encode(cfHtml).byteLength <= MAX_RESPONSE_BYTES) {
-          const parsed = htmlToMarkdown(cfHtml, url, payload.selector);
-          return {
-            url,
-            html: cfHtml,
-            markdown: payload.includeMarkdown ? parsed.markdown : undefined,
-            title: parsed.title,
-            method: "cf" as string,
-          };
-        }
-      } catch { /* fall through to convertUrl */ }
-    }
-
     // Fetch full HTML (without selector) so BFS link extraction can find links across the entire page (nav, pagination, footer)
     const converted = await convertUrlWithMetrics(
       url, env, host, "html", undefined, payload.forceBrowser, payload.noCache,
       undefined,
       context.signal,
-      cfAttempted ? "local" : undefined,
+      undefined,
       browserAllowed,
       access ? access.auth.tier !== "anonymous" : true,
       sessionProfileScopeForAuth(access?.auth),

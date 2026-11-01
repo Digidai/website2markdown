@@ -190,7 +190,14 @@ describe("CF REST API integration in convertUrl", () => {
     expect(mocked.cfRest.fetchViaCfMarkdown).toHaveBeenCalledTimes(1);
   });
 
-  it("auto-selects CF for eligible URLs without engine param", async () => {
+  it("does not call CF without engine=cf, since every call bills a browser", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body>static body</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    ));
+
     const { env } = cfEnv();
     const req = new Request("https://md.example.com/https://example.com/page?raw=true", {
       headers: { Accept: "text/markdown" },
@@ -198,74 +205,30 @@ describe("CF REST API integration in convertUrl", () => {
     const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Method")).toBe("cf");
-    expect(mocked.cfRest.fetchViaCfMarkdown).toHaveBeenCalledTimes(1);
+    expect(res.headers.get("X-Markdown-Method")).not.toBe("cf");
+    expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
   });
 
-  it("skips CF for adapter-matched URLs (non-generic adapter)", async () => {
-    const specialAdapter = makeAdapter();
-    mocked.browser.getAdapter.mockReturnValue(specialAdapter);
-
+  it("does not call CF for anonymous engine=cf requests", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response("<html><body><div id='js_content'><p>static article body</p></div></body></html>", {
+      new Response("<html><body>static body</body></html>", {
         status: 200,
         headers: { "Content-Type": "text/html; charset=utf-8" },
       }),
     ));
 
     const { env } = cfEnv();
-    const req = new Request("https://md.example.com/https://mp.weixin.qq.com/s/abc?raw=true", {
+    const req = new Request("https://md.example.com/https://example.com/page?raw=true&engine=cf", {
       headers: { Accept: "text/markdown" },
     });
     const res = await worker.fetch(req, env, mockCtx());
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
     expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
   });
 
-  it("skips CF for paywalled URLs", async () => {
-    mocked.paywall.getPaywallRule.mockReturnValue({ name: "test" });
 
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response("<html><body>paywall body</body></html>", {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      }),
-    ));
 
-    const { env } = cfEnv();
-    const req = new Request("https://md.example.com/https://example.com/paywalled?raw=true", {
-      headers: { Accept: "text/markdown" },
-    });
-    const res = await worker.fetch(req, env, mockCtx());
-
-    expect(res.status).toBe(200);
-    expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
-  });
-
-  it("skips CF for negative-cached domains", async () => {
-    const { env, mocks } = cfEnv();
-    // Simulate negative cache hit
-    mocks.kvGet.mockImplementation(async (key: string) => {
-      if (key.startsWith("cf_blocked:")) return "1";
-      return null;
-    });
-
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response("<html><body>fallback body</body></html>", {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      }),
-    ));
-
-    const req = new Request("https://md.example.com/https://example.com/blocked?raw=true", {
-      headers: { Accept: "text/markdown" },
-    });
-    const res = await worker.fetch(req, env, mockCtx());
-
-    expect(res.status).toBe(200);
-    expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
-  });
 
   it("falls back to local pipeline when CF returns short content", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -281,9 +244,9 @@ describe("CF REST API integration in convertUrl", () => {
       }),
     ));
 
-    const { env } = cfEnv();
-    const req = new Request("https://md.example.com/https://example.com/cf-empty?raw=true", {
-      headers: { Accept: "text/markdown" },
+    const { env } = cfEnv({ API_TOKEN: "test-token" });
+    const req = new Request("https://md.example.com/https://example.com/cf-empty?raw=true&engine=cf", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env, mockCtx());
 
@@ -306,9 +269,9 @@ describe("CF REST API integration in convertUrl", () => {
       }),
     ));
 
-    const { env } = cfEnv();
-    const req = new Request("https://md.example.com/https://example.com/cf-error?raw=true", {
-      headers: { Accept: "text/markdown" },
+    const { env } = cfEnv({ API_TOKEN: "test-token" });
+    const req = new Request("https://md.example.com/https://example.com/cf-error?raw=true&engine=cf", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env, mockCtx());
 
@@ -331,7 +294,7 @@ describe("CF REST API integration in convertUrl", () => {
   });
 
   it("skips CF when CF_ACCOUNT_ID is not configured", async () => {
-    const { env } = createMockEnv(); // no CF credentials
+    const { env } = createMockEnv({ API_TOKEN: "test-token" } as any); // no CF credentials
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("<html><body>no-cf body</body></html>", {
@@ -340,8 +303,8 @@ describe("CF REST API integration in convertUrl", () => {
       }),
     ));
 
-    const req = new Request("https://md.example.com/https://example.com/no-cf?raw=true", {
-      headers: { Accept: "text/markdown" },
+    const req = new Request("https://md.example.com/https://example.com/no-cf?raw=true&engine=cf", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
     const res = await worker.fetch(req, env, mockCtx());
 
@@ -351,7 +314,13 @@ describe("CF REST API integration in convertUrl", () => {
 });
 
 describe("CF integration in batch handler", () => {
-  it("auto-selects CF for eligible URLs in batch", async () => {
+  it("does not call CF for batch URLs without engine=cf", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("<html><body>static body</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    ));
     const { env } = cfEnv({ API_TOKEN: "batch-token" });
 
     const req = new Request("https://md.example.com/api/batch", {
@@ -369,48 +338,6 @@ describe("CF integration in batch handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json() as any;
     expect(body.results).toHaveLength(2);
-    // Both should have been processed via CF
-    expect(mocked.cfRest.fetchViaCfMarkdown).toHaveBeenCalledTimes(2);
-    expect(body.results[0].method).toBe("cf");
-    expect(body.results[1].method).toBe("cf");
-  });
-
-  it("mixes CF and non-CF conversion in same batch", async () => {
-    const specialAdapter = makeAdapter();
-    mocked.browser.getAdapter.mockImplementation((url: string) => {
-      if (url.includes("special.com")) return specialAdapter;
-      return mocked.browser.genericAdapter;
-    });
-
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response("<html><body>static body</body></html>", {
-        status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
-      }),
-    ));
-
-    const { env } = cfEnv({ API_TOKEN: "batch-token" });
-
-    const req = new Request("https://md.example.com/api/batch", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer batch-token",
-      },
-      body: JSON.stringify({
-        urls: [
-          "https://example.com/generic",
-          "https://special.com/page",
-        ],
-      }),
-    });
-    const res = await worker.fetch(req, env, mockCtx());
-
-    expect(res.status).toBe(200);
-    const body = await res.json() as any;
-    expect(body.results).toHaveLength(2);
-    // First URL should use CF, second should not
-    expect(body.results[0].method).toBe("cf");
-    expect(body.results[1].method).not.toBe("cf");
+    expect(mocked.cfRest.fetchViaCfMarkdown).not.toHaveBeenCalled();
   });
 });

@@ -63,7 +63,6 @@ export const DESKTOP_UA =
 export const CF_REST_TIMEOUT_MS = 30_000;
 export const CF_CRAWL_POLL_INTERVAL_MS = 3_000;
 export const CF_CRAWL_MAX_POLL_ATTEMPTS = 360;
-export const CF_BLOCKED_DOMAINS_TTL = 2 * 60 * 60;
 
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",

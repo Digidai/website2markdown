@@ -7,7 +7,6 @@ import {
   MOBILE_UA,
   DESKTOP_UA,
   BROWSER_TIMEOUT,
-  CF_BLOCKED_DOMAINS_TTL,
 } from "../config";
 import {
   needsBrowserRendering,
@@ -282,26 +281,6 @@ export function extractTitleFromCfMarkdown(markdown: string): string {
   return match ? match[1].trim() : "";
 }
 
-export async function isCfEligible(url: string, env: Env): Promise<boolean> {
-  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return false;
-
-  const adapter = getAdapter(url);
-  if (adapter !== genericAdapter) return false;
-
-  if (getPaywallRule(url)) return false;
-
-  // 检查负缓存：该域名是否之前被 CF 屏蔽
-  try {
-    const domain = new URL(url).hostname;
-    const blocked = await env.CACHE_KV.get(`cf_blocked:${domain}`);
-    if (blocked) return false;
-  } catch {
-    // KV 失败 — 当作缓存未命中，允许 CF 尝试
-  }
-
-  return true;
-}
-
 // ─── 转换结果接口 ────────────────────────────────────────────
 
 export interface ConvertResult {
@@ -432,8 +411,9 @@ export async function convertUrl(
       return tryJinaFastPath(targetUrl, env, format, selector, !cacheAllowed, engine, progress, abortSignal);
     }
 
-    // 2c. CF Markdown 快速路径 (allowed for anonymous — it's a CF-internal API, low cost)
-    if (engine === "cf" || ((!engine || engine === "auto") && await isCfEligible(targetUrl, env))) {
+    // 2c. CF Markdown path, only when requested with engine=cf. Every /markdown
+    // call launches a billed browser, so it shares the browser-rendering gate.
+    if (engine === "cf" && browserAllowed) {
       const cfResult = await tryCfRestApi(
         targetUrl, env, format, selector, effectiveForceBrowser, !cacheAllowed, engine, fallbacks, progress, abortSignal,
       );
@@ -691,9 +671,7 @@ async function tryCfRestApi(
 
   await progress("fetch", "Converting via Cloudflare");
   try {
-    const needsRender = forceBrowser || alwaysNeedsBrowser(targetUrl);
     const cfResult = await fetchViaCfMarkdown(targetUrl, cfConfig, {
-      render: needsRender,
       signal: abortSignal,
     });
 
@@ -721,7 +699,7 @@ async function tryCfRestApi(
         cached: false,
         diagnostics: {
           cacheHit: false,
-          browserRendered: needsRender,
+          browserRendered: true,
           paywallDetected: false,
           fallbacks: [],
         },
@@ -733,15 +711,6 @@ async function tryCfRestApi(
     const errMsg = errorMessage(e);
     console.warn("CF REST API failed, falling through:", errMsg);
     fallbacks.add("cf_error_fallthrough");
-    // 仅对域名级屏蔽（403）写入负缓存，不对临时错误写入
-    const isDomainBlock = /returned HTTP 403/.test(errMsg);
-    if (isDomainBlock) {
-      const domain = new URL(targetUrl).hostname;
-      await env.CACHE_KV.put(
-        `cf_blocked:${domain}`, "1",
-        { expirationTtl: CF_BLOCKED_DOMAINS_TTL }
-      ).catch(() => {});
-    }
   }
 
   return null;
