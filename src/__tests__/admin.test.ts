@@ -172,14 +172,14 @@ describe("admin report", () => {
 
   it("lists channels by configuration and merges path health", () => {
     const { env } = createMockEnv({ PROXY_URL: "http://brd-customer-c1-zone-z1:pw@brd.superproxy.io:33335" });
-    delete (env as Partial<Env>).FIRECRAWL_API_KEY;
+    delete (env as Partial<Env>).CF_API_TOKEN;
     delete (env as Partial<Env>).BROWSER_USE_API_KEY;
     const channels = listChannels(env, [
       { path: "proxy_pool", attempts: 30, failures: 28, lastError: "Proxy pool exhausted", lastFailureAt: "2026-09-29T08:00:00.000Z" },
       { path: "proxy", attempts: 10, failures: 1, lastError: "407 client_10000", lastFailureAt: "2026-09-29T09:00:00.000Z" },
     ]);
     const byId = new Map(channels.map((c) => [c.id, c]));
-    expect(byId.get("firecrawl")?.status).toBe("missing");
+    expect(byId.get("cf_markdown")?.status).toBe("missing");
     expect(byId.get("browser_use")?.status).toBe("disabled");
     expect(byId.get("browser_use")?.testable).toBe(false);
     expect(byId.get("proxy")?.status).toBe("active");
