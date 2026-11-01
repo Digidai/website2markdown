@@ -21,8 +21,9 @@ export async function recordAccess(
     await env.AUTH_DB.prepare(`
       INSERT INTO access_events (
         id, created_at, kind, method, path, status, country, colo, ua_family, referrer_host,
-        surface, route_name, auth_present, duration_ms, cache_status, format, query_redacted, request_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        surface, route_name, auth_present, duration_ms, cache_status, format, query_redacted, request_id,
+        client_ip, user_agent, asn, as_org, city
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       crypto.randomUUID(),
       new Date().toISOString(),
@@ -42,6 +43,7 @@ export async function recordAccess(
       format,
       sanitizedQuery(url),
       requestIdOf(request),
+      ...clientInfo(request),
     ).run();
   } catch (error) {
     console.error("access event write failed:", error instanceof Error ? error.message : "unknown");
@@ -86,6 +88,8 @@ export async function recordConversionLog(env: Env, input: {
   selectorBucket?: string;
   hasAccount?: boolean;
   hasKey?: boolean;
+  accountId?: string;
+  keyId?: string;
 }): Promise<void> {
   if (!env.AUTH_DB) return;
   let host = "";
@@ -105,8 +109,9 @@ export async function recordConversionLog(env: Env, input: {
         output_excerpt, output_chars, error_message, fallbacks, paywall, browser_rendered,
         request_id, engine_requested, credit_cost, selector_present, force_browser, no_cache,
         quota_bucket, account_hash, key_hash, ua_family, colo, content_type,
-        duration_bucket, output_size_bucket, selector_bucket, has_account, has_key
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        duration_bucket, output_size_bucket, selector_bucket, has_account, has_key,
+        client_ip, user_agent, asn, as_org, city, account_id, key_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       crypto.randomUUID(),
       new Date().toISOString(),
@@ -146,6 +151,9 @@ export async function recordConversionLog(env: Env, input: {
       (input.selectorBucket || "").slice(0, 20),
       input.hasAccount ? 1 : 0,
       input.hasKey ? 1 : 0,
+      ...clientInfo(input.request),
+      (input.accountId || "").slice(0, 64),
+      (input.keyId || "").slice(0, 64),
     ).run();
   } catch (error) {
     console.error("conversion log write failed:", error instanceof Error ? error.message : "unknown");
@@ -162,6 +170,18 @@ export async function cleanupAnalytics(env: Env): Promise<void> {
       console.error("analytics cleanup failed:", error instanceof Error ? error.message : "unknown");
     }
   }
+}
+
+/** Caller IP, full User-Agent, and network (ASN) from Cloudflare's request metadata. */
+function clientInfo(request: Request): [string, string, number | null, string, string] {
+  const cf = (request as Request & { cf?: { asn?: unknown; asOrganization?: unknown; city?: unknown } }).cf;
+  return [
+    (request.headers.get("cf-connecting-ip") || "").trim().slice(0, 64),
+    (request.headers.get("user-agent") || "").slice(0, 512),
+    typeof cf?.asn === "number" ? cf.asn : null,
+    String(cf?.asOrganization || "").slice(0, 120),
+    String(cf?.city || "").slice(0, 80),
+  ];
 }
 
 function userAgentFamily(userAgent: string | null): string {

@@ -78,6 +78,12 @@ export interface AccessRow {
   auth_present?: string;
   query_redacted?: string;
   format?: string;
+  /** Caller IP, full User-Agent, and network, kept 90 days. */
+  client_ip?: string;
+  user_agent?: string;
+  asn?: number | null;
+  as_org?: string;
+  city?: string;
 }
 
 export interface ConversionRow {
@@ -113,6 +119,14 @@ export interface ConversionRow {
   key_hash?: string;
   ua_family?: string;
   colo?: string;
+  /** Caller IP, full User-Agent, and network, kept 90 days. */
+  client_ip?: string;
+  user_agent?: string;
+  asn?: number | null;
+  as_org?: string;
+  city?: string;
+  account_id?: string;
+  key_id?: string;
   content_type?: string;
   duration_bucket?: string;
   output_size_bucket?: string;
@@ -184,6 +198,8 @@ export interface AdminReport {
   pagePaths: PairRow[];
   apiPaths: PairRow[];
   authTiers: PairRow[];
+  /** Conversions per caller IP, labelled with the network name. */
+  topIps: PairRow[];
   countries: PairRow[];
   outcomes: PairRow[];
   platforms: PairRow[];

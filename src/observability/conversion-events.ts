@@ -327,6 +327,8 @@ export async function recordConversionEvent(
       selectorBucket: event.selector_length_bucket,
       hasAccount: event.has_account,
       hasKey: event.has_key,
+      accountId: input.auth?.accountId ?? "",
+      keyId: input.auth?.keyId ?? "",
     });
     if (input.debugTrace?.allowed) {
       await insertConversionDebugTrace(env, input, event);

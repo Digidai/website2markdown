@@ -412,6 +412,7 @@ function Overview({ report, onShowFailures }: { report: AdminReport; onShowFailu
         <Breakdown title="失败原因" rows={report.errorCodes} color={() => "bg-danger"} />
         <Breakdown title="平台" rows={report.platforms} />
         <Breakdown title="身份" rows={report.authTiers} />
+        <Breakdown title="来源 IP" rows={report.topIps ?? []} mono />
         <Breakdown title="API 路径" rows={report.apiPaths} mono />
         <Breakdown title="页面路径" rows={report.pagePaths} mono />
       </div>
@@ -748,7 +749,7 @@ function ConversionTable({ rows, query, compact }: { rows: ConversionRow[]; quer
           <Table.Body renderEmptyState={() => <p className="py-8 text-center text-sm text-muted">没有匹配的转换记录。</p>}>
             {rows.map((row) => {
               const detail = `/admin/conversion?id=${encodeURIComponent(row.id)}&back=${encodeURIComponent(back)}`;
-              const meta = [row.method_used, row.cache_status, `${fmt(row.duration_ms)} ms`, row.auth_tier, row.country].filter(Boolean).join(" · ");
+              const meta = [row.method_used, row.cache_status, `${fmt(row.duration_ms)} ms`, row.auth_tier, row.country, row.client_ip].filter(Boolean).join(" · ");
               return (
                 <Table.Row key={row.id} id={row.id}>
                   <Table.Cell className="whitespace-nowrap text-muted tabular-nums"><span title={row.created_at}>{when(row.created_at)}</span></Table.Cell>
@@ -838,7 +839,9 @@ function AccessTable({ rows }: { rows: AccessRow[] }) {
                 <Table.Cell className="whitespace-nowrap text-muted tabular-nums">{row.duration_ms == null ? "—" : `${fmt(row.duration_ms)} ms`}</Table.Cell>
                 <Table.Cell className="max-w-[160px] truncate text-muted">{row.referrer_host || "—"}</Table.Cell>
                 <Table.Cell className="whitespace-nowrap text-muted">
-                  {[row.ua_family, row.country, row.auth_present && row.auth_present !== "none" ? row.auth_present : ""].filter(Boolean).join(" · ")}
+                  <span title={[row.user_agent, row.as_org, row.city].filter(Boolean).join("\n")}>
+                    {[row.client_ip, row.ua_family, row.country, row.auth_present && row.auth_present !== "none" ? row.auth_present : ""].filter(Boolean).join(" · ")}
+                  </span>
                 </Table.Cell>
               </Table.Row>
             ))}
@@ -922,8 +925,11 @@ function DetailBody({ row, html }: { row: ConversionRow; html: string | null }) 
       title: "调用方",
       fields: [
         ["身份", row.auth_tier || "—"],
-        ["国家 / 机房", [row.country, row.colo].filter(Boolean).join(" / ") || "—"],
-        ["客户端", row.ua_family || "—"],
+        ["IP", row.client_ip || "—"],
+        ["网络", [row.asn ? `AS${row.asn}` : "", row.as_org].filter(Boolean).join(" ") || "—"],
+        ["国家 / 城市 / 机房", [row.country, row.city, row.colo].filter(Boolean).join(" / ") || "—"],
+        ["客户端", row.user_agent || row.ua_family || "—"],
+        ["账户 ID / 密钥 ID", [row.account_id, row.key_id].filter(Boolean).join(" / ") || "—"],
         ["额度", row.credit_cost == null ? "未记录" : String(row.credit_cost)],
         ["剩余额度档", row.quota_bucket || "—"],
         ["选择器 / 强制浏览器 / 跳过缓存", `${yesNo(row.selector_present, "有", "无")} / ${yesNo(row.force_browser)} / ${yesNo(row.no_cache)}`],
