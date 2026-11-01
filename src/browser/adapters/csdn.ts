@@ -1,5 +1,4 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
-import { DESKTOP_UA } from "../../config";
 import { applyStealthAndDesktop } from "../stealth";
 import { createProxyRetrySignal } from "../proxy-retry";
 
@@ -11,29 +10,6 @@ export const csdnAdapter: SiteAdapter = {
   },
 
   alwaysBrowser: true,
-
-  // Article pages are server-rendered: a plain GET usually returns the full
-  // body in #content_views, so no browser or proxy is needed. CSDN's WAF
-  // answers repeat visitors with a 521 JS challenge instead; that response
-  // lacks the container and falls through to the browser/proxy path.
-  async fetchDirect(url: string): Promise<string | null> {
-    if (!/\/article\/details\/\d+/.test(url)) return null;
-    try {
-      const resp = await fetch(url, {
-        headers: {
-          "User-Agent": DESKTOP_UA,
-          "Accept": "text/html,application/xhtml+xml",
-          "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!resp.ok) return null;
-      const html = await resp.text();
-      return html.includes('id="content_views"') ? html : null;
-    } catch {
-      return null;
-    }
-  },
 
   async configurePage(page: any): Promise<void> {
     await applyStealthAndDesktop(page);
