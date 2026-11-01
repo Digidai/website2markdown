@@ -16,6 +16,7 @@ export type ProviderPath =
   | "browser_use"
   | "proxy_pool"
   | "proxy"
+  | "substack_proxy"
   | "wayback"
   | "archive_today"
   | "context_dev";

@@ -625,7 +625,7 @@ describe("API-first fetchDirect paths", () => {
     expect(proxies).toEqual([{ host: "proxy.test", port: 3000, username: "u", password: "p" }]);
   });
 
-  it("records each Substack proxy retry as a proxy_pool attempt", async () => {
+  it("records each Substack proxy retry under its own substack_proxy path", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("slow down", { status: 429 })));
     const binds: unknown[][] = [];
     const env = {
@@ -643,7 +643,7 @@ describe("API-first fetchDirect paths", () => {
     expect(await substackAdapter.fetchDirect!(url, env)).toBeNull();
 
     // bind(date, path, failures, ...): one success, then one failure.
-    expect(binds.map((b) => [b[1], b[2]])).toEqual([["proxy_pool", 0], ["proxy_pool", 1]]);
+    expect(binds.map((b) => [b[1], b[2]])).toEqual([["substack_proxy", 0], ["substack_proxy", 1]]);
   });
 
   it("follows the proxy's redirect to a custom-domain API URL", async () => {
