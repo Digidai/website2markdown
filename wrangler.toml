@@ -35,6 +35,11 @@ binding = "AUTH_DB"
 database_name = "md-auth"
 database_id = "15623873-2c54-493a-8639-2428819665ad"
 
+# Analytics Engine dataset for per-request access events (replacing D1 access_events)
+[[analytics_engine_datasets]]
+binding = "ACCESS_AE"
+dataset = "access_events"
+
 [durable_objects]
 bindings = [
   { name = "JOB_COORDINATOR", class_name = "JobCoordinator" }

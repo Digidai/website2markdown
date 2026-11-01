@@ -11,13 +11,27 @@ export async function recordAccess(
   response: Response,
   durationMs = 0,
 ): Promise<void> {
-  if (!env.AUTH_DB || request.method === "OPTIONS") return;
+  if (request.method === "OPTIONS") return;
   try {
     const url = new URL(request.url);
     const classified = classifyAccessPath(url.pathname);
     const format = SAFE_FORMATS.has(url.searchParams.get("format") || "")
       ? url.searchParams.get("format") || ""
       : "";
+    const [clientIp, userAgent, asn, asOrg, city] = clientInfo(request);
+    // Dual write while the admin page still reads D1. Blob/double positions are
+    // the dataset's schema: append new fields, never reorder.
+    env.ACCESS_AE?.writeDataPoint({
+      indexes: [clientIp],
+      blobs: [
+        classified.surface, request.method.slice(0, 12), url.pathname.slice(0, 2000), countryOf(request),
+        coloOf(request), userAgentFamily(request.headers.get("user-agent")), referrerHost(request),
+        classified.route, authPresent(request), cacheStatusOf(response), format, sanitizedQuery(url),
+        requestIdOf(request), clientIp, userAgent, asOrg, city,
+      ],
+      doubles: [response.status, Math.max(0, Math.round(durationMs)), asn ?? 0],
+    });
+    if (!env.AUTH_DB) return;
     await env.AUTH_DB.prepare(`
       INSERT INTO access_events (
         id, created_at, kind, method, path, status, country, colo, ua_family, referrer_host,

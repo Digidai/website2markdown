@@ -779,3 +779,28 @@ describe("conversion observability", () => {
     ]);
   });
 });
+
+describe("access events", () => {
+  it("writes the Analytics Engine data point in the fixed column layout, even without D1", async () => {
+    const { recordAccess } = await import("../admin/analytics");
+    const writeDataPoint = vi.fn();
+    const request = new Request("https://mdget.dev/api/stream?format=json&token=secret", {
+      headers: { "cf-connecting-ip": "203.0.113.9", "user-agent": "curl/8.4.0" },
+    });
+    Object.defineProperty(request, "cf", { value: { asn: 13335, asOrganization: "Cloudflare", city: "Tokyo" } });
+    await recordAccess(
+      { ACCESS_AE: { writeDataPoint } } as never,
+      request,
+      new Response("x", { status: 429 }),
+      12.6,
+    );
+    expect(writeDataPoint).toHaveBeenCalledTimes(1);
+    const point = writeDataPoint.mock.calls[0][0];
+    expect(point.indexes).toEqual(["203.0.113.9"]);
+    expect(point.blobs[2]).toBe("/api/stream");
+    expect(point.blobs[10]).toBe("json");
+    expect(point.blobs[11]).not.toContain("secret");
+    expect(point.blobs.slice(13)).toEqual(["203.0.113.9", "curl/8.4.0", "Cloudflare", "Tokyo"]);
+    expect(point.doubles).toEqual([429, 13, 13335]);
+  });
+});

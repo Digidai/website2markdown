@@ -5,6 +5,8 @@ export interface Env {
   JOB_COORDINATOR?: DurableObjectNamespace;
   /** D1 database for auth, API keys, and usage metering */
   AUTH_DB?: D1Database;
+  /** Analytics Engine dataset `access_events`; column layout in recordAccess. */
+  ACCESS_AE?: AnalyticsEngineDataset;
   /** Passphrase for /admin. Login is refused when this is unset. */
   ADMIN_PASSWORD?: string;
   API_TOKEN?: string;
