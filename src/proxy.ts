@@ -412,6 +412,8 @@ export async function fetchViaProxyPool(
  * Bright Data puts the real reason for a 407 (wrong password, zone disabled,
  * IP not allowlisted, account suspended) in these headers, not the status line.
  * x-brd-err-msg is left out because it contains the account ID and egress IP.
+ * Name and value are joined with a space: "x-brd-err-code=..." would match the
+ * error sanitizer's secret-assignment rule (any key containing "code").
  */
 export function proxyErrorReason(headerLines: string[]): string {
   const wanted = new Set(["x-brd-err-code", "x-brd-error", "x-luminati-error"]);
@@ -420,7 +422,7 @@ export function proxyErrorReason(headerLines: string[]): string {
     const colon = line.indexOf(":");
     if (colon <= 0) continue;
     const name = line.slice(0, colon).trim().toLowerCase();
-    if (wanted.has(name)) parts.push(`${name}=${line.slice(colon + 1).trim().slice(0, 120)}`);
+    if (wanted.has(name)) parts.push(`${name} ${line.slice(colon + 1).trim().slice(0, 120)}`);
   }
   return parts.length ? ` (${parts.join("; ")})` : "";
 }

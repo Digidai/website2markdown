@@ -69,10 +69,10 @@ const CHANNELS: ChannelSpec[] = [
     name: "Firecrawl",
     role: "登录用户的 engine=firecrawl、非 HTML 内容，以及正文过短时的兜底。",
     paths: ["firecrawl"],
-    env: [{ name: "FIRECRAWL_API_KEY", required: true }, { name: "FIRECRAWL_API_URL", required: false }],
+    env: [{ name: "FIRECRAWL_API_KEY", required: false }, { name: "FIRECRAWL_API_URL", required: false }],
     status: (env) => (env.FIRECRAWL_API_KEY
       ? null
-      : { status: "missing", note: "没有 API key。无 key 调用会被 Firecrawl 拒绝（403）。" }),
+      : { status: "active", note: "没有 API key，走 Firecrawl 匿名免费额度（限速更严）。配上 key 可提额。" }),
     test: async (env) => {
       const result = await fetchViaFirecrawl(PROBE_URL, { apiKey: env.FIRECRAWL_API_KEY, apiUrl: env.FIRECRAWL_API_URL, timeoutMs: 20_000 });
       return [`返回 ${result.markdown.length} 字 Markdown`];
@@ -247,6 +247,15 @@ async function diagnoseBrightData(env: Env): Promise<string[]> {
       details.push(Array.isArray(passwords)
         ? `zone 密码：API 返回 ${passwords.length} 个，PROXY_URL 里的密码${passwords.includes(proxy.password) ? "在其中" : "不在其中（已失效）"}`
         : `zone 密码接口 HTTP ${pw.status}`);
+      // Bright Data answers zone reads with 422 "Customer has invalid status" when the
+      // account is suspended or unpaid; an ISP zone with no IPs rejects every login.
+      const zone = await brightDataApi(env.BRIGHTDATA_API_KEY, `/zone?zone=${encodeURIComponent(user.zone)}`);
+      details.push(zone.status === 200
+        ? "账户状态：正常"
+        : `账户状态异常：zone 接口 HTTP ${zone.status} ${String(typeof zone.body === "string" ? zone.body : JSON.stringify(zone.body)).slice(0, 120)}`);
+      const ips = await brightDataApi(env.BRIGHTDATA_API_KEY, `/zone/ips?zone=${encodeURIComponent(user.zone)}`);
+      const ipList = (ips.body as { ips?: unknown[] })?.ips;
+      if (Array.isArray(ipList)) details.push(`zone 已分配 IP：${ipList.length} 个${ipList.length ? "" : "（ISP/机房 zone 没有 IP 时所有请求都会 407）"}`);
     } catch (error) {
       details.push(`账户 API 调用失败：${sanitizeErrorMessage(error)}`);
     }
