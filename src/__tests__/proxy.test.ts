@@ -3,8 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:sockets", () => ({
   connect: vi.fn(),
 }));
+vi.mock("subtls", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("subtls")>()),
+  startTls: vi.fn(),
+  TrustedCert: { databaseFromPEM: vi.fn(async () => ({ index: { offsets: [], subjects: {} }, data: new Uint8Array() })) },
+}));
 
 import { connect } from "cloudflare:sockets";
+import { startTls } from "subtls";
 import { sanitizeErrorMessage } from "../observability/conversion-events";
 import {
   fetchViaProxy,
@@ -171,7 +177,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     const result = await fetchViaProxy(
-      "https://example.com/path",
+      "http://example.com/path",
       makeProxyConfig(),
       { Accept: "text/html" },
       1000,
@@ -195,7 +201,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     const result = await fetchViaProxy(
-      "https://example.com/path",
+      "http://example.com/path",
       makeProxyConfig(),
       {},
       1000,
@@ -227,7 +233,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     const result = await fetchViaProxy(
-      "https://example.com/path",
+      "http://example.com/path",
       makeProxyConfig(),
       { Accept: "text/html" },
       1000,
@@ -248,7 +254,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 1000),
     ).rejects.toThrow("Invalid chunked encoding");
   });
 
@@ -263,7 +269,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 1000),
     ).rejects.toThrow("Invalid chunked encoding: non-hex chunk size");
   });
 
@@ -278,7 +284,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 1000),
     ).rejects.toThrow("Invalid chunked encoding: missing terminating trailer end");
   });
 
@@ -294,7 +300,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     const result = await fetchViaProxy(
-      "https://example.com/path",
+      "http://example.com/path",
       makeProxyConfig(),
       {},
       1000,
@@ -315,7 +321,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 1000),
     ).rejects.toThrow("Invalid chunked encoding: malformed trailer line");
   });
 
@@ -330,7 +336,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 1000),
     ).rejects.toThrow("Invalid HTTP response from proxy");
 
     expect(mock.reader.cancel).toHaveBeenCalledTimes(1);
@@ -347,7 +353,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1000),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 1000),
     ).rejects.toThrow("Invalid HTTP status line from proxy");
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
@@ -360,7 +366,7 @@ describe("fetchViaProxy", () => {
 
     await expect(
       fetchViaProxy(
-        "https://example.com/path",
+        "http://example.com/path",
         makeProxyConfig(),
         {
           "X-Test": "ok\r\nInjected: bad",
@@ -379,7 +385,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await fetchViaProxy(
-      "https://example.com:8443/path",
+      "http://example.com:8443/path",
       makeProxyConfig(),
       {},
       1000,
@@ -405,7 +411,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 1_000),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 1_000),
     ).rejects.toThrow("Proxy response exceeded 8 MB limit");
 
     expect(mock.reader.cancel).toHaveBeenCalledTimes(1);
@@ -420,7 +426,7 @@ describe("fetchViaProxy", () => {
     vi.mocked(connect).mockReturnValue(mock.socket as never);
 
     await expect(
-      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 30),
+      fetchViaProxy("http://example.com/path", makeProxyConfig(), {}, 30),
     ).rejects.toThrow("Proxy response timed out");
 
     expect(mock.reader.cancel).toHaveBeenCalledTimes(1);
@@ -436,7 +442,7 @@ describe("fetchViaProxy", () => {
     const controller = new AbortController();
 
     const task = fetchViaProxy(
-      "https://example.com/path",
+      "http://example.com/path",
       makeProxyConfig(),
       {},
       5_000,
@@ -450,42 +456,31 @@ describe("fetchViaProxy", () => {
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
 
-  it("establishes HTTP CONNECT tunnel and upgrades to TLS for HTTPS targets when startTls is supported", async () => {
-    const connectResponse = new TextEncoder().encode("HTTP/1.1 200 Connection Established\r\n\r\n");
-    const targetResponse = new TextEncoder().encode("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nsecure-content");
-
-    let connectReadDone = false;
-    const initialMock = createMockSocket(async () => {
-      if (connectReadDone) return { done: true };
-      connectReadDone = true;
-      return { done: false, value: connectResponse };
+  it("tunnels HTTPS through CONNECT and speaks HTTP inside subtls", async () => {
+    // The proxy's CONNECT answer arrives in the same chunk as the first TLS bytes.
+    const mock = createSocketFromRawResponse("HTTP/1.1 200 Connection established\r\n\r\nEARLY");
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+    const tlsWrites: string[] = [];
+    const replies = [new TextEncoder().encode("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nsecure-content")];
+    let earlyBytes = "";
+    vi.mocked(startTls).mockImplementation(async (_host, _roots, networkRead) => {
+      earlyBytes = new TextDecoder().decode(await networkRead(5));
+      return {
+        read: async () => replies.shift(),
+        write: async (data: Uint8Array) => { tlsWrites.push(new TextDecoder().decode(data)); },
+      } as never;
     });
 
-    let targetReadDone = false;
-    const tlsMock = createMockSocket(async () => {
-      if (targetReadDone) return { done: true };
-      targetReadDone = true;
-      return { done: false, value: targetResponse };
-    });
+    const result = await fetchViaProxy("https://example.com/secure-path?q=1", makeProxyConfig(), { "User-Agent": "test-agent" }, 1000);
 
-    (initialMock.socket as any).startTls = vi.fn(() => tlsMock.socket);
-    vi.mocked(connect).mockReturnValue(initialMock.socket as never);
-
-    const result = await fetchViaProxy(
-      "https://example.com/secure-path",
-      makeProxyConfig(),
-      { "User-Agent": "test-agent" },
-      1000,
-    );
-
-    expect(result.status).toBe(200);
     expect(result.body).toBe("secure-content");
-    expect((initialMock.socket as any).startTls).toHaveBeenCalledWith({ expectedServerHostname: "example.com" });
-    const connectPayload = new TextDecoder().decode(initialMock.writtenChunks[0]);
-    expect(connectPayload).toContain("CONNECT example.com:443 HTTP/1.1");
-    const tlsPayload = new TextDecoder().decode(tlsMock.writtenChunks[0]);
-    expect(tlsPayload).toContain("GET /secure-path HTTP/1.1");
-    expect(tlsPayload).toContain("Host: example.com");
+    expect(earlyBytes).toBe("EARLY");
+    expect(vi.mocked(startTls).mock.calls[0][0]).toBe("example.com");
+    const connectPayload = new TextDecoder().decode(mock.writtenChunks[0]);
+    expect(connectPayload).toMatch(/^CONNECT example\.com:443 HTTP\/1\.1\r\n/);
+    expect(connectPayload).toContain("Proxy-Authorization: Basic ");
+    expect(tlsWrites[0]).toMatch(/^GET \/secure-path\?q=1 HTTP\/1\.1\r\nHost: example\.com\r\n/);
+    expect(tlsWrites[0]).not.toContain("Proxy-Authorization");
   });
 
   it("rotates proxies until an accepted response is found", async () => {
@@ -500,7 +495,7 @@ describe("fetchViaProxy", () => {
       .mockReturnValueOnce(secondSocket.socket as never);
 
     const result = await fetchViaProxyPool(
-      "https://example.com/path",
+      "http://example.com/path",
       [
         {
           host: "proxy-1.example.com",
@@ -540,7 +535,7 @@ describe("fetchViaProxy", () => {
       .mockReturnValueOnce(secondVariant.socket as never);
 
     const result = await fetchViaProxyPool(
-      "https://example.com/path",
+      "http://example.com/path",
       [makeProxyConfig()],
       [
         { name: "desktop", headers: { "User-Agent": "Desktop-UA" } },
@@ -567,7 +562,7 @@ describe("proxy CONNECT rejection reason", () => {
       "x-brd-err-msg: The IP address 104.28.1.2 is not whitelisted, see https://brightdata.com/cp/zones/z1/access_params?id=hl_secret\r\n" +
       "\r\n",
     );
-    vi.mocked(connect).mockReturnValue({ ...socket, startTls: vi.fn() } as never);
+    vi.mocked(connect).mockReturnValue(socket as never);
 
     const error = await fetchViaProxy("https://example.com/", makeProxyConfig(), {}, 1_000)
       .catch((e: Error) => e);
