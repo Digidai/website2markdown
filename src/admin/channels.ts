@@ -6,7 +6,7 @@ import { fetchViaFirecrawl } from "../firecrawl";
 import { fetchViaContextDev } from "../context-dev";
 import { fetchViaJina } from "../jina";
 import { fetchArchiveToday, fetchWaybackSnapshot } from "../paywall";
-import { ensureBrightDataAllowlisted, fetchViaProxy, parseProxyPool, parseProxyUrl, type ProxyConfig } from "../proxy";
+import { fetchViaProxy, parseProxyPool, parseProxyUrl, type ProxyConfig } from "../proxy";
 import { sanitizeErrorMessage } from "../observability/conversion-events";
 import { errorMessage } from "../utils";
 
@@ -22,6 +22,17 @@ interface ChannelSpec {
   /** Overrides the status derived from required env vars. */
   status?: (env: Env) => { status: ChannelStatus; note: string } | null;
   test?: (env: Env, host: string) => Promise<string[]>;
+}
+
+const PROXY_ENV = [
+  { name: "PROXY_URL", required: false },
+  { name: "PROXY_POOL", required: false },
+];
+
+function proxyStatus(env: Env): { status: ChannelStatus; note: string } | null {
+  return env.PROXY_URL || env.PROXY_POOL
+    ? null
+    : { status: "missing", note: "PROXY_URL 和 PROXY_POOL 都没有配置。" };
 }
 
 const CHANNELS: ChannelSpec[] = [
@@ -52,18 +63,20 @@ const CHANNELS: ChannelSpec[] = [
   },
   {
     id: "proxy",
-    name: "Bright Data 住宅代理",
+    name: "Swiftproxy 代理",
     role: "匿名用户访问必须渲染的站点，以及浏览器被拦后的代理重试。",
     paths: ["proxy_pool", "proxy"],
-    env: [
-      { name: "PROXY_URL", required: false },
-      { name: "PROXY_POOL", required: false },
-      { name: "BRIGHTDATA_API_KEY", required: false },
-    ],
-    status: (env) => (env.PROXY_URL || env.PROXY_POOL
-      ? null
-      : { status: "missing", note: "PROXY_URL 和 PROXY_POOL 都没有配置。" }),
-    test: (env) => diagnoseBrightData(env),
+    env: PROXY_ENV,
+    status: proxyStatus,
+    test: (env) => diagnoseProxy(env),
+  },
+  {
+    id: "substack_proxy",
+    name: "Substack 代理重试",
+    role: "Substack 文章接口直连返回 429 时，经 Swiftproxy 重试一次。",
+    paths: ["substack_proxy"],
+    env: PROXY_ENV,
+    status: proxyStatus,
   },
   {
     id: "firecrawl",
@@ -207,28 +220,7 @@ class DiagnosisError extends Error {
   }
 }
 
-/** Bright Data's proxy username is `brd-customer-<account>-zone-<zone>[-options]`. */
-export function parseBrightDataUser(username: string): { customer: string; zone: string } | null {
-  const match = /^brd-customer-([^-]+)-zone-([^-]+)/.exec(username);
-  return match ? { customer: match[1], zone: match[2] } : null;
-}
-
-function mask(value: string): string {
-  return value.length <= 6 ? value : `${value.slice(0, 5)}…${value.slice(-2)}`;
-}
-
-async function brightDataApi(apiKey: string, path: string): Promise<{ status: number; body: unknown }> {
-  const resp = await fetch(`https://api.brightdata.com${path}`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(8_000),
-  });
-  const text = await resp.text();
-  let body: unknown = text;
-  try { body = JSON.parse(text); } catch { /* keep text */ }
-  return { status: resp.status, body };
-}
-
-async function diagnoseBrightData(env: Env): Promise<string[]> {
+async function diagnoseProxy(env: Env): Promise<string[]> {
   const details: string[] = [];
   const proxies: ProxyConfig[] = env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
   const single = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
@@ -237,49 +229,8 @@ async function diagnoseBrightData(env: Env): Promise<string[]> {
   if (!proxy) throw new DiagnosisError("PROXY_URL 无法解析", details);
 
   details.push(`代理地址 ${proxy.host}:${proxy.port}，共 ${proxies.length} 个`);
-  const user = parseBrightDataUser(proxy.username);
-  if (user) details.push(`账户 ${mask(user.customer)}，zone ${user.zone}`);
-  else details.push("用户名不是 brd-customer-…-zone-… 格式，跳过账户核对");
-
-  if (env.BRIGHTDATA_API_KEY && user) {
-    try {
-      const status = await brightDataApi(env.BRIGHTDATA_API_KEY, "/status");
-      const customer = (status.body as { customer?: string })?.customer;
-      details.push(customer
-        ? `API key 所属账户 ${mask(customer)}：${customer === user.customer ? "与 PROXY_URL 一致" : "与 PROXY_URL 不一致"}`
-        : `账户状态接口 HTTP ${status.status}`);
-
-      const zones = await brightDataApi(env.BRIGHTDATA_API_KEY, "/zone/get_active_zones");
-      const names = Array.isArray(zones.body)
-        ? (zones.body as { name?: string }[]).map((z) => z.name).filter(Boolean)
-        : [];
-      details.push(zones.status === 200
-        ? `活跃 zone：${names.join("、") || "无"}；${names.includes(user.zone) ? `${user.zone} 是活跃的` : `${user.zone} 不在活跃列表里`}`
-        : `zone 列表接口 HTTP ${zones.status}`);
-
-      const pw = await brightDataApi(env.BRIGHTDATA_API_KEY, `/zone/passwords?zone=${encodeURIComponent(user.zone)}`);
-      const passwords = (pw.body as { passwords?: string[] })?.passwords;
-      details.push(Array.isArray(passwords)
-        ? `zone 密码：API 返回 ${passwords.length} 个，PROXY_URL 里的密码${passwords.includes(proxy.password) ? "在其中" : "不在其中（已失效）"}`
-        : `zone 密码接口 HTTP ${pw.status}`);
-      // Bright Data answers zone reads with 422 "Customer has invalid status" when the
-      // account is suspended or unpaid; an ISP zone with no IPs rejects every login.
-      const zone = await brightDataApi(env.BRIGHTDATA_API_KEY, `/zone?zone=${encodeURIComponent(user.zone)}`);
-      details.push(zone.status === 200
-        ? "账户状态：正常"
-        : `账户状态异常：zone 接口 HTTP ${zone.status} ${String(typeof zone.body === "string" ? zone.body : JSON.stringify(zone.body)).slice(0, 120)}`);
-      const ips = await brightDataApi(env.BRIGHTDATA_API_KEY, `/zone/ips?zone=${encodeURIComponent(user.zone)}`);
-      const ipList = (ips.body as { ips?: unknown[] })?.ips;
-      if (Array.isArray(ipList)) details.push(`zone 已分配 IP：${ipList.length} 个${ipList.length ? "" : "（ISP/机房 zone 没有 IP 时所有请求都会 407）"}`);
-    } catch (error) {
-      details.push(`账户 API 调用失败：${sanitizeErrorMessage(error)}`);
-    }
-  } else if (!env.BRIGHTDATA_API_KEY) {
-    details.push("没有 BRIGHTDATA_API_KEY，跳过账户核对");
-  }
 
   try {
-    if (env.BRIGHTDATA_API_KEY) await ensureBrightDataAllowlisted(env.BRIGHTDATA_API_KEY);
     const result = await fetchViaProxy(PROBE_URL, proxy, {}, 15_000);
     details.push(`经代理请求 example.com：HTTP ${result.status}，${result.body.length} 字节`);
     if (result.status < 200 || result.status >= 400) throw new DiagnosisError(`代理返回 HTTP ${result.status}`, details);
