@@ -16,6 +16,18 @@ describe("anonymous search pages", () => {
     expect(isSearchResultPage("https://searx.be/search?q=test")).toBe(true);
     expect(isSearchResultPage("https://html.duckduckgo.com/html/")).toBe(true);
     expect(isSearchResultPage("https://html.duckduckgo.com/html")).toBe(true);
+    expect(isSearchResultPage("https://priv.au/search?q=site%3Abruker.com")).toBe(true);
+    expect(isSearchResultPage("https://www.bing.com/images/search?q=x")).toBe(true);
+    expect(isSearchResultPage("https://search.brave.com/search?q=x")).toBe(true);
+    expect(isSearchResultPage("https://www.google.com/search?q=x")).toBe(true);
+    expect(isSearchResultPage("https://yandex.com/search/?text=x")).toBe(true);
+    expect(isSearchResultPage("https://www.baidu.com/s?wd=x")).toBe(true);
+
+    expect(isSearchResultPage("https://priv.au/")).toBe(false);
+    expect(isSearchResultPage("https://www.bing.com/item/356355/abc")).toBe(false);
+    expect(isSearchResultPage("https://www.google.com/maps/place/x")).toBe(false);
+    // A site's own product search is not a search engine.
+    expect(isSearchResultPage("https://www.targetmol.com/search?keyword=x")).toBe(false);
 
     expect(isSearchResultPage("https://www.bing.com/search/")).toBe(false);
     expect(isSearchResultPage("https://www.bing.com/Search?q=test")).toBe(false);
