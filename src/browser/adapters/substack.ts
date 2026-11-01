@@ -37,7 +37,9 @@ export const substackAdapter: SiteAdapter = {
       } else {
         const proxies = resp.status === 429 ? parseProxyPool(env?.PROXY_POOL || env?.PROXY_URL || "") : [];
         if (proxies.length === 0) return null;
-        const proxied = await fetchViaProxyPool(apiUrl, proxies, [{
+        // Publications with a custom domain redirect the API to that domain,
+        // and the 429 comes from there; the proxy does not follow redirects.
+        const proxied = await fetchViaProxyPool(resp.url || apiUrl, proxies, [{
           name: "default",
           headers: { ...headers, "Accept-Encoding": "identity" },
         }], { timeoutMs: 10_000, acceptResult: (r) => r.status === 200 });
