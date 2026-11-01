@@ -69,8 +69,7 @@ describe("access surfaces", () => {
 
   it("stores the surface, route, and redacted query on a request", async () => {
     const bound: unknown[][] = [];
-    const prepare = viPrepare(bound);
-    const { env } = createMockEnv({ AUTH_DB: { prepare } as unknown as Env["AUTH_DB"] });
+    const { env } = createMockEnv({ ACCESS_AE: aeCapture(bound) });
     await recordAccess(env, new Request("https://md.example.com/https://example.com/a?format=text&token=secret"), new Response("ok"), 42);
     const flat = bound.flat().map(String);
     expect(flat).toContain("api");
@@ -83,8 +82,7 @@ describe("access surfaces", () => {
 
   it("redacts a secret-shaped query value when the parameter name is ordinary", async () => {
     const bound: unknown[][] = [];
-    const prepare = viPrepare(bound);
-    const { env } = createMockEnv({ AUTH_DB: { prepare } as unknown as Env["AUTH_DB"] });
+    const { env } = createMockEnv({ ACCESS_AE: aeCapture(bound) });
     await recordAccess(
       env,
       new Request("https://md.example.com/api/stream?url=https%3A%2F%2Fexample.com%2Fstream&engine=sk_live_secret_value&debug_trace=true&selector=.article%20%3E%20p"),
@@ -98,15 +96,10 @@ describe("access surfaces", () => {
   });
 });
 
-function viPrepare(bound: unknown[][]) {
-  return (sql: string) => {
-    const stmt = {
-      bind: (...args: unknown[]) => {
-        if (sql.includes("INSERT INTO access_events")) bound.push(args);
-        return stmt;
-      },
-      run: async () => ({ success: true }),
-    };
-    return stmt;
+function aeCapture(bound: unknown[][]): Env["ACCESS_AE"] {
+  return {
+    writeDataPoint: (point?: AnalyticsEngineDataPoint) => {
+      bound.push([...(point?.blobs ?? []), ...(point?.doubles ?? [])]);
+    },
   };
 }

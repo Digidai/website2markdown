@@ -19,8 +19,7 @@ export async function recordAccess(
       ? url.searchParams.get("format") || ""
       : "";
     const [clientIp, userAgent, asn, asOrg, city] = clientInfo(request);
-    // Dual write while the admin page still reads D1. Blob/double positions are
-    // the dataset's schema: append new fields, never reorder.
+    // Column positions are the dataset schema (see access-ae.ts): append, never reorder.
     env.ACCESS_AE?.writeDataPoint({
       indexes: [clientIp],
       blobs: [
@@ -31,34 +30,6 @@ export async function recordAccess(
       ],
       doubles: [response.status, Math.max(0, Math.round(durationMs)), asn ?? 0],
     });
-    if (!env.AUTH_DB) return;
-    await env.AUTH_DB.prepare(`
-      INSERT INTO access_events (
-        id, created_at, kind, method, path, status, country, colo, ua_family, referrer_host,
-        surface, route_name, auth_present, duration_ms, cache_status, format, query_redacted, request_id,
-        client_ip, user_agent, asn, as_org, city
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(
-      crypto.randomUUID(),
-      new Date().toISOString(),
-      classified.surface,
-      request.method.slice(0, 12),
-      url.pathname.slice(0, 2000),
-      response.status,
-      countryOf(request),
-      coloOf(request),
-      userAgentFamily(request.headers.get("user-agent")),
-      referrerHost(request),
-      classified.surface,
-      classified.route,
-      authPresent(request),
-      Math.max(0, Math.round(durationMs)),
-      cacheStatusOf(response),
-      format,
-      sanitizedQuery(url),
-      requestIdOf(request),
-      ...clientInfo(request),
-    ).run();
   } catch (error) {
     console.error("access event write failed:", error instanceof Error ? error.message : "unknown");
   }

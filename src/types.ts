@@ -5,7 +5,7 @@ export interface Env {
   JOB_COORDINATOR?: DurableObjectNamespace;
   /** D1 database for auth, API keys, and usage metering */
   AUTH_DB?: D1Database;
-  /** Analytics Engine dataset `access_events`; column layout in recordAccess. */
+  /** Analytics Engine dataset `access_events`; column layout in admin/access-ae.ts. */
   ACCESS_AE?: AnalyticsEngineDataset;
   /** Passphrase for /admin. Login is refused when this is unset. */
   ADMIN_PASSWORD?: string;
@@ -23,6 +23,8 @@ export interface Env {
   CF_ACCOUNT_ID?: string;
   /** Cloudflare API Token with Browser Rendering - Edit permission */
   CF_API_TOKEN?: string;
+  /** Account-owned API token with Account Analytics Read, for the admin's WAE queries. */
+  CF_ANALYTICS_TOKEN?: string;
   /** Optional Firecrawl API key. Omit to use Firecrawl keyless when available. */
   FIRECRAWL_API_KEY?: string;
   /** Context.dev API key; signed-in last-resort fallback for blocked pages. */

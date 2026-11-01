@@ -9,7 +9,8 @@ import type {
   DaySplit,
   PairRow,
 } from "../../web/contract";
-import { ACCESS_SURFACE_SQL, ACCESS_SURFACES, classifyAccessPath } from "./classify";
+import { ACCESS_SURFACES, classifyAccessPath } from "./classify";
+import { AE_COUNT, aeCountIf, aeIso, aeText, aeTime, queryAccessEvents } from "./access-ae";
 import { loadProviderHealth } from "../observability/provider-attempts";
 import { loadSuspiciousIps } from "./ip-risk";
 
@@ -24,7 +25,6 @@ const VIEWS = ["all", "failures", "access", "conversions", "pages", "api"] as co
 const OUTCOMES = ["success", "convert_error", "unexpected_error"] as const;
 const ROUTES = ["convert", "stream"] as const;
 const SURFACES = ACCESS_SURFACES;
-const SURFACE_SQL = `(CASE WHEN COALESCE(surface, '') != '' THEN surface ELSE ${ACCESS_SURFACE_SQL} END)`;
 
 const FAIL_SQL = "(outcome != 'success' OR status_code >= 400)";
 const DEGRADED_SQL = "(COALESCE(output_chars, -1) = 0 OR COALESCE(fallbacks, '') != '' OR duration_ms >= 30000 OR COALESCE(paywall, 0) = 1)";
@@ -101,30 +101,15 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
   const day = since.slice(0, 10);
   const conversion = conversionWhere(query, since, true);
   const conversionAll = conversionWhere(query, since, false);
-  const access = accessWhere(query, since);
-  const pageAccess = accessWhere(query, since, "page");
-  const apiAccess = accessWhere(query, since, "api");
   const showConversions = query.view !== "access" && query.view !== "pages" && query.view !== "api";
   const showAccess = query.view !== "conversions";
   try {
     const [
-      accessTotals, conversionTotals, ledgerWindow, ledgerAll, aggregateTotals, accounts, keys,
-      conversionDays, pageDays, apiDays, pagePaths, apiPaths, countries, outcomes, platforms, errorCodes, authTiers,
-      topIps, conversionTotal, conversions, accessTotal, accesses, failurePreview,
+      access, conversionTotals, ledgerWindow, ledgerAll, aggregateTotals, accounts, keys,
+      conversionDays, outcomes, platforms, errorCodes, authTiers,
+      topIps, conversionTotal, conversions, failurePreview,
     ] = await Promise.all([
-      first<AccessTotals>(env, `
-        SELECT
-          SUM(CASE WHEN ${SURFACE_SQL} = 'page' AND created_at >= ? THEN 1 ELSE 0 END) AS pages_today,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'page' THEN 1 ELSE 0 END) AS pages_window,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'api' AND created_at >= ? THEN 1 ELSE 0 END) AS api_today,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'api' THEN 1 ELSE 0 END) AS api_window,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'account' THEN 1 ELSE 0 END) AS account_window,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'probe' THEN 1 ELSE 0 END) AS probe_window,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'asset' THEN 1 ELSE 0 END) AS asset_window,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'page' AND status >= 400 THEN 1 ELSE 0 END) AS page_errors,
-          SUM(CASE WHEN ${SURFACE_SQL} = 'api' AND status >= 400 THEN 1 ELSE 0 END) AS api_errors
-        FROM access_events WHERE created_at >= ?
-      `, [today, today, since]),
+      loadAccess(env, query, since, today, showAccess),
       first<ConversionTotals>(env, `
         SELECT
           SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS today_n,
@@ -161,28 +146,6 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
         FROM conversion_log WHERE ${conversion.clause}
         GROUP BY day ORDER BY day
       `, conversion.binds),
-      all<DayRow>(env, `
-        SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n
-        FROM access_events WHERE ${pageAccess.clause}
-        GROUP BY day ORDER BY day
-      `, pageAccess.binds),
-      all<DayRow>(env, `
-        SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS n
-        FROM access_events WHERE ${apiAccess.clause}
-        GROUP BY day ORDER BY day
-      `, apiAccess.binds),
-      all<PairRow>(env, `
-        SELECT path AS label, COUNT(*) AS n FROM access_events
-        WHERE ${pageAccess.clause} GROUP BY path ORDER BY n DESC LIMIT 12
-      `, pageAccess.binds),
-      all<PairRow>(env, `
-        SELECT path AS label, COUNT(*) AS n FROM access_events
-        WHERE ${apiAccess.clause} GROUP BY path ORDER BY n DESC LIMIT 12
-      `, apiAccess.binds),
-      all<PairRow>(env, `
-        SELECT country AS label, COUNT(*) AS n FROM access_events
-        WHERE ${pageAccess.clause} AND country != '' GROUP BY country ORDER BY n DESC LIMIT 12
-      `, pageAccess.binds),
       all<PairRow>(env, `
         SELECT outcome AS label, COUNT(*) AS n FROM conversion_log
         WHERE ${conversion.clause} GROUP BY outcome ORDER BY n DESC
@@ -218,19 +181,6 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
             LIMIT ? OFFSET ?
           `, [...conversion.binds, PAGE_SIZE, (query.page - 1) * PAGE_SIZE])
         : Promise.resolve([]),
-      showAccess
-        ? count(env, `SELECT COUNT(*) AS n FROM access_events WHERE ${access.clause}`, access.binds)
-        : Promise.resolve(0),
-      showAccess
-        ? all<AccessRow>(env, `
-            SELECT created_at, kind, method, path, status, country, ua_family, referrer_host,
-                   ${SURFACE_SQL} AS surface, route_name, duration_ms, auth_present, query_redacted, format,
-                   client_ip, user_agent, asn, as_org, city
-            FROM access_events WHERE ${access.clause}
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-          `, [...access.binds, PAGE_SIZE, (query.apage - 1) * PAGE_SIZE])
-        : Promise.resolve([]),
       query.view === "failures"
         ? Promise.resolve([])
         : all<ConversionRow>(env, `
@@ -242,8 +192,9 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
     ]);
     const conversionsWindow = num(conversionTotals?.window_n);
     const success = num(conversionTotals?.success_n);
+    const accessTotals = access.totals;
     return {
-      error: "",
+      error: access.error,
       query,
       pagesToday: num(accessTotals?.pages_today),
       pagesWindow: num(accessTotals?.pages_window),
@@ -277,23 +228,26 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
         warn: num(row.warn),
         bad: num(row.bad),
       })),
-      pageDays: pageDays.map((row) => ({ day: row.day, n: num(row.n) })),
-      apiDays: apiDays.map((row) => ({ day: row.day, n: num(row.n) })),
-      pagePaths: normalizePairs(pagePaths),
-      apiPaths: normalizePairs(apiPaths),
+      pageDays: access.pageDays.map((row) => ({ day: row.day, n: num(row.n) })),
+      apiDays: access.apiDays.map((row) => ({ day: row.day, n: num(row.n) })),
+      pagePaths: normalizePairs(access.pagePaths),
+      apiPaths: normalizePairs(access.apiPaths),
       authTiers: normalizePairs(authTiers),
       topIps: normalizePairs(topIps),
-      countries: normalizePairs(countries),
+      countries: normalizePairs(access.countries),
       outcomes: normalizePairs(outcomes),
       platforms: normalizePairs(platforms),
       errorCodes: normalizePairs(errorCodes),
       conversions: conversions.map(mapConversion),
       conversionTotal,
-      accesses: accesses.map(mapAccess),
-      accessTotal,
+      accesses: access.rows.map(mapAccess),
+      accessTotal: access.total,
       failurePreview: failurePreview.map(mapConversion),
       providerHealth: await loadProviderHealth(env, day),
-      suspiciousIps: await loadSuspiciousIps(env, new Date(Date.now() - DAY_MS).toISOString()),
+      suspiciousIps: await loadSuspiciousIps(env, new Date(Date.now() - DAY_MS).toISOString()).catch((error) => {
+        console.error("suspicious ip scoring failed:", error instanceof Error ? error.message : "unknown");
+        return [];
+      }),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "query failed";
@@ -420,31 +374,100 @@ function conversionWhere(query: AdminQuery, since: string, includeView: boolean)
   return { clause: parts.join(" AND "), binds };
 }
 
-function accessWhere(query: AdminQuery, since: string, surfaceLock = ""): { clause: string; binds: SqlBind[] } {
-  const parts = ["created_at >= ?"];
-  const binds: SqlBind[] = [since];
-  if (query.view === "failures") parts.push("status >= 400");
-  if (query.view === "pages") {
-    parts.push(`${SURFACE_SQL} = 'page'`);
+interface AccessStats {
+  error: string;
+  totals: AccessTotals | null;
+  pageDays: DayRow[];
+  apiDays: DayRow[];
+  pagePaths: PairRow[];
+  apiPaths: PairRow[];
+  countries: PairRow[];
+  total: number;
+  rows: AccessRow[];
+}
+
+/** Access stats from Analytics Engine. A failure here leaves the D1 conversion stats intact. */
+async function loadAccess(env: Env, query: AdminQuery, since: string, today: string, showList: boolean): Promise<AccessStats> {
+  const where = accessWhere(query, since);
+  const pageWhere = accessWhere(query, since, "page");
+  const apiWhere = accessWhere(query, since, "api");
+  const days = (clause: string) => queryAccessEvents<DayRow>(env, `
+    SELECT formatDateTime(timestamp, '%Y-%m-%d') AS day, ${AE_COUNT} AS n
+    FROM access_events WHERE ${clause} GROUP BY day ORDER BY day`);
+  const top = (column: string, clause: string) => queryAccessEvents<PairRow>(env, `
+    SELECT ${column} AS label, ${AE_COUNT} AS n
+    FROM access_events WHERE ${clause} AND ${column} != '' GROUP BY label ORDER BY n DESC LIMIT 12`);
+  try {
+    const [totals, pageDays, apiDays, pagePaths, apiPaths, countries, total, rows] = await Promise.all([
+      queryAccessEvents<AccessTotals>(env, `
+        SELECT
+          ${aeCountIf(`blob1 = 'page' AND timestamp >= ${aeTime(today)}`)} AS pages_today,
+          ${aeCountIf("blob1 = 'page'")} AS pages_window,
+          ${aeCountIf(`blob1 = 'api' AND timestamp >= ${aeTime(today)}`)} AS api_today,
+          ${aeCountIf("blob1 = 'api'")} AS api_window,
+          ${aeCountIf("blob1 = 'account'")} AS account_window,
+          ${aeCountIf("blob1 = 'probe'")} AS probe_window,
+          ${aeCountIf("blob1 = 'asset'")} AS asset_window,
+          ${aeCountIf("blob1 = 'page' AND double1 >= 400")} AS page_errors,
+          ${aeCountIf("blob1 = 'api' AND double1 >= 400")} AS api_errors
+        FROM access_events WHERE timestamp >= ${aeTime(since)}`),
+      days(pageWhere),
+      days(apiWhere),
+      top("blob3", pageWhere),
+      top("blob3", apiWhere),
+      top("blob4", pageWhere),
+      showList
+        ? queryAccessEvents<CountRow>(env, `SELECT ${AE_COUNT} AS n FROM access_events WHERE ${where}`)
+        : Promise.resolve([]),
+      showList
+        ? queryAccessEvents<AccessRow>(env, `
+            SELECT timestamp AS created_at, blob1 AS kind, blob2 AS method, blob3 AS path, double1 AS status,
+                   blob4 AS country, blob6 AS ua_family, blob7 AS referrer_host, blob8 AS route_name,
+                   double2 AS duration_ms, blob9 AS auth_present, blob12 AS query_redacted, blob11 AS format,
+                   blob14 AS client_ip, blob15 AS user_agent, double3 AS asn, blob16 AS as_org, blob17 AS city
+            FROM access_events WHERE ${where}
+            ORDER BY created_at DESC
+            LIMIT ${PAGE_SIZE} OFFSET ${(query.apage - 1) * PAGE_SIZE}`)
+        : Promise.resolve([]),
+    ]);
+    return {
+      error: "",
+      totals: totals[0] ?? null,
+      pageDays,
+      apiDays,
+      pagePaths,
+      apiPaths,
+      countries,
+      total: num(total[0]?.n),
+      rows: rows.map((row) => ({
+        ...row,
+        created_at: aeIso(row.created_at),
+        surface: row.kind,
+        asn: num(row.asn) === 0 ? null : num(row.asn),
+      })),
+    };
+  } catch (error) {
+    console.error("access stats failed:", error instanceof Error ? error.message : "unknown");
+    return {
+      error: "访问统计（Analytics Engine）读取失败，转化统计不受影响。",
+      totals: null, pageDays: [], apiDays: [], pagePaths: [], apiPaths: [], countries: [], total: 0, rows: [],
+    };
   }
-  if (query.view === "api") {
-    parts.push(`${SURFACE_SQL} = 'api'`);
-  }
+}
+
+function accessWhere(query: AdminQuery, since: string, surfaceLock = ""): string {
+  const parts = [`timestamp >= ${aeTime(since)}`];
+  if (query.view === "failures") parts.push("double1 >= 400");
+  if (query.view === "pages") parts.push("blob1 = 'page'");
+  if (query.view === "api") parts.push("blob1 = 'api'");
   const surface = surfaceLock || query.surface;
-  if (surface) {
-    parts.push(`${SURFACE_SQL} = ?`);
-    binds.push(surface);
-  }
-  if (query.status != null) {
-    parts.push("status = ?");
-    binds.push(query.status);
-  }
+  if (surface) parts.push(`blob1 = ${aeText(surface)}`);
+  if (query.status != null) parts.push(`double1 = ${query.status}`);
   if (query.q) {
-    const like = likeContains(query.q);
-    parts.push("(path LIKE ? ESCAPE '\\' OR referrer_host LIKE ? ESCAPE '\\' OR client_ip LIKE ? ESCAPE '\\' OR user_agent LIKE ? ESCAPE '\\' OR as_org LIKE ? ESCAPE '\\')");
-    binds.push(like, like, like, like, like);
+    const like = aeText(`%${query.q}%`);
+    parts.push(`(blob3 ILIKE ${like} OR blob7 ILIKE ${like} OR blob14 ILIKE ${like} OR blob15 ILIKE ${like} OR blob16 ILIKE ${like})`);
   }
-  return { clause: parts.join(" AND "), binds };
+  return parts.join(" AND ");
 }
 
 function likeContains(value: string): string {
