@@ -1,5 +1,6 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { DESKTOP_UA } from "../../config";
+import { fetchNotionPage } from "./notion-api";
 
 export const notionAdapter: SiteAdapter = {
   match(url: string): boolean {
@@ -7,6 +8,10 @@ export const notionAdapter: SiteAdapter = {
   },
 
   alwaysBrowser: true,
+
+  // The public page API returns the whole block tree without a browser; the
+  // browser path below stays as the fallback for pages it cannot read.
+  fetchDirect: fetchNotionPage,
 
   async configurePage(page: any): Promise<void> {
     await page.setUserAgent(DESKTOP_UA);
