@@ -89,7 +89,7 @@ your email to get an API key. No password; a sign-in link is emailed to you.
 
 | Tier | Credits/month | Browser rendering | Engines |
 |------|---------------|-------------------|---------|
-| **Anonymous** (no key) | — | No | Cache, direct fetch, and Readability only |
+| **Anonymous** (no key) | — | No | Cache, direct fetch, and Readability only. Limited to 10 requests a minute and 100 a day per IP |
 | **Free** | 1,000 | Yes. A live render costs 3 credits | `engine=jina` and `engine=firecrawl`. `engine=cf`, proxy, and `no_cache` require Pro |
 | **Pro** | 50,000 | Yes. A live render costs 3 credits | All engines, plus `no_cache` and `force_browser` |
 
