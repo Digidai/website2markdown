@@ -497,7 +497,7 @@ function Hero({ ctx }: { ctx: Ctx }) {
         <a href={GITHUB_URL} target="_blank" rel="noreferrer">
           <Chip variant="soft" color="accent" size="lg">
             <Sparkles className="size-3.5" />
-            {isZh ? "开源 · Apache-2.0 · 16 个平台适配器" : "Open source · Apache-2.0 · 16 platform adapters"}
+            {isZh ? "开源 · Apache-2.0 · 15 个平台适配器" : "Open source · Apache-2.0 · 15 platform adapters"}
           </Chip>
         </a>
         <h1 className="mt-6 max-w-4xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl lg:text-7xl">
