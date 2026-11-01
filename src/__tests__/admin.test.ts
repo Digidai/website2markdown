@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("cloudflare:sockets", () => ({ connect: vi.fn() }));
@@ -268,6 +270,58 @@ describe("admin report", () => {
     expect(flat).not.toContain("supersecret");
     expect(flat).not.toContain("secret-token");
   });
+
+  it("stores caller IP, network and account on the migrated schema", async () => {
+    const db = new DatabaseSync(":memory:");
+    for (const file of readdirSync("migrations").sort()) db.exec(readFileSync(`migrations/${file}`, "utf8"));
+    const d1 = {
+      prepare: (sql: string) => {
+        let args: unknown[] = [];
+        const stmt = {
+          bind: (...values: unknown[]) => { args = values; return stmt; },
+          run: async () => { db.prepare(sql).run(...(args as never[])); return { success: true }; },
+        };
+        return stmt;
+      },
+    };
+    const { env } = createMockEnv({ AUTH_DB: d1 as unknown as Env["AUTH_DB"] });
+    const request = new Request("https://md.example.com/", {
+      headers: { "cf-connecting-ip": "203.0.113.7", "user-agent": "Mozilla/5.0 ExampleBot/2.1" },
+    });
+    Object.defineProperty(request, "cf", { value: { asn: 64500, asOrganization: "Example Cloud", city: "Singapore" } });
+    await recordConversionLog(env, {
+      request,
+      route: "convert",
+      targetUrl: "https://example.com/post",
+      platform: "generic",
+      outcome: "success",
+      statusCode: 200,
+      methodUsed: "native",
+      cacheStatus: "miss",
+      durationMs: 300,
+      format: "markdown",
+      authTier: "free",
+      errorCode: "",
+      outputContent: "# Hi",
+      outputChars: 4,
+      errorMessage: "",
+      fallbacks: [],
+      paywall: false,
+      browserRendered: false,
+      accountId: "acct_123",
+      keyId: "key_456",
+    });
+    const row = db.prepare("SELECT client_ip, user_agent, asn, as_org, city, account_id, key_id FROM conversion_log").get();
+    expect(row).toEqual({
+      client_ip: "203.0.113.7",
+      user_agent: "Mozilla/5.0 ExampleBot/2.1",
+      asn: 64500,
+      as_org: "Example Cloud",
+      city: "Singapore",
+      account_id: "acct_123",
+      key_id: "key_456",
+    });
+  });
 });
 
 function sampleRow(): ConversionRow {
@@ -333,6 +387,7 @@ function sampleReport(rows: ConversionRow[]): AdminReport {
     pagePaths: [{ label: "/", n: 4 }],
     apiPaths: [{ label: "/https://example.com", n: 8 }],
     authTiers: [{ label: "anonymous", n: 5 }],
+    topIps: [{ label: "203.0.113.9 · Example Cloud", n: 5 }],
     countries: [{ label: "CN", n: 4 }],
     outcomes: [{ label: "convert_error", n: 1 }],
     platforms: [{ label: "wechat", n: 1 }],

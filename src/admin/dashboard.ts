@@ -107,7 +107,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
     const [
       accessTotals, conversionTotals, ledgerWindow, ledgerAll, aggregateTotals, accounts, keys,
       conversionDays, pageDays, apiDays, pagePaths, apiPaths, countries, outcomes, platforms, errorCodes, authTiers,
-      conversionTotal, conversions, accessTotal, accesses, failurePreview,
+      topIps, conversionTotal, conversions, accessTotal, accesses, failurePreview,
     ] = await Promise.all([
       first<AccessTotals>(env, `
         SELECT
@@ -198,6 +198,12 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
         SELECT auth_tier AS label, COUNT(*) AS n FROM conversion_log
         WHERE ${conversion.clause} GROUP BY auth_tier ORDER BY n DESC
       `, conversion.binds),
+      all<PairRow>(env, `
+        SELECT client_ip || CASE WHEN MAX(as_org) != '' THEN ' · ' || MAX(as_org) ELSE '' END AS label, COUNT(*) AS n
+        FROM conversion_log
+        WHERE ${conversion.clause} AND client_ip != ''
+        GROUP BY client_ip ORDER BY n DESC LIMIT 12
+      `, conversion.binds),
       showConversions
         ? count(env, `SELECT COUNT(*) AS n FROM conversion_log WHERE ${conversion.clause}`, conversion.binds)
         : Promise.resolve(0),
@@ -215,7 +221,8 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       showAccess
         ? all<AccessRow>(env, `
             SELECT created_at, kind, method, path, status, country, ua_family, referrer_host,
-                   ${SURFACE_SQL} AS surface, route_name, duration_ms, auth_present, query_redacted, format
+                   ${SURFACE_SQL} AS surface, route_name, duration_ms, auth_present, query_redacted, format,
+                   client_ip, user_agent, asn, as_org, city
             FROM access_events WHERE ${access.clause}
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
@@ -272,6 +279,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       pagePaths: normalizePairs(pagePaths),
       apiPaths: normalizePairs(apiPaths),
       authTiers: normalizePairs(authTiers),
+      topIps: normalizePairs(topIps),
       countries: normalizePairs(countries),
       outcomes: normalizePairs(outcomes),
       platforms: normalizePairs(platforms),
@@ -323,7 +331,7 @@ function conversionColumns(excerptChars: number): string {
            paywall, browser_rendered, request_id, engine_requested, credit_cost,
            selector_present, force_browser, no_cache, quota_bucket, account_hash, key_hash,
            ua_family, colo, content_type, duration_bucket, output_size_bucket, selector_bucket,
-           has_account, has_key
+           has_account, has_key, client_ip, user_agent, asn, as_org, city, account_id, key_id
     FROM conversion_log
   `;
 }
@@ -365,6 +373,7 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
     pagePaths: [],
     apiPaths: [],
     authTiers: [],
+    topIps: [],
     countries: [],
     outcomes: [],
     platforms: [],
@@ -400,8 +409,8 @@ function conversionWhere(query: AdminQuery, since: string, includeView: boolean)
   }
   if (query.q) {
     const like = likeContains(query.q);
-    parts.push("(target_url LIKE ? ESCAPE '\\' OR target_host LIKE ? ESCAPE '\\' OR error_code LIKE ? ESCAPE '\\' OR error_message LIKE ? ESCAPE '\\' OR platform LIKE ? ESCAPE '\\')");
-    binds.push(like, like, like, like, like);
+    parts.push("(target_url LIKE ? ESCAPE '\\' OR target_host LIKE ? ESCAPE '\\' OR error_code LIKE ? ESCAPE '\\' OR error_message LIKE ? ESCAPE '\\' OR platform LIKE ? ESCAPE '\\' OR client_ip LIKE ? ESCAPE '\\' OR user_agent LIKE ? ESCAPE '\\' OR as_org LIKE ? ESCAPE '\\')");
+    binds.push(like, like, like, like, like, like, like, like);
   }
   return { clause: parts.join(" AND "), binds };
 }
@@ -427,8 +436,8 @@ function accessWhere(query: AdminQuery, since: string, surfaceLock = ""): { clau
   }
   if (query.q) {
     const like = likeContains(query.q);
-    parts.push("(path LIKE ? ESCAPE '\\' OR referrer_host LIKE ? ESCAPE '\\')");
-    binds.push(like, like);
+    parts.push("(path LIKE ? ESCAPE '\\' OR referrer_host LIKE ? ESCAPE '\\' OR client_ip LIKE ? ESCAPE '\\' OR user_agent LIKE ? ESCAPE '\\' OR as_org LIKE ? ESCAPE '\\')");
+    binds.push(like, like, like, like, like);
   }
   return { clause: parts.join(" AND "), binds };
 }
@@ -476,6 +485,13 @@ function mapConversion(row: ConversionRow): ConversionRow {
     selector_bucket: row.selector_bucket || "",
     has_account: nullableNum(row.has_account),
     has_key: nullableNum(row.has_key),
+    client_ip: row.client_ip || "",
+    user_agent: row.user_agent || "",
+    asn: nullableNum(row.asn),
+    as_org: row.as_org || "",
+    city: row.city || "",
+    account_id: row.account_id || "",
+    key_id: row.key_id || "",
   };
 }
 
@@ -501,6 +517,11 @@ function mapAccess(row: AccessRow): AccessRow {
     auth_present: row.auth_present || "",
     query_redacted: row.query_redacted || "",
     format: row.format || "",
+    client_ip: row.client_ip || "",
+    user_agent: row.user_agent || "",
+    asn: nullableNum(row.asn),
+    as_org: row.as_org || "",
+    city: row.city || "",
   };
 }
 

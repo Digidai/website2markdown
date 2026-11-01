@@ -199,7 +199,12 @@ CREATE TABLE IF NOT EXISTS access_events (
   cache_status TEXT NOT NULL DEFAULT '',
   format TEXT NOT NULL DEFAULT '',
   query_redacted TEXT NOT NULL DEFAULT '',
-  request_id TEXT NOT NULL DEFAULT ''
+  request_id TEXT NOT NULL DEFAULT '',
+  client_ip TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  asn INTEGER,
+  as_org TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_access_events_created ON access_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_access_events_kind ON access_events(kind, created_at);
@@ -243,12 +248,22 @@ CREATE TABLE IF NOT EXISTS conversion_log (
   output_size_bucket TEXT NOT NULL DEFAULT '',
   selector_bucket TEXT NOT NULL DEFAULT '',
   has_account INTEGER,
-  has_key INTEGER
+  has_key INTEGER,
+  client_ip TEXT NOT NULL DEFAULT '',
+  user_agent TEXT NOT NULL DEFAULT '',
+  asn INTEGER,
+  as_org TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '',
+  account_id TEXT NOT NULL DEFAULT '',
+  key_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_conversion_log_created ON conversion_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_outcome ON conversion_log(outcome, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_status ON conversion_log(status_code, created_at);
 CREATE INDEX IF NOT EXISTS idx_access_events_status ON access_events(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_access_events_ip ON access_events(client_ip, created_at);
+CREATE INDEX IF NOT EXISTS idx_conversion_log_ip ON conversion_log(client_ip, created_at);
+CREATE INDEX IF NOT EXISTS idx_conversion_log_account ON conversion_log(account_id, created_at);
 -- Per-day outcome counts for each fallback path (Firecrawl, Jina, proxy pool,
 -- browser rendering, archives, ...). One row per (date, path). Stores only the
 -- latest sanitized error text, never URLs, keys, or response bodies.
