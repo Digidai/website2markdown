@@ -1,4 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("cloudflare:sockets", () => ({ connect: vi.fn() }));
+vi.mock("../proxy", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../proxy")>()),
+  fetchViaProxyPool: vi.fn(),
+}));
+import { fetchViaProxyPool } from "../proxy";
 import { kr36Adapter } from "../browser/adapters/36kr";
 import { csdnAdapter } from "../browser/adapters/csdn";
 import { juejinAdapter } from "../browser/adapters/juejin";
@@ -599,6 +606,23 @@ describe("API-first fetchDirect paths", () => {
     expect(html).toContain("Ada · 2026-10-28");
     expect(html).toContain("<p>Body paragraph.</p>");
     expect(getAdapter("https://example.substack.com/")).not.toBe(substackAdapter);
+  });
+
+  it("retries a Substack 429 through the configured proxy, and only then", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("slow down", { status: 429 })));
+    vi.mocked(fetchViaProxyPool).mockResolvedValue({
+      status: 200, headers: {}, body: JSON.stringify({ title: "Proxied", body_html: "<p>Via proxy.</p>" }),
+    } as never);
+    const url = "https://example.substack.com/p/my-post";
+
+    expect(await substackAdapter.fetchDirect!(url, {} as never)).toBeNull();
+    expect(fetchViaProxyPool).not.toHaveBeenCalled();
+
+    const html = await substackAdapter.fetchDirect!(url, { PROXY_URL: "u:p@proxy.test:3000" } as never);
+    expect(html).toContain("<p>Via proxy.</p>");
+    const [apiUrl, proxies] = vi.mocked(fetchViaProxyPool).mock.calls[0];
+    expect(apiUrl).toBe("https://example.substack.com/api/v1/posts/my-post");
+    expect(proxies).toEqual([{ host: "proxy.test", port: 3000, username: "u", password: "p" }]);
   });
 
 });

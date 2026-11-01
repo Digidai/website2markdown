@@ -199,5 +199,5 @@ export interface SiteAdapter {
   /** Transform URL before browser navigation (optional). */
   transformUrl?(url: string): string;
   /** Fetch content directly via API, bypassing static fetch and browser. Return HTML or null. */
-  fetchDirect?(url: string): Promise<string | null>;
+  fetchDirect?(url: string, env?: Env): Promise<string | null>;
 }

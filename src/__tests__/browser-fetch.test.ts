@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("cloudflare:sockets", () => ({
+  connect: vi.fn(),
+}));
+
 vi.mock("@cloudflare/puppeteer", () => ({
   default: {
     launch: vi.fn(),

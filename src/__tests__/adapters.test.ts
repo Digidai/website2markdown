@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+vi.mock("cloudflare:sockets", () => ({
+  connect: vi.fn(),
+}));
 import { getAdapter, alwaysNeedsBrowser } from "../browser";
 import { feishuAdapter } from "../browser/adapters/feishu";
 import { wechatAdapter } from "../browser/adapters/wechat";
