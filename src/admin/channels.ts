@@ -104,7 +104,7 @@ const CHANNELS: ChannelSpec[] = [
   {
     id: "context_dev",
     name: "Context.dev",
-    role: "登录用户的最后兜底：原站拦截（401/403/429/503）或浏览器渲染失败时调用。免费每月 1,000 次。",
+    role: "最后兜底：登录用户在原站拦截或浏览器失败时调用；匿名用户只用于微信等必须渲染的站点，全站每天最多 40 次。免费每月 1,000 次。",
     paths: ["context_dev"],
     env: [{ name: "CONTEXT_DEV_API_KEY", required: true }],
     test: async (env) => {
