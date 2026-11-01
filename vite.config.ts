@@ -34,6 +34,7 @@ export default defineConfig(({ isSsrBuild }) =>
               landing: "web/entries/landing.tsx",
               portal: "web/entries/portal.tsx",
               reader: "web/entries/reader.tsx",
+              admin: "web/entries/admin.tsx",
             },
             output: {
               entryFileNames: "_app/[name].js",

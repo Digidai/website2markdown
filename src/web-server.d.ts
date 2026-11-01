@@ -7,5 +7,6 @@ declare module "@web/server" {
   export const loadingPageHTML: R["loadingPageHTML"];
   export const renderedPageHTML: R["renderedPageHTML"];
   export const errorPageHTML: R["errorPageHTML"];
+  export const adminPageHTML: R["adminPageHTML"];
   export type SitePage = import("../web/contract").SitePage;
 }
