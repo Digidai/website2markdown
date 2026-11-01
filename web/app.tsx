@@ -1,3 +1,5 @@
+import type { AdminState } from "./contract";
+import { AdminPage } from "./pages/admin";
 import { LandingPage, type LandingProps } from "./pages/landing";
 import { PortalPage } from "./pages/portal";
 import { ErrorPage, LoadingPage, ReaderView, type ErrorProps, type LoadingProps, type ReaderProps } from "./pages/reader";
@@ -8,7 +10,8 @@ export type AppState =
   | { view: "portal"; props: { host: string } }
   | { view: "loading"; props: LoadingProps }
   | { view: "reader"; props: ReaderProps }
-  | { view: "error"; props: ErrorProps & { host?: string } };
+  | { view: "error"; props: ErrorProps & { host?: string } }
+  | { view: "admin"; props: AdminState };
 
 export function App({ state }: { state: AppState }) {
   switch (state.view) {
@@ -22,5 +25,7 @@ export function App({ state }: { state: AppState }) {
       return <ReaderView {...state.props} />;
     case "error":
       return <ErrorPage {...state.props} />;
+    case "admin":
+      return <AdminPage {...state.props} />;
   }
 }

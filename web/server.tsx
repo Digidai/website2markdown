@@ -18,6 +18,7 @@ const ASSET_JS: Record<AppState["view"], string> = {
   loading: "/_app/reader.js",
   reader: "/_app/reader.js",
   error: "/_app/reader.js",
+  admin: "/_app/admin.js",
 };
 
 function esc(value: string): string {
@@ -237,3 +238,12 @@ export const errorPageHTML: WebRenderers["errorPageHTML"] = (title, message, sta
 <meta property="og:type" content="website">`,
     state: { view: "error", props: { title, message, status: statusCode } },
   });
+
+export const adminPageHTML: WebRenderers["adminPageHTML"] = (state) => {
+  const title = state.mode === "login" ? "登录" : state.mode === "detail" ? "转换记录" : "运营后台";
+  return documentHTML({
+    lang: "zh-CN",
+    head: `<title>${title} — md.genedai.me</title>\n<meta name="robots" content="noindex, nofollow">`,
+    state: { view: "admin", props: state },
+  });
+};

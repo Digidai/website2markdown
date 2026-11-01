@@ -243,9 +243,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       path === "/admin" ||
       path === "/admin/" ||
       path === "/admin/logout" ||
-      path === "/admin/conversion"
+      path === "/admin/conversion" ||
+      path === "/admin/channels/test"
     ) {
-      return handleAdmin(request, env);
+      return handleAdmin(request, env, host);
     }
 
     // Scanner paths must not render the marketing page or become outbound fetches.

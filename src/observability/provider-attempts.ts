@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { logMetric } from "../runtime-state";
 import { sanitizeErrorMessage } from "./conversion-events";
+import { ALERT_FAILURE_RATE, ALERT_MIN_ATTEMPTS, type ProviderPathHealth } from "../../web/contract";
 
 /**
  * Fallback paths whose outcome is tracked per call. Each name is one upstream
@@ -17,16 +18,8 @@ export type ProviderPath =
   | "wayback"
   | "archive_today";
 
-export interface ProviderPathHealth {
-  path: string;
-  attempts: number;
-  failures: number;
-  lastError: string;
-  lastFailureAt: string;
-}
-
-export const ALERT_MIN_ATTEMPTS = 20;
-export const ALERT_FAILURE_RATE = 0.5;
+export type { ProviderPathHealth };
+export { ALERT_FAILURE_RATE, ALERT_MIN_ATTEMPTS };
 const RETENTION_DAYS = 90;
 
 /**

@@ -4,15 +4,16 @@ vi.mock("cloudflare:sockets", () => ({ connect: vi.fn() }));
 
 import worker from "../index";
 import { recordConversionLog } from "../admin/analytics";
+import { adminPageHTML } from "@web/server";
+import { conversionFlag } from "../../web/contract";
 import {
-  adminPageHTML,
-  conversionFlag,
   loadAdminReport,
   parseAdminQuery,
   safeAdminBack,
   type AdminReport,
   type ConversionRow,
 } from "../admin/dashboard";
+import { listChannels, parseBrightDataUser } from "../admin/channels";
 import type { Env } from "../types";
 import { createMockEnv, mockCtx } from "./test-helpers";
 
@@ -32,7 +33,7 @@ describe("/admin", () => {
     const res = await worker.fetch(new Request("https://md.example.com/admin"), adminTestEnv(), mockCtx());
     const html = await res.text();
     expect(res.status).toBe(200);
-    expect(html).toContain("运营统计");
+    expect(html).toContain("运营后台");
     expect(html).toContain('name="password"');
     expect(res.headers.get("X-Robots-Tag")).toContain("noindex");
   });
@@ -64,13 +65,34 @@ describe("/admin", () => {
     }), adminTestEnv(), mockCtx());
     const html = await page.text();
     expect(page.status).toBe(200);
-    expect(html).toContain("今日页面访问");
+    expect(html).toContain("运营统计");
     expect(html).toContain("API 访问");
-    expect(html).toContain("使用数据");
+    expect(html).toContain("渠道");
     expect(html).toContain("转换记录");
-    expect(html).toContain("失败");
-    expect(html).toContain('name="view"');
+    expect(html).toContain("退出");
     expect(html).not.toContain('name="password"');
+  });
+
+  it("runs channel tests only for a same-origin admin session", async () => {
+    const env = adminTestEnv();
+    const login = await worker.fetch(new Request("https://md.example.com/admin", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `password=${TEST_ADMIN_PASSWORD}`,
+      redirect: "manual",
+    }), env, mockCtx());
+    const cookie = (login.headers.get("Set-Cookie") || "").split(";")[0];
+    const probe = (headers: Record<string, string>) => worker.fetch(new Request("https://md.example.com/admin/channels/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ id: "browser_use" }),
+    }), env, mockCtx());
+
+    expect((await probe({ Origin: "https://md.example.com" })).status).toBe(401);
+    expect((await probe({ Cookie: cookie, Origin: "https://evil.example" })).status).toBe(401);
+    const ok = await probe({ Cookie: cookie, Origin: "https://md.example.com" });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ ok: false, summary: "这个渠道不能测试。" });
   });
 
   it("keeps conversion detail behind the passphrase", async () => {
@@ -128,33 +150,54 @@ describe("admin report", () => {
     expect(conversionFlag({ ...sampleRow(), outcome: "success", status_code: 200, output_chars: null, duration_ms: 10, fallbacks: "", paywall: 0 })).toBe("ok");
   });
 
-  it("renders the failure, the source link, and the saved excerpt", () => {
-    const row = sampleRow();
-    const html = adminPageHTML(sampleReport([row]));
-    expect(html).toContain("今日页面访问");
+  it("renders the overview counts and the metric definitions", () => {
+    const html = adminPageHTML({ mode: "dashboard", report: sampleReport([sampleRow()]), channels: [], tab: "overview" });
+    expect(html).toContain("运营统计");
     expect(html).toContain("API 访问");
     expect(html).toContain("其他请求");
-    expect(html).toContain("使用数据");
-    expect(html).toContain("转换记录");
-    expect(html).toContain("今日 API 访问");
-    expect(html).toContain("今日使用记录");
-    expect(html).toContain("今日有效结果");
-    expect(html).toContain("有效结果：成功，状态码低于 400，正文不少于 800 字，并且没有付费墙。");
-    expect(html).toContain("facts trio");
-    expect(html).toContain("类别");
-    expect(html).toContain('class="fail"');
-    expect(html).toContain("降级路径健康度");
-    // 30 calls at 93% crosses the alert threshold; 5 calls at 80% is too few to alert.
-    expect(html).toContain('<td class="bad">proxy_pool</td>');
-    expect(html).toContain('<td class="warn">jina</td>');
+    expect(html).toContain("有效结果");
+    expect(html).toContain("login_wall");
+    expect(html).toContain("指标口径");
+  });
+
+  it("renders the failure and the source link in the conversion list", () => {
+    const row = sampleRow();
+    const html = adminPageHTML({ mode: "dashboard", report: sampleReport([row]), channels: [], tab: "conversions" });
     expect(html).toContain("https://mp.weixin.qq.com/s/abc");
-    expect(html).toContain(encodeURIComponent("https://mp.weixin.qq.com/s/abc"));
     expect(html).toContain(`/admin/conversion?id=${row.id}`);
-    expect(html).toContain("# 标题");
     expect(html).toContain("login wall");
-    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
     expect(html).not.toContain("<b>x</b>");
     expect(html).toContain("筛选");
+  });
+
+  it("lists channels by configuration and merges path health", () => {
+    const { env } = createMockEnv({ PROXY_URL: "http://brd-customer-c1-zone-z1:pw@brd.superproxy.io:33335" });
+    delete (env as Partial<Env>).FIRECRAWL_API_KEY;
+    delete (env as Partial<Env>).BROWSER_USE_API_KEY;
+    const channels = listChannels(env, [
+      { path: "proxy_pool", attempts: 30, failures: 28, lastError: "Proxy pool exhausted", lastFailureAt: "2026-09-29T08:00:00.000Z" },
+      { path: "proxy", attempts: 10, failures: 1, lastError: "407 client_10000", lastFailureAt: "2026-09-29T09:00:00.000Z" },
+    ]);
+    const byId = new Map(channels.map((c) => [c.id, c]));
+    expect(byId.get("firecrawl")?.status).toBe("missing");
+    expect(byId.get("browser_use")?.status).toBe("disabled");
+    expect(byId.get("browser_use")?.testable).toBe(false);
+    expect(byId.get("proxy")?.status).toBe("active");
+    // Both proxy paths roll up into one channel, and the newest failure wins.
+    expect(byId.get("proxy")?.health).toMatchObject({ attempts: 40, failures: 29, lastError: "407 client_10000" });
+    expect(byId.get("jina")?.health).toBeNull();
+    // Status comes from presence only; secret values never reach the page model.
+    expect(JSON.stringify(channels)).not.toContain(":pw@");
+
+    const html = adminPageHTML({ mode: "dashboard", report: sampleReport([]), channels, tab: "channels" });
+    expect(html).toContain("Bright Data 住宅代理");
+    expect(html).toContain("407 client_10000");
+    expect(html).not.toContain(":pw@");
+  });
+
+  it("parses the Bright Data zone username", () => {
+    expect(parseBrightDataUser("brd-customer-hl_abc123-zone-residential1-country-us")).toEqual({ customer: "hl_abc123", zone: "residential1" });
+    expect(parseBrightDataUser("user")).toBeNull();
   });
 
   it("counts useful results as substantial successes without a paywall", async () => {
