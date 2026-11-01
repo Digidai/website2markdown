@@ -20,8 +20,8 @@ import {
 import { getCached, getImage } from "./cache";
 import {
   PRIVATE_ERROR_CACHE_CONTROL,
-  SEARCH_PAGE_API_KEY_MESSAGE,
-  isSearchResultPage,
+  anonymousBlockMessage,
+  isAnonymousBlockMessage,
 } from "./policy/anonymous-guards";
 import { setPaywallRulesFromJson, getPaywallRuleStats } from "./paywall";
 import { errorMessage } from "./utils";
@@ -589,9 +589,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       }
 
       const streamTarget = url.searchParams.get("url");
-      if (streamTierAnonymous && streamTarget && isSearchResultPage(streamTarget)) {
+      const streamBlock = streamTierAnonymous && streamTarget ? anonymousBlockMessage(streamTarget) : null;
+      if (streamBlock) {
         return Response.json(
-          { error: "Unauthorized", message: SEARCH_PAGE_API_KEY_MESSAGE },
+          { error: "Unauthorized", message: streamBlock },
           {
             status: 401,
             headers: {
@@ -942,9 +943,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         }
       }
 
-      if (auth.tier === "anonymous" && isSearchResultPage(targetUrl)) {
+      const anonymousBlock = auth.tier === "anonymous" ? anonymousBlockMessage(targetUrl) : null;
+      if (anonymousBlock) {
         return withExtraHeaders(
-          errorResponse("Unauthorized", SEARCH_PAGE_API_KEY_MESSAGE, 401, jsonErrors),
+          errorResponse("Unauthorized", anonymousBlock, 401, jsonErrors),
           {
             "X-Request-ID": requestId,
             "Cache-Control": PRIVATE_ERROR_CACHE_CONTROL,
@@ -1216,7 +1218,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
           ...debugTraceHeaders(eventDebugTrace),
           "X-Request-ID": requestId,
         };
-        if (err.targetStatus !== undefined || err.message === SEARCH_PAGE_API_KEY_MESSAGE) {
+        if (err.targetStatus !== undefined || isAnonymousBlockMessage(err.message)) {
           errorHeaders["Cache-Control"] = PRIVATE_ERROR_CACHE_CONTROL;
         }
         return withExtraHeaders(

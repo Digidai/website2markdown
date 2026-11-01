@@ -4,7 +4,10 @@ import {
   isGovEmptyShell,
   isGovNotFoundUrl,
   isNegativeOriginStatus,
+  anonymousBlockMessage,
   isSearchResultPage,
+  PROXY_SERVICE_API_KEY_MESSAGE,
+  SEARCH_PAGE_API_KEY_MESSAGE,
   notFoundPhraseDominates,
 } from "../policy/anonymous-guards";
 
@@ -41,6 +44,17 @@ describe("anonymous search pages", () => {
     expect(isSearchResultPage("https://arxiv.org/abs/1234.5678")).toBe(false);
     expect(isSearchResultPage("https://mp.weixin.qq.com/s/abc")).toBe(false);
     expect(isSearchResultPage("not a url")).toBe(false);
+  });
+});
+
+describe("anonymous blocked targets", () => {
+  it("names search pages and proxy services, and lets other pages through", () => {
+    expect(anonymousBlockMessage("https://priv.au/search?q=x")).toBe(SEARCH_PAGE_API_KEY_MESSAGE);
+    expect(anonymousBlockMessage("https://r.jina.ai/https://example.com")).toBe(PROXY_SERVICE_API_KEY_MESSAGE);
+    expect(anonymousBlockMessage("https://api.microlink.io/?url=https://example.com")).toBe(PROXY_SERVICE_API_KEY_MESSAGE);
+    expect(anonymousBlockMessage("https://jina.ai/reader")).toBeNull();
+    expect(anonymousBlockMessage("https://web.archive.org/web/2024/https://example.com")).toBeNull();
+    expect(anonymousBlockMessage("not a url")).toBeNull();
   });
 });
 

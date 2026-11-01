@@ -167,6 +167,10 @@ describe("isValidUrl", () => {
 
   it("rejects other protocols", () => {
     expect(isValidUrl("ftp://example.com")).toBe(false);
+    expect(isValidUrl("https://wp-content/uploads/logo.png")).toBe(false);
+    expect(isValidUrl("https://https/example.com")).toBe(false);
+    expect(isValidUrl("http://93.184.216.34/")).toBe(true);
+    expect(isValidUrl("http://[2606:4700::1111]/")).toBe(true);
     expect(isValidUrl("javascript:alert(1)")).toBe(false);
   });
 
