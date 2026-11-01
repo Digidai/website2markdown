@@ -9,6 +9,8 @@ import { redditAdapter } from "../browser/adapters/reddit";
 import { yuqueAdapter } from "../browser/adapters/yuque";
 import { zhihuAdapter } from "../browser/adapters/zhihu";
 import { twitterAdapter } from "../browser/adapters/twitter";
+import { substackAdapter } from "../browser/adapters/substack";
+import { getAdapter } from "../browser";
 
 type AdapterMockPage = {
   setUserAgent: ReturnType<typeof vi.fn>;
@@ -548,5 +550,65 @@ describe("twitter adapter thread behavior", () => {
     const html = await twitterAdapter.fetchDirect!("https://twitter.com/alice/status/999");
 
     expect(html).toBeNull();
+  });
+});
+
+describe("API-first fetchDirect paths", () => {
+  it("routes Weibo long articles to the article endpoint, not the status API", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const reqUrl = String(input);
+      if (reqUrl === "https://card.weibo.com/article/m/aj/detail?id=2309405346438485245962") {
+        return Response.json({
+          code: "100000",
+          data: { title: "长文标题", userinfo: { screen_name: "作者" }, content: "<p>第一段</p><p>第二段</p>" },
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${reqUrl}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const html = await weiboAdapter.fetchDirect!("https://weibo.com/ttarticle/p/show?id=2309405346438485245962");
+
+    expect(html).toContain("<h1>长文标题</h1>");
+    expect(html).toContain("<p>第一段</p><p>第二段</p>");
+    expect(html).toContain("作者");
+  });
+
+  it("reads Substack posts from the post API by slug", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const reqUrl = String(input);
+      if (reqUrl === "https://example.substack.com/api/v1/posts/my-post") {
+        return Response.json({
+          title: "My Post",
+          subtitle: "A subtitle",
+          post_date: "2026-10-28T05:00:00.000Z",
+          publishedBylines: [{ name: "Ada" }],
+          body_html: "<p>Body paragraph.</p>",
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${reqUrl}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = getAdapter("https://example.substack.com/p/my-post?utm_source=x");
+    const html = await adapter.fetchDirect!("https://example.substack.com/p/my-post?utm_source=x");
+
+    expect(adapter).toBe(substackAdapter);
+    expect(html).toContain("<h1>My Post</h1>");
+    expect(html).toContain("Ada · 2026-10-28");
+    expect(html).toContain("<p>Body paragraph.</p>");
+    expect(getAdapter("https://example.substack.com/")).not.toBe(substackAdapter);
+  });
+
+  it("uses CSDN's server-rendered article but not its WAF challenge page", async () => {
+    let challenged = false;
+    vi.stubGlobal("fetch", vi.fn(async () => challenged
+      ? new Response("<html><script>function ct(OH){}</script></html>", { status: 521 })
+      : new Response('<html><body><div id="content_views"><p>正文</p></div></body></html>')));
+    const url = "https://blog.csdn.net/user/article/details/123";
+
+    expect(await csdnAdapter.fetchDirect!(url)).toContain("<p>正文</p>");
+    challenged = true;
+    expect(await csdnAdapter.fetchDirect!(url)).toBeNull();
   });
 });
