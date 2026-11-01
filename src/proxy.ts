@@ -229,11 +229,10 @@ export async function fetchViaProxy(
         if (buffered.byteLength > 65536) throw new Error("Proxy CONNECT response too large");
         headerEnd = indexOfBytes(buffered, HEADER_SEPARATOR_BYTES);
       }
-      const headerLines = decoder.decode(buffered.subarray(0, headerEnd)).split("\r\n");
-      const statusLine = headerLines[0];
+      const statusLine = decoder.decode(buffered.subarray(0, headerEnd)).split("\r\n")[0];
       const statusCode = parseInt(statusLine.match(/HTTP\/[\d.]+ (\d+)/)?.[1] ?? "0", 10);
       if (statusCode < 200 || statusCode >= 300) {
-        throw new Error(`Proxy CONNECT tunnel rejected with status ${statusCode}: ${statusLine}${proxyErrorReason(headerLines)}`);
+        throw new Error(`Proxy CONNECT tunnel rejected with status ${statusCode}: ${statusLine}`);
       }
 
       const tunnel = new LazyReadFunctionReadQueue(readSocket);
@@ -383,25 +382,6 @@ export async function fetchViaProxyPool(
   );
 }
 
-/**
- * Bright Data puts the real reason for a 407 (wrong password, zone disabled,
- * IP not allowlisted, account suspended) in these headers, not the status line.
- * x-brd-err-msg is left out because it contains the account ID and egress IP.
- * Name and value are joined with a space: "x-brd-err-code=..." would match the
- * error sanitizer's secret-assignment rule (any key containing "code").
- */
-export function proxyErrorReason(headerLines: string[]): string {
-  const wanted = new Set(["x-brd-err-code", "x-brd-error", "x-luminati-error"]);
-  const parts: string[] = [];
-  for (const line of headerLines.slice(1)) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) continue;
-    const name = line.slice(0, colon).trim().toLowerCase();
-    if (wanted.has(name)) parts.push(`${name} ${line.slice(colon + 1).trim().slice(0, 120)}`);
-  }
-  return parts.length ? ` (${parts.join("; ")})` : "";
-}
-
 function concatUint8Arrays(chunks: Uint8Array[], total: number): Uint8Array {
   if (chunks.length === 0) return new Uint8Array();
   if (chunks.length === 1) return chunks[0];
@@ -503,119 +483,4 @@ function decodeChunked(raw: Uint8Array): Uint8Array {
   }
 
   return concatUint8Arrays(chunks, total);
-}
-
-// ─── Bright Data IP Allowlisting ──────────────────────────────
-
-let lastAllowlistedIp: string | null = null;
-let lastAllowlistTime = 0;
-const ALLOWLIST_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-/**
- * Detect the Worker's IPv4 egress address by making a TCP connection
- * to an IPv4-only HTTP echo service. This uses the same connect() path
- * as the proxy, so the detected IP matches what Bright Data sees.
- */
-async function detectEgressIp(): Promise<string | null> {
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  // Try multiple IPv4 echo services in case one is unreachable
-  const targets = [
-    { host: "icanhazip.com", port: 80, path: "/" },
-    { host: "ifconfig.me", port: 80, path: "/ip" },
-    { host: "checkip.amazonaws.com", port: 80, path: "/" },
-  ];
-
-  for (const target of targets) {
-    let socket: ReturnType<typeof connect> | null = null;
-    try {
-      socket = connect(
-        { hostname: target.host, port: target.port },
-        { secureTransport: "off", allowHalfOpen: false },
-      );
-      const writer = socket.writable.getWriter();
-      const reader = socket.readable.getReader();
-
-      await writer.write(encoder.encode(
-        `GET ${target.path} HTTP/1.1\r\nHost: ${target.host}\r\nConnection: close\r\n\r\n`,
-      ));
-
-      const chunks: string[] = [];
-      const deadline = Date.now() + 5000;
-      while (Date.now() < deadline) {
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) break;
-        const { value, done } = await Promise.race([
-          reader.read(),
-          new Promise<{ value: undefined; done: true }>((r) =>
-            setTimeout(() => r({ value: undefined, done: true }), remaining),
-          ),
-        ]);
-        if (done) break;
-        if (value) chunks.push(decoder.decode(value));
-      }
-
-      try { await writer.close(); } catch {}
-      try { writer.releaseLock(); } catch {}
-      try { await reader.cancel(); } catch {}
-      try { reader.releaseLock(); } catch {}
-
-      const response = chunks.join("");
-      const bodyStart = response.indexOf("\r\n\r\n");
-      if (bodyStart < 0) continue;
-      const ip = response.slice(bodyStart + 4).trim().split("\n")[0].trim();
-      if (ip && /^[\d.]+$/.test(ip)) {
-        console.log(`Detected egress IPv4 via ${target.host}: ${ip}`);
-        return ip;
-      }
-      // Got a response but not IPv4 — log and try next service
-      console.log(`${target.host} returned non-IPv4: ${ip}`);
-    } catch (e) {
-      console.log(`TCP to ${target.host}:${target.port} failed: ${errorMessage(e)}`);
-    } finally {
-      try { socket?.close(); } catch {}
-    }
-  }
-  return null;
-}
-
-/**
- * Detect Worker's egress IP and add it to Bright Data's allowlist.
- * Cached in memory to avoid repeated API calls within the same isolate.
- */
-export async function ensureBrightDataAllowlisted(apiKey: string): Promise<void> {
-  if (lastAllowlistedIp && Date.now() - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
-    return;
-  }
-
-  const ip = await detectEgressIp();
-  if (!ip) {
-    console.error("Could not detect egress IPv4 for Bright Data allowlisting");
-    return;
-  }
-
-  if (ip === lastAllowlistedIp && Date.now() - lastAllowlistTime < ALLOWLIST_CACHE_TTL_MS) {
-    return;
-  }
-
-  try {
-    const resp = await fetch("https://api.brightdata.com/zone/whitelist", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ip }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (resp.ok || resp.status === 201 || resp.status === 204) {
-      lastAllowlistedIp = ip;
-      lastAllowlistTime = Date.now();
-      console.log("Bright Data allowlist OK for", ip);
-    } else {
-      console.error("Bright Data allowlist failed:", resp.status, await resp.text().catch(() => ""));
-    }
-  } catch (e) {
-    console.error("Bright Data allowlist error:", errorMessage(e));
-  }
 }

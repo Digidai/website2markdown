@@ -11,7 +11,6 @@ vi.mock("subtls", async (importOriginal) => ({
 
 import { connect } from "cloudflare:sockets";
 import { startTls } from "subtls";
-import { sanitizeErrorMessage } from "../observability/conversion-events";
 import {
   fetchViaProxy,
   fetchViaProxyPool,
@@ -554,12 +553,10 @@ describe("fetchViaProxy", () => {
 });
 
 describe("proxy CONNECT rejection reason", () => {
-  it("reports Bright Data's reason headers but not the message that carries the account ID", async () => {
+  it("reports the status line but no response header values", async () => {
     const { socket } = createSocketFromRawResponse(
-      "HTTP/1.1 407 Auth failed\r\n" +
-      "x-brd-err-code: client_10030\r\n" +
-      "x-brd-error: Auth Failed (code: ip_forbidden)\r\n" +
-      "x-brd-err-msg: The IP address 104.28.1.2 is not whitelisted, see https://brightdata.com/cp/zones/z1/access_params?id=hl_secret\r\n" +
+      "HTTP/1.1 407 Proxy Authentication Required\r\n" +
+      "x-proxy-error: account hl_secret is not whitelisted\r\n" +
       "\r\n",
     );
     vi.mocked(connect).mockReturnValue(socket as never);
@@ -567,11 +564,7 @@ describe("proxy CONNECT rejection reason", () => {
     const error = await fetchViaProxy("https://example.com/", makeProxyConfig(), {}, 1_000)
       .catch((e: Error) => e);
 
-    expect(String(error)).toContain("status 407");
-    // The code must survive the sanitizer that stores errors and shows them in /admin.
-    const stored = sanitizeErrorMessage(error);
-    expect(stored).toContain("x-brd-err-code client_10030");
-    expect(stored).toContain("x-brd-error Auth Failed");
+    expect(String(error)).toContain("status 407: HTTP/1.1 407 Proxy Authentication Required");
     expect(String(error)).not.toContain("hl_secret");
   });
 });

@@ -33,7 +33,6 @@ import {
   parseProxyPool,
   fetchViaProxy,
   fetchViaProxyPool,
-  ensureBrightDataAllowlisted,
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
 import { fetchViaContextDev } from "../context-dev";
@@ -1316,10 +1315,6 @@ async function tryProxyRetry(
     );
   }
 
-  // Allowlist Worker IP with Bright Data before connecting
-  if (env.BRIGHTDATA_API_KEY) {
-    await ensureBrightDataAllowlisted(env.BRIGHTDATA_API_KEY);
-  }
 
   throwIfAborted(abortSignal);
   await _progress("fetch", "Retrying via proxy");
@@ -1417,10 +1412,6 @@ async function tryDirectProxyFetch(
     return null; // No proxy configured — can't help anonymous users
   }
 
-  // Allowlist Worker IP with Bright Data before connecting
-  if (env.BRIGHTDATA_API_KEY) {
-    await ensureBrightDataAllowlisted(env.BRIGHTDATA_API_KEY);
-  }
 
   throwIfAborted(abortSignal);
   await _progress("fetch", "Fetching via residential proxy");

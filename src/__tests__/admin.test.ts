@@ -173,7 +173,7 @@ describe("admin report", () => {
   });
 
   it("lists channels by configuration and merges path health", () => {
-    const { env } = createMockEnv({ PROXY_URL: "http://brd-customer-c1-zone-z1:pw@brd.superproxy.io:33335" });
+    const { env } = createMockEnv({ PROXY_URL: "http://user1:pw@204.0.0.1:3000" });
     delete (env as Partial<Env>).CF_API_TOKEN;
     delete (env as Partial<Env>).BROWSER_USE_API_KEY;
     const channels = listChannels(env, [

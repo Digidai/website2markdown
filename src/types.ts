@@ -11,12 +11,10 @@ export interface Env {
   PUBLIC_API_TOKEN?: string;
   PAYWALL_RULES_JSON?: string;
   PAYWALL_RULES_KV_KEY?: string;
-  /** Bright Data proxy URL: "username:password@host:port" */
+  /** Proxy URL (Swiftproxy): "username:password@host:port" */
   PROXY_URL?: string;
   /** Optional proxy pool. Accepts comma/newline separated proxy URLs. */
   PROXY_POOL?: string;
-  /** Bright Data Account API key for dynamic IP allowlisting */
-  BRIGHTDATA_API_KEY?: string;
   /** Browser Use Cloud API key for remote browser fetching */
   BROWSER_USE_API_KEY?: string;
   /** Cloudflare Account ID for REST API calls */
