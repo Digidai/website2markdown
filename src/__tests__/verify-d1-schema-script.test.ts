@@ -88,6 +88,11 @@ const REQUIRED_COLUMNS = [
   "used_at",
   "key",
   "count",
+  "path",
+  "attempts",
+  "failures",
+  "last_error",
+  "last_failure_at",
 ];
 
 const tempDirs: string[] = [];

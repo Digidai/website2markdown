@@ -120,6 +120,10 @@ const REQUIRED_SCHEMA = {
     columns: ["key", "count", "expires_at"],
     indexes: ["idx_rate_limits_expires"],
   },
+  provider_attempts_daily: {
+    columns: ["date", "path", "attempts", "failures", "last_error", "last_failure_at", "updated_at"],
+    indexes: [],
+  },
 };
 
 function runD1(command) {

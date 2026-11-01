@@ -1,6 +1,14 @@
 import type { Env } from "../types";
 import { FONT_READING, PROSE_CSS } from "../templates/theme";
 import { ACCESS_SURFACE_SQL, ACCESS_SURFACES, classifyAccessPath } from "./classify";
+import {
+  ALERT_FAILURE_RATE,
+  ALERT_MIN_ATTEMPTS,
+  failureRate,
+  loadProviderHealth,
+  unhealthyPaths,
+  type ProviderPathHealth,
+} from "../observability/provider-attempts";
 
 const PAGE_SIZE = 40;
 const LIST_EXCERPT = 700;
@@ -174,6 +182,7 @@ export interface AdminReport {
   accesses: AccessRow[];
   accessTotal: number;
   failurePreview: ConversionRow[];
+  providerHealth: ProviderPathHealth[];
 }
 
 export interface ConversionDetail {
@@ -409,6 +418,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       accesses: accesses.map(mapAccess),
       accessTotal,
       failurePreview: failurePreview.map(mapConversion),
+      providerHealth: await loadProviderHealth(env, day),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "query failed";
@@ -530,6 +540,7 @@ export function adminPageHTML(report: AdminReport | null, loginError = ""): stri
         ${fact("账户 / 有效密钥", `${report.accounts} / ${report.keys}`)}
       </div>
     </section>
+    ${providerSection(report)}
     <section class="grid">
       ${splitBars("使用记录", report.conversionDays)}
       ${table("使用结果", report.outcomes, outcomeTone)}
@@ -790,6 +801,22 @@ function splitBars(title: string, rows: DaySplit[]): string {
       return `<div class="bar"><span>${esc(row.day.slice(5))}</span><span class="track"><i class="ok" style="width:${pct(row.ok, max)}%"></i><i class="warn" style="width:${pct(row.warn, max)}%"></i><i class="bad" style="width:${pct(row.bad, max)}%"></i></span><b>${total}</b></div>`;
     }).join("") || "<p>没有按日数据。</p>"}
   </div>`;
+}
+
+function providerSection(report: AdminReport): string {
+  const rows = report.providerHealth;
+  return `<section>
+    <h2>降级路径健康度</h2>
+    <p class="note">${report.query.days} 日内每条降级路径的调用次数和失败率，按天汇总。调用不少于 ${ALERT_MIN_ATTEMPTS} 次且失败率不低于 ${Math.round(ALERT_FAILURE_RATE * 100)}% 的路径标红，每日定时任务会把它们发邮件到 ADMIN_EMAIL。客户端中途断开的调用不计入。</p>
+    <div class="scroll"><table>
+      <tr><th>路径</th><th>调用</th><th>失败</th><th>失败率</th><th>最近失败</th><th>最近错误</th></tr>
+      ${rows.map((row) => {
+        const rate = Math.round(failureRate(row) * 100);
+        const tone = unhealthyPaths([row]).length ? "bad" : row.failures ? "warn" : "ok";
+        return `<tr><td class="${tone}">${esc(row.path)}</td><td>${row.attempts}</td><td>${row.failures}</td><td class="${tone}">${rate}%</td><td>${row.lastFailureAt ? esc(when(row.lastFailureAt)) : "—"}</td><td>${esc(row.lastError || "—")}</td></tr>`;
+      }).join("") || `<tr><td colspan="6">还没有降级调用记录。</td></tr>`}
+    </table></div>
+  </section>`;
 }
 
 function bars(title: string, rows: DayRow[]): string {
@@ -1084,6 +1111,7 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
     accesses: [],
     accessTotal: 0,
     failurePreview: [],
+    providerHealth: [],
   };
 }
 

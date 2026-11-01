@@ -39,6 +39,8 @@ export interface Env {
   RESEND_API_KEY?: string;
   /** From address for auth emails, e.g. "md.genedai.me <noreply@mail.genedai.me>" */
   AUTH_EMAIL_FROM?: string;
+  /** Recipient for the daily fallback-path health alert. No alert email without it. */
+  ADMIN_EMAIL?: string;
 }
 
 // ─── Auth & Tier Types ──────────────────────────────────────

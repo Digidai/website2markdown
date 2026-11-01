@@ -249,3 +249,16 @@ CREATE INDEX IF NOT EXISTS idx_conversion_log_created ON conversion_log(created_
 CREATE INDEX IF NOT EXISTS idx_conversion_log_outcome ON conversion_log(outcome, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_status ON conversion_log(status_code, created_at);
 CREATE INDEX IF NOT EXISTS idx_access_events_status ON access_events(status, created_at);
+-- Per-day outcome counts for each fallback path (Firecrawl, Jina, proxy pool,
+-- browser rendering, archives, ...). One row per (date, path). Stores only the
+-- latest sanitized error text, never URLs, keys, or response bodies.
+CREATE TABLE IF NOT EXISTS provider_attempts_daily (
+  date TEXT NOT NULL,
+  path TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  failures INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT NOT NULL DEFAULT '',
+  last_failure_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (date, path)
+);
