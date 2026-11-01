@@ -397,6 +397,11 @@ function sampleReport(rows: ConversionRow[]): AdminReport {
     accesses: [],
     accessTotal: 0,
     failurePreview: [],
+    suspiciousIps: [{
+      ip: "203.0.113.9", asn: 64500, as_org: "Example Cloud", country: "SG", ua_family: "bot",
+      requests: 420, conversions: 400, failures: 380, hosts: 2, top_host: "priv.au",
+      score: 9, level: "abuse", reasons: ["请求很多（420 次）", "失败率高（95%）"],
+    }],
     providerHealth: [
       { path: "proxy_pool", attempts: 30, failures: 28, lastError: "Proxy pool exhausted", lastFailureAt: "2026-09-29T08:00:00.000Z" },
       { path: "jina", attempts: 5, failures: 4, lastError: "HTTP 451", lastFailureAt: "2026-09-29T07:00:00.000Z" },

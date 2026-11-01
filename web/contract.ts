@@ -163,6 +163,24 @@ export interface ProviderPathHealth {
   lastFailureAt: string;
 }
 
+export type IpRiskLevel = "normal" | "suspicious" | "abuse";
+
+export interface SuspiciousIp {
+  ip: string;
+  asn: number | null;
+  as_org: string;
+  country: string;
+  ua_family: string;
+  requests: number;
+  conversions: number;
+  failures: number;
+  hosts: number;
+  top_host: string;
+  score: number;
+  level: IpRiskLevel;
+  reasons: string[];
+}
+
 export interface AdminReport {
   error: string;
   query: AdminQuery;
@@ -210,6 +228,8 @@ export interface AdminReport {
   accessTotal: number;
   failurePreview: ConversionRow[];
   providerHealth: ProviderPathHealth[];
+  /** Anonymous IPs scored over the last 24 hours. Observe-only. */
+  suspiciousIps: SuspiciousIp[];
 }
 
 export interface ConversionDetail {
