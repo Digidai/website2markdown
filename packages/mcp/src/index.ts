@@ -5,7 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { convertUrl } from "./convert.js";
 
-const API_URL = process.env.WEBSITE2MARKDOWN_API_URL || "https://md.genedai.me";
+const API_URL = process.env.WEBSITE2MARKDOWN_API_URL || "https://mdget.dev";
 const API_TOKEN = process.env.WEBSITE2MARKDOWN_API_TOKEN || "";
 
 const server = new McpServer({

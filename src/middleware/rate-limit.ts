@@ -181,9 +181,9 @@ export function rateLimitedResponse(
   });
   const message = decision.anonDaily
     ? `Anonymous use is limited to ${decision.limit} requests per IP per day. ` +
-      "Get a free API key (1,000 credits a month) at https://md.genedai.me/portal/ " +
+      "Get a free API key (1,000 credits a month) at https://mdget.dev/portal/ " +
       "and send it as 'Authorization: Bearer <key>'. 匿名用户每个 IP 每天限 " +
-      `${decision.limit} 次，请到 https://md.genedai.me/portal/ 免费注册 API key（每月 1,000 次）。`
+      `${decision.limit} 次，请到 https://mdget.dev/portal/ 免费注册 API key（每月 1,000 次）。`
     : `Too many requests. Retry in ${decision.retryAfterSeconds} seconds.`;
   const base = errorResponse("Rate Limited", message, 429, asJson);
   return withExtraHeaders(base, rateLimitHeaders(decision));

@@ -20,7 +20,7 @@ Add to your `claude_desktop_config.json`:
     "website2markdown": {
       "command": "mcp-website2markdown",
       "env": {
-        "WEBSITE2MARKDOWN_API_URL": "https://md.genedai.me",
+        "WEBSITE2MARKDOWN_API_URL": "https://mdget.dev",
         "WEBSITE2MARKDOWN_API_TOKEN": "your-token-here"
       }
     }
@@ -52,7 +52,7 @@ claude mcp add website2markdown -- mcp-website2markdown
 
 | Variable | Description | Default |
 |---|---|---|
-| `WEBSITE2MARKDOWN_API_URL` | Base URL of the website2markdown API | `https://md.genedai.me` |
+| `WEBSITE2MARKDOWN_API_URL` | Base URL of the website2markdown API | `https://mdget.dev` |
 | `WEBSITE2MARKDOWN_API_TOKEN` | Bearer token for API authentication | (none) |
 
 ## Available Tools

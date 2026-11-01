@@ -340,6 +340,11 @@ describe("extractTargetUrl — self-reference unwrapping", () => {
     ).toBe("https://x.com/a?id=1&z=2");
   });
 
+  it("unwraps a URL on the other hosted domain", () => {
+    expect(extractTargetUrl("/https://mdget.dev/https://x.com/a", "", SELF)).toBe("https://x.com/a");
+    expect(extractTargetUrl("/https://md.genedai.me/https://x.com/a", "", "mdget.dev")).toBe("https://x.com/a");
+  });
+
   it("resolves a bare self-reference (no inner URL) to null", () => {
     expect(extractTargetUrl("/https://md.genedai.me", "", SELF)).toBeNull();
   });

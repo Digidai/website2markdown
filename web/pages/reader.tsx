@@ -160,7 +160,7 @@ export function ErrorCard({ title, message, status, onRetry }: ErrorProps & { on
 export function ErrorPage(props: ErrorProps & { host?: string }) {
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
-      <TopBar host={props.host || "md.genedai.me"} />
+      <TopBar host={props.host || "mdget.dev"} />
       <main className="grid flex-1 place-items-center px-4 py-16">
         <ErrorCard {...props} />
       </main>

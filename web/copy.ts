@@ -50,7 +50,7 @@ const zh = {
   // How it works
   howTitle: "工作原理",
   step1Title: "添加前缀",
-  step1Desc: "在任意网址前加上 md.genedai.me/",
+  step1Desc: "在任意网址前加上 mdget.dev/",
   step2Title: "边缘处理",
   step2Desc: "按顺序尝试：原生提取、Readability、浏览器、Firecrawl、Jina。浏览器和外部阅读器需要 API key。",
   step3Title: "干净输出",
@@ -60,7 +60,7 @@ const zh = {
   faq1Q: "什么是 Website2Markdown？",
   faq1A: "一个免费、开源的 API，可将任意网页 URL 转为干净、可读的 Markdown。基于 Cloudflare Workers，5 层 fallback 管线：原生边缘 Markdown → Readability → 无头浏览器/CF REST → Firecrawl → Jina Reader。",
   faq2Q: "它是免费的吗？",
-  faq2A: "是的，完全免费并以 Apache-2.0 开源。你可以自行部署，也可以使用 md.genedai.me 的托管服务。",
+  faq2A: "是的，完全免费并以 Apache-2.0 开源。你可以自行部署，也可以使用 mdget.dev 的托管服务。",
   faq3Q: "支持哪些平台？",
   faq3A: "16 个内置适配器：微信公众号、知乎、飞书/Lark、语雀、掘金、CSDN、36氪、头条、微博、网易、Twitter/X、Reddit、Notion、GitHub、Substack、Medium。任何公开 URL 都可通过通用 fallback 处理。",
   faq4Q: "如何处理 JS 渲染密集型页面？",
@@ -68,7 +68,7 @@ const zh = {
   faq5Q: "如何与 AI Agent 集成？",
   faq5A: "三种方式：(1) Agent Skills——Claude Code/OpenClaw 一条命令安装。(2) MCP Server——Claude Desktop、Cursor IDE。(3) llms.txt——所有 AI 系统自动发现。",
   faq6Q: "如何使用 API？",
-  faq6A: "在任意 URL 前加上 md.genedai.me/。获取原始 Markdown 加 ?raw=true。示例：curl \"https://md.genedai.me/https://example.com?raw=true\"。完整 API 参考见文档标签页。",
+  faq6A: "在任意 URL 前加上 mdget.dev/。获取原始 Markdown 加 ?raw=true。示例：curl \"https://mdget.dev/https://example.com?raw=true\"。完整 API 参考见文档标签页。",
   // CTA
   ctaTitle: "粘贴一个 URL。",
   // Docs tab
@@ -267,7 +267,7 @@ const en: Record<keyof typeof zh, string> = {
   // How it works
   howTitle: "How it works",
   step1Title: "Prepend URL",
-  step1Desc: "Add md.genedai.me/ before any web address",
+  step1Desc: "Add mdget.dev/ before any web address",
   step2Title: "Edge Pipeline",
   step2Desc: "Tried in order: native extraction, Readability, a browser, Firecrawl, then Jina. Browser rendering and external readers require an API key.",
   step3Title: "Clean Output",
@@ -277,7 +277,7 @@ const en: Record<keyof typeof zh, string> = {
   faq1Q: "What is Website2Markdown?",
   faq1A: "A free, open-source API that converts any web page URL to clean Markdown. Built on Cloudflare Workers with 5-layer fallback: native edge Markdown → Readability → headless browser/CF REST → Firecrawl → Jina Reader.",
   faq2Q: "Is it free?",
-  faq2A: "Yes, completely free and open source under Apache-2.0. Self-host or use the managed service at md.genedai.me.",
+  faq2A: "Yes, completely free and open source under Apache-2.0. Self-host or use the managed service at mdget.dev.",
   faq3Q: "Which platforms are supported?",
   faq3A: "16 built-in adapters: WeChat, Zhihu, Feishu/Lark, Yuque, Juejin, CSDN, 36Kr, Toutiao, Weibo, NetEase, Twitter/X, Reddit, Notion, GitHub, Substack, and Medium. Any public URL works via generic fallback.",
   faq4Q: "How does it handle JS-heavy pages?",
@@ -285,7 +285,7 @@ const en: Record<keyof typeof zh, string> = {
   faq5Q: "How to integrate with my AI agent?",
   faq5A: "Three ways: (1) Agent Skills for Claude Code/OpenClaw -- one command install. (2) MCP Server for Claude Desktop/Cursor. (3) llms.txt for auto-discovery by any AI system.",
   faq6Q: "How to use the API?",
-  faq6A: "Prepend md.genedai.me/ before any URL. For raw Markdown, add ?raw=true. Example: curl \"https://md.genedai.me/https://example.com?raw=true\". See the Docs tab for full API reference.",
+  faq6A: "Prepend mdget.dev/ before any URL. For raw Markdown, add ?raw=true. Example: curl \"https://mdget.dev/https://example.com?raw=true\". See the Docs tab for full API reference.",
   // CTA
   ctaTitle: "Paste a URL.",
   // Docs tab

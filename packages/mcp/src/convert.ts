@@ -22,7 +22,7 @@ export interface ConvertResult {
  * Build the full API URL for the conversion request.
  */
 export function buildApiUrl(options: ConvertOptions): string {
-  const base = options.apiUrl || "https://md.genedai.me";
+  const base = options.apiUrl || "https://mdget.dev";
   const params = new URLSearchParams({ format: options.format ?? "markdown" });
   if (options.selector) params.set("selector", options.selector);
   if (options.force_browser) params.set("force_browser", "true");

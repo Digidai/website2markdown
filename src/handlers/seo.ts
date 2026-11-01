@@ -17,7 +17,7 @@ const AI_CRAWLERS = [
   "cohere-ai",
 ];
 
-export function handleRobotsTxt(host = "md.genedai.me"): Response {
+export function handleRobotsTxt(host = "mdget.dev"): Response {
   const rules = `Allow: /
 Allow: /llms.txt
 Allow: /.well-known/llms.txt

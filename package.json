@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "description": "Convert any URL to Markdown via Cloudflare's Markdown for Agents",
-  "homepage": "https://md.genedai.me",
+  "homepage": "https://mdget.dev",
   "repository": {
     "type": "git",
     "url": "https://github.com/Digidai/website2markdown"
