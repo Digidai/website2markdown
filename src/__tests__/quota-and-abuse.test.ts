@@ -2,12 +2,13 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RATE_LIMIT_ANON_CONVERT_PER_WINDOW,
+  RATE_LIMIT_ANON_PER_DAY,
   RATE_LIMIT_CONVERT_PER_WINDOW,
 } from "../config";
 import { handleUsageForAccount } from "../handlers/usage";
 import { clearAuthLru, resolveAuth } from "../middleware/auth-d1";
 import { ensureMonthlyQuota } from "../middleware/quota";
-import { consumeRateLimit } from "../middleware/rate-limit";
+import { consumeRateLimit, rateLimitedResponse } from "../middleware/rate-limit";
 import { localRateCounters } from "../runtime-state";
 import type { Env } from "../types";
 
@@ -389,6 +390,37 @@ describe("anonymous durable rate limit", () => {
 
     expect(decision?.exceeded).toBe(false);
     expect(decision?.limit).toBe(RATE_LIMIT_CONVERT_PER_WINDOW);
+  });
+
+  it("caps one anonymous IP per UTC day across routes and points to a free key", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    try {
+      const { raw, db } = createSqliteAuthDb();
+      const env = { AUTH_DB: db } as Env;
+      const ip = "203.0.113.13";
+      // 99 requests earlier today; the per-minute window is fresh.
+      raw.prepare("INSERT INTO rate_limits (key, count, expires_at) VALUES (?, ?, ?)")
+        .run(`anon-daily:${ip}:2026-09-29`, RATE_LIMIT_ANON_PER_DAY - 1, "2026-09-30T12:00:00.000Z");
+
+      const last = await consumeRateLimit(ipRequest(ip), env, "convert", { anonymous: true });
+      expect(last?.exceeded).toBe(false);
+
+      // Request 101 of the day is blocked even on another route, until 00:00 UTC.
+      localRateCounters.clear();
+      const blocked = await consumeRateLimit(ipRequest(ip), env, "stream", { anonymous: true });
+      expect(blocked).toMatchObject({ exceeded: true, anonDaily: true, limit: RATE_LIMIT_ANON_PER_DAY });
+      expect(blocked?.retryAfterSeconds).toBe(12 * 3600);
+      const body = await rateLimitedResponse("stream", blocked!, true).text();
+      expect(body).toContain("/portal/");
+      expect(body).toContain("free API key");
+
+      // Another IP and signed-in callers are untouched.
+      expect((await consumeRateLimit(ipRequest("203.0.113.14"), env, "convert", { anonymous: true }))?.exceeded).toBe(false);
+      expect((await consumeRateLimit(ipRequest(ip), env, "convert", { anonymous: false }))?.exceeded).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns null when the client IP is missing", async () => {

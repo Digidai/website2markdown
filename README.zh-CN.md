@@ -89,7 +89,7 @@ API key。无需密码，登录链接会发到你的邮箱。
 
 | 套餐 | 月额度 | 浏览器渲染 | 引擎 |
 |------|--------|------------|------|
-| **匿名**（无 key） | — | 无 | 只有缓存、直接抓取和 Readability |
+| **匿名**（无 key） | — | 无 | 只有缓存、直接抓取和 Readability。每个 IP 每分钟 10 次、每天 100 次 |
 | **Free** | 1,000 credits | 有。一次真实渲染计 3 credits | `engine=jina` 和 `engine=firecrawl`。`engine=cf`、proxy、`no_cache` 需要 Pro |
 | **Pro** | 50,000 credits | 有。一次真实渲染计 3 credits | 全部引擎，以及 `no_cache` 和 `force_browser` |
 

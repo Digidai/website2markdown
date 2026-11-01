@@ -9,6 +9,7 @@ import {
   RATE_LIMIT_ANON_CONVERT_PER_WINDOW,
   RATE_LIMIT_ANON_STREAM_PER_WINDOW,
   RATE_LIMIT_ANON_BATCH_PER_WINDOW,
+  RATE_LIMIT_ANON_PER_DAY,
 } from "../config";
 import {
   localRateCounters,
@@ -25,6 +26,8 @@ export interface RateLimitDecision {
   limit: number;
   remaining: number;
   retryAfterSeconds: number;
+  /** Set when the anonymous daily cap, not the per-minute window, was hit. */
+  anonDaily?: boolean;
 }
 
 export function limitForRoute(route: RateLimitRoute, anonymous = false): number {
@@ -128,18 +131,30 @@ export async function consumeRateLimit(
     limit,
     RATE_LIMIT_WINDOW_SECONDS,
   );
-  if (!durable.blocked && durable.count === 0 && durable.limit === limit) {
-    // bumpLimit fail-opens with count 0. Keep the in-isolate decision.
-    return localDecision;
+  let minuteDecision = localDecision;
+  if (durable.blocked || durable.count !== 0 || durable.limit !== limit) {
+    // bumpLimit fail-opens with count 0; otherwise the shared counter decides.
+    minuteDecision = {
+      exceeded: durable.blocked,
+      limit: durable.limit,
+      remaining: Math.min(localDecision.remaining, Math.max(0, durable.limit - durable.count)),
+      retryAfterSeconds: durable.blocked
+        ? retryAfterFromReset(durable.resetAt, nowMs)
+        : localDecision.retryAfterSeconds,
+    };
   }
-  const durableRemaining = Math.max(0, durable.limit - durable.count);
+  if (minuteDecision.exceeded) return minuteDecision;
+
+  const day = new Date(nowMs).toISOString().slice(0, 10);
+  const daily = await bumpLimit(env, `anon-daily:${ip}:${day}`, RATE_LIMIT_ANON_PER_DAY, 86_400);
+  if (!daily.blocked) return minuteDecision;
+  const nextUtcDay = Date.parse(`${day}T00:00:00.000Z`) + 86_400_000;
   return {
-    exceeded: durable.blocked,
-    limit: durable.limit,
-    remaining: Math.min(localDecision.remaining, durableRemaining),
-    retryAfterSeconds: durable.blocked
-      ? retryAfterFromReset(durable.resetAt, nowMs)
-      : localDecision.retryAfterSeconds,
+    exceeded: true,
+    limit: RATE_LIMIT_ANON_PER_DAY,
+    remaining: 0,
+    retryAfterSeconds: Math.max(1, Math.ceil((nextUtcDay - nowMs) / 1000)),
+    anonDaily: true,
   };
 }
 
@@ -162,8 +177,14 @@ export function rateLimitedResponse(
     route,
     limit: decision.limit,
     retry_after_s: decision.retryAfterSeconds,
+    anon_daily: decision.anonDaily === true,
   });
-  const message = `Too many requests. Retry in ${decision.retryAfterSeconds} seconds.`;
+  const message = decision.anonDaily
+    ? `Anonymous use is limited to ${decision.limit} requests per IP per day. ` +
+      "Get a free API key (1,000 credits a month) at https://md.genedai.me/portal/ " +
+      "and send it as 'Authorization: Bearer <key>'. 匿名用户每个 IP 每天限 " +
+      `${decision.limit} 次，请到 https://md.genedai.me/portal/ 免费注册 API key（每月 1,000 次）。`
+    : `Too many requests. Retry in ${decision.retryAfterSeconds} seconds.`;
   const base = errorResponse("Rate Limited", message, 429, asJson);
   return withExtraHeaders(base, rateLimitHeaders(decision));
 }

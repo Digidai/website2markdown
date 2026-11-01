@@ -39,6 +39,11 @@ export const RATE_LIMIT_BATCH_PER_WINDOW = 10;
 export const RATE_LIMIT_ANON_CONVERT_PER_WINDOW = 10;
 export const RATE_LIMIT_ANON_STREAM_PER_WINDOW = 10;
 export const RATE_LIMIT_ANON_BATCH_PER_WINDOW = 5;
+/**
+ * Anonymous requests per IP per UTC day, shared by convert, stream, and batch.
+ * The per-minute limit alone let a slow scraper run thousands of requests a day.
+ */
+export const RATE_LIMIT_ANON_PER_DAY = 100;
 
 /** Valid output formats. */
 export const VALID_FORMATS = new Set(["markdown", "html", "text", "json"]);
