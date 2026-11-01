@@ -64,20 +64,19 @@ describe("fetchViaCfMarkdown", () => {
       ),
     );
 
-    const result = await fetchViaCfMarkdown("https://example.com", cfg(), { render: true });
+    const result = await fetchViaCfMarkdown("https://example.com", cfg());
     expect(result.browserMsUsed).toBe(1234);
   });
 
-  it("sends render option in body", async () => {
+  it("sends no render key, which /markdown rejects with HTTP 400", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       jsonResponse({ success: true, result: "md" }),
     );
 
-    await fetchViaCfMarkdown("https://example.com", cfg(), { render: false });
+    await fetchViaCfMarkdown("https://example.com", cfg());
 
     const callBody = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(callBody.render).toBe(false);
-    expect(callBody.url).toBe("https://example.com");
+    expect(callBody).toEqual({ url: "https://example.com" });
   });
 
   it("sends optional parameters when provided", async () => {
@@ -213,15 +212,15 @@ describe("fetchViaCfContent", () => {
     );
   });
 
-  it("sends render option", async () => {
+  it("sends no render key, which /content rejects with HTTP 400", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       jsonResponse({ success: true, result: "<html></html>" }),
     );
 
-    await fetchViaCfContent("https://example.com", cfg(), { render: false });
+    await fetchViaCfContent("https://example.com", cfg());
 
     const callBody = JSON.parse((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body);
-    expect(callBody.render).toBe(false);
+    expect(callBody).toEqual({ url: "https://example.com" });
   });
 
   it("returns empty string when result is null", async () => {

@@ -12,6 +12,7 @@
 ### Fixed
 - Tables whose cells use `colspan`, such as Wikipedia infoboxes, keep every column. The converter pads each row to the widest row, so Markdown renderers no longer drop the extra cells. Rows whose cells are all empty are left out.
 - Page CSPs allow `https://static.cloudflareinsights.com`, so the Cloudflare Web Analytics beacon now loads. It was blocked before. The portal still allows no third-party scripts.
+- Cloudflare Browser Rendering `/markdown` and `/content` calls no longer send a `render` key, which Cloudflare rejected with HTTP 400 on every request. `engine=cf` now works for callers allowed to use browser rendering. Conversions without `engine=cf`, including batch and deep crawl, no longer try Cloudflare first, since every call launches a billed browser.
 - Line breaks inside table cells (`<br>` or block elements) are kept as `<br>` instead of running the text together, for example `1.0.1<br>December 17, 2004`.
 
 ## [1.2.0] - 2026-10-01

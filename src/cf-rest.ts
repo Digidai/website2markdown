@@ -88,14 +88,15 @@ function handleAbortError(error: unknown, label: string, callerSignal?: AbortSig
 }
 
 // ---------------------------------------------------------------------------
-// POST /markdown — single-page Markdown conversion
+// POST /markdown — single-page Markdown conversion. /markdown and /content
+// always launch a browser (billed per browser hour) and reject a `render` key;
+// only /crawl accepts render: false.
 // ---------------------------------------------------------------------------
 
 export async function fetchViaCfMarkdown(
   targetUrl: string,
   config: CfRestConfig,
   options?: {
-    render?: boolean;
     waitForSelector?: string;
     userAgent?: string;
     rejectResourceTypes?: string[];
@@ -107,7 +108,6 @@ export async function fetchViaCfMarkdown(
   const { signal, cleanup } = buildSignal(timeout, options?.signal);
 
   const body: Record<string, unknown> = { url: targetUrl };
-  if (options?.render !== undefined) body.render = options.render;
   if (options?.waitForSelector) body.waitForSelector = options.waitForSelector;
   if (options?.userAgent) body.userAgent = options.userAgent;
   if (options?.rejectResourceTypes) body.rejectResourceTypes = options.rejectResourceTypes;
@@ -159,7 +159,6 @@ export async function fetchViaCfContent(
   targetUrl: string,
   config: CfRestConfig,
   options?: {
-    render?: boolean;
     waitForSelector?: string;
     signal?: AbortSignal;
   },
@@ -168,7 +167,6 @@ export async function fetchViaCfContent(
   const { signal, cleanup } = buildSignal(timeout, options?.signal);
 
   const body: Record<string, unknown> = { url: targetUrl };
-  if (options?.render !== undefined) body.render = options.render;
   if (options?.waitForSelector) body.waitForSelector = options.waitForSelector;
 
   try {
