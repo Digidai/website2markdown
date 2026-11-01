@@ -36,6 +36,14 @@ Deferred work from CEO Review (2026-03-25).
 **Depends on:** Phase A 完成
 **Source:** CEO Review 2026-04-10, outside voice finding.
 
+### PDF 转换接入外部服务
+**What:** PDF 链接改由外部解析服务转换（候选：Firecrawl、Context.dev，或专门的 PDF 解析服务），不再在 Worker 内自己解析。
+**Why:** 9/28–11/1 共 1,188 次 PDF 请求，成功率只有 4.6%。需求真实存在，但 PDF 不是我们擅长的，自研不划算。
+**Effort:** S（接一个服务，加到降级路径，按路径统计成功率）
+**Priority:** P2
+**Depends on:** 选定并对接一个 PDF 解析服务。
+**Source:** 用户访问分析 2026-11-01。
+
 ## P3 — Future, Demand-Driven
 
 ### Docker / Non-Cloudflare Deployment
