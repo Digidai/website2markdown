@@ -148,12 +148,10 @@ export async function recordConversionLog(env: Env, input: {
 export async function cleanupAnalytics(env: Env): Promise<void> {
   if (!env.AUTH_DB) return;
   const cutoff = new Date(Date.now() - RETENTION_MS).toISOString();
-  for (const table of ["access_events", "conversion_log"]) {
-    try {
-      await env.AUTH_DB.prepare(`DELETE FROM ${table} WHERE created_at < ?`).bind(cutoff).run();
-    } catch (error) {
-      console.error("analytics cleanup failed:", error instanceof Error ? error.message : "unknown");
-    }
+  try {
+    await env.AUTH_DB.prepare("DELETE FROM conversion_log WHERE created_at < ?").bind(cutoff).run();
+  } catch (error) {
+    console.error("analytics cleanup failed:", error instanceof Error ? error.message : "unknown");
   }
 }
 
