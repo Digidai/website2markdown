@@ -16,7 +16,8 @@ export type ProviderPath =
   | "proxy_pool"
   | "proxy"
   | "wayback"
-  | "archive_today";
+  | "archive_today"
+  | "context_dev";
 
 export type { ProviderPathHealth };
 export { ALERT_FAILURE_RATE, ALERT_MIN_ATTEMPTS };

@@ -3,6 +3,7 @@ import type { AdminChannel, ChannelStatus, ChannelTestResult, ProviderPathHealth
 import { fetchWithBrowser } from "../browser";
 import { fetchViaCfMarkdown } from "../cf-rest";
 import { fetchViaFirecrawl } from "../firecrawl";
+import { fetchViaContextDev } from "../context-dev";
 import { fetchViaJina } from "../jina";
 import { fetchArchiveToday, fetchWaybackSnapshot } from "../paywall";
 import { ensureBrightDataAllowlisted, fetchViaProxy, parseProxyPool, parseProxyUrl, type ProxyConfig } from "../proxy";
@@ -98,6 +99,20 @@ const CHANNELS: ChannelSpec[] = [
     test: async (env) => {
       const result = await fetchViaCfMarkdown(PROBE_URL, { accountId: env.CF_ACCOUNT_ID!, apiToken: env.CF_API_TOKEN!, timeoutMs: 30_000 });
       return [`返回 ${result.markdown.length} 字 Markdown`];
+    },
+  },
+  {
+    id: "context_dev",
+    name: "Context.dev",
+    role: "登录用户的最后兜底：原站拦截（401/403/429/503）或浏览器渲染失败时调用。免费每月 1,000 次。",
+    paths: ["context_dev"],
+    env: [{ name: "CONTEXT_DEV_API_KEY", required: true }],
+    test: async (env) => {
+      const result = await fetchViaContextDev(PROBE_URL, env.CONTEXT_DEV_API_KEY || "", 30_000);
+      return [
+        `渲染出 ${result.html.length} 字节 HTML`,
+        ...(result.creditsRemaining == null ? [] : [`剩余额度 ${result.creditsRemaining}`]),
+      ];
     },
   },
   {
