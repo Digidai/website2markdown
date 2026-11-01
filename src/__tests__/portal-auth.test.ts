@@ -197,44 +197,28 @@ describe("Magic Link: POST /api/auth/magic-link", () => {
     expect(stored.email).toBe("user@example.com");
   });
 
-  it("calls Resend when RESEND_API_KEY is set", async () => {
+  it("sends the sign-in link from noreply@mdget.dev through the EMAIL binding", async () => {
     const d1 = createMockD1();
-    const { env } = createMockEnv({
-      AUTH_DB: d1.db,
-      RESEND_API_KEY: "re_test",
-    });
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ id: "resend-id" }), { status: 200 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const send = vi.fn().mockResolvedValue({ messageId: "m-1" });
+    const { env } = createMockEnv({ AUTH_DB: d1.db, EMAIL: { send } as unknown as SendEmail });
 
-    const req = new Request("https://md.example.com/api/auth/magic-link", {
+    const req = new Request("https://mdget.dev/api/auth/magic-link", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: "user@example.com" }),
     });
     const res = await worker.fetch(req, env, mockCtx());
     expect(res.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.resend.com/emails",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({
-          "Authorization": "Bearer re_test",
-        }),
-      }),
-    );
+    expect(send).toHaveBeenCalledTimes(1);
+    const message = send.mock.calls[0][0];
+    expect(message).toMatchObject({ from: "mdget.dev <noreply@mdget.dev>", to: "user@example.com" });
+    expect(message.text).toMatch(/https:\/\/mdget\.dev\/api\/auth\/verify\?token=[0-9a-f]{64}/);
   });
 
-  it("still returns 200 when Resend fails (don't leak errors)", async () => {
+  it("still returns 200 when sending fails (don't leak errors)", async () => {
     const d1 = createMockD1();
-    const { env } = createMockEnv({
-      AUTH_DB: d1.db,
-      RESEND_API_KEY: "re_bad",
-    });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response("forbidden", { status: 403 }),
-    ));
+    const send = vi.fn().mockRejectedValue(new Error("sender not configured"));
+    const { env } = createMockEnv({ AUTH_DB: d1.db, EMAIL: { send } as unknown as SendEmail });
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const req = new Request("https://md.example.com/api/auth/magic-link", {
@@ -244,6 +228,7 @@ describe("Magic Link: POST /api/auth/magic-link", () => {
     });
     const res = await worker.fetch(req, env, mockCtx());
     expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 

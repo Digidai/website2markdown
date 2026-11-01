@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { logMetric } from "../runtime-state";
 import { sanitizeErrorMessage } from "./conversion-events";
+import { sendEmail } from "../helpers/email";
 import { ALERT_FAILURE_RATE, ALERT_MIN_ATTEMPTS, type ProviderPathHealth } from "../../web/contract";
 
 /**
@@ -122,7 +123,7 @@ export function unhealthyPaths(rows: ProviderPathHealth[]): ProviderPathHealth[]
 
 /**
  * Daily check run from the cron trigger. Looks at yesterday and today (UTC),
- * and emails ADMIN_EMAIL through Resend when any path crosses the threshold.
+ * and emails ADMIN_EMAIL through Cloudflare Email Sending when any path crosses the threshold.
  */
 export async function checkProviderHealth(env: Env, now = new Date()): Promise<ProviderPathHealth[]> {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -135,8 +136,8 @@ export async function checkProviderHealth(env: Env, now = new Date()): Promise<P
   logMetric("provider.alert", { since, paths: unhealthy.map((row) => row.path) });
   console.warn("Provider paths unhealthy:", lines.join(" | "));
 
-  if (!env.RESEND_API_KEY || !env.ADMIN_EMAIL) {
-    console.warn("Provider alert email skipped: set the RESEND_API_KEY and ADMIN_EMAIL secrets to receive it.");
+  if (!env.EMAIL || !env.ADMIN_EMAIL) {
+    console.warn("Provider alert email skipped: configure the EMAIL binding and the ADMIN_EMAIL secret to receive it.");
     return unhealthy;
   }
   const text = [
@@ -147,20 +148,11 @@ export async function checkProviderHealth(env: Env, now = new Date()): Promise<P
     "Details: https://mdget.dev/admin",
   ].join("\n");
   try {
-    const resp = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${env.RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: env.AUTH_EMAIL_FROM || "mdget.dev <noreply@mail.genedai.me>",
-        to: env.ADMIN_EMAIL,
-        subject: `[mdget.dev] ${unhealthy.length} fallback path(s) failing: ${unhealthy.map((row) => row.path).join(", ")}`,
-        text,
-      }),
+    await sendEmail(env, {
+      to: env.ADMIN_EMAIL,
+      subject: `[mdget.dev] ${unhealthy.length} fallback path(s) failing: ${unhealthy.map((row) => row.path).join(", ")}`,
+      text,
     });
-    if (!resp.ok) console.error("Provider alert email failed:", resp.status, sanitizeErrorMessage(await resp.text()));
   } catch (error) {
     console.error("Provider alert email failed:", sanitizeErrorMessage(error));
   }

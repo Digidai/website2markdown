@@ -37,9 +37,9 @@ export interface Env {
   DEBUG_TRACE_RETENTION_DAYS?: string;
   /** Optional max redacted output excerpt characters for debug traces. Defaults to 2000. */
   DEBUG_TRACE_MAX_CONTENT_CHARS?: string;
-  /** Resend API key for sending magic-link emails */
-  RESEND_API_KEY?: string;
-  /** From address for auth emails, e.g. "mdget.dev <noreply@mail.genedai.me>" */
+  /** Cloudflare Email Sending binding for sign-in and alert emails. */
+  EMAIL?: SendEmail;
+  /** Optional sender override. Its domain must be onboarded to Cloudflare Email Sending. */
   AUTH_EMAIL_FROM?: string;
   /** Recipient for the daily fallback-path health alert. No alert email without it. */
   ADMIN_EMAIL?: string;

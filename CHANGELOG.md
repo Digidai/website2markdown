@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- Sign-in and fallback-alert emails are sent with Cloudflare Email Sending (`[[send_email]]` binding `EMAIL`) from `noreply@mdget.dev`, instead of Resend. `RESEND_API_KEY` is no longer read; `AUTH_EMAIL_FROM` still overrides the sender if its domain is onboarded to Email Sending.
 - The hosted service moves to `mdget.dev`. `md.genedai.me` still serves the same API, so existing integrations keep working, but its home, docs, robots.txt, sitemap and llms.txt now name `mdget.dev` as canonical. Docs, the MCP server's default API URL, sign-in emails and rate-limit messages use `mdget.dev`.
 - The home, examples, docs, integrations, reader, loading, error, and portal pages are rebuilt with React and HeroUI v3 default components and theme. The Worker renders them on the server, and per-page Vite bundles under `/_app/` (landing, portal, reader) hydrate them.
 - The theme choice is stored under `localStorage["heroui-theme"]`.
