@@ -11,6 +11,7 @@ import { zhihuAdapter } from "../browser/adapters/zhihu";
 import { twitterAdapter } from "../browser/adapters/twitter";
 import { substackAdapter } from "../browser/adapters/substack";
 import { getAdapter } from "../browser";
+import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
 
 type AdapterMockPage = {
   setUserAgent: ReturnType<typeof vi.fn>;
@@ -600,4 +601,89 @@ describe("API-first fetchDirect paths", () => {
     expect(getAdapter("https://example.substack.com/")).not.toBe(substackAdapter);
   });
 
+});
+
+describe("Notion public page API", () => {
+  const PAGE = "82734307-494a-429c-9ccf-0b98e1d8a80c";
+  const block = (id: string, value: Record<string, unknown>) => ({ [id]: { value: { value: { id, ...value } } } });
+
+  it("pages through chunks, fills in missing column blocks, and renders the tree", async () => {
+    const bodies: any[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const reqUrl = String(input);
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      if (reqUrl.endsWith("/api/v3/loadCachedPageChunkV2") && body.chunkNumber === 0) {
+        return Response.json({
+          spaceId: "space-1",
+          cursors: [{ stack: [[{ table: "block", id: PAGE, index: 3 }]] }],
+          recordMap: { block: {
+            ...block(PAGE, { type: "page", properties: { title: [["Mandarin Guide"]] }, content: ["b1", "b2", "cols", "b3"] }),
+            ...block("b1", { type: "bulleted_list", properties: { title: [["first ", [["b"]]], ["link", [["a", "https://x.test/"]]]] } }),
+            ...block("b2", { type: "bulleted_list", properties: { title: [["second"]] } }),
+            ...block("cols", { type: "column_list", content: ["col"] }),
+            ...block("col", { type: "column", content: ["inside"] }),
+          } },
+        });
+      }
+      if (reqUrl.endsWith("/api/v3/loadCachedPageChunkV2") && body.chunkNumber === 1) {
+        return Response.json({ cursors: [], recordMap: { block: {
+          ...block("b3", { type: "code", properties: { title: [["let a = 1 < 2;"]], language: [["JavaScript"]] } }),
+        } } });
+      }
+      if (reqUrl.endsWith("/api/v3/syncRecordValuesMain")) {
+        return Response.json({ recordMap: { block: block("inside", { type: "text", properties: { title: [["column text"]] } }) } });
+      }
+      throw new Error(`Unexpected fetch URL: ${reqUrl}`);
+    }));
+
+    // The slug ends in hex letters ("Gui-de"); the id is only the last 32 hex chars.
+    const html = await notionAdapter.fetchDirect!(`https://site.notion.site/Mandarin-Guide-${PAGE.replace(/-/g, "")}`);
+
+    expect(bodies[0].page.id).toBe(PAGE);
+    expect(bodies[1].cursor.stack[0][0].index).toBe(3);
+    expect(bodies[2].requests).toEqual([{ pointer: { table: "block", id: "inside", spaceId: "space-1" }, version: -1 }]);
+    expect(html).toContain("<h1>Mandarin Guide</h1>");
+    expect(html).toContain('<ul><li><strong>first </strong><a href="https://x.test/">link</a></li><li>second</li></ul>');
+    expect(html).toContain("<p>column text</p>");
+    expect(html).toContain('<pre><code class="language-javascript">let a = 1 &lt; 2;</code></pre>');
+  });
+
+  it("returns null for private pages the API does not expose", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ cursors: [], recordMap: { block: {} } })));
+    expect(await notionAdapter.fetchDirect!(`https://site.notion.site/${PAGE.replace(/-/g, "")}`)).toBeNull();
+  });
+});
+
+describe("Feishu crawler-rendered document data", () => {
+  const page = (data: unknown) =>
+    `<html><script>window.DATA = Object.assign({}, window.DATA, { clientVars: Object(${JSON.stringify({ data })}) });</script></html>`;
+  const text = (s: string, attribs = `+${s.length.toString(36)}`, pool: Record<string, [string, string]> = {}) =>
+    ({ apool: { numToAttrib: pool }, initialAttributedTexts: { attribs: { 0: attribs }, text: { 0: s } } });
+
+  it("decodes attribute runs into bold text and links, and flags truncated docs", async () => {
+    const blockMap = {
+      root: { id: "root", data: { type: "page", text: text("Doc title"), children: ["h", "p", "img", "later"] } },
+      h: { id: "h", data: { type: "heading1", text: text("Setup") } },
+      // "Go to " plain (6), "console" bold+link (7), "." plain (1)
+      p: { id: "p", data: { type: "text", text: text("Go to console.", "*0+6*1*2+7*0+1", {
+        0: ["author", "1"], 1: ["bold", "true"], 2: ["link", "https%3A%2F%2Fconsole.test%2Fkey"],
+      }) } },
+      img: { id: "img", data: { type: "image", image: { token: "t" } } },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(page({ block_map: blockMap, has_more: true }))));
+
+    const result = await fetchFeishuSsr("https://x.feishu.cn/wiki/abc");
+
+    expect(result?.complete).toBe(false);
+    expect(result?.html).toContain("<h1>Doc title</h1><h2>Setup</h2>");
+    expect(result?.html).toContain('<p>Go to <a href="https://console.test/key"><strong>console</strong></a>.</p>');
+    expect(result?.html).toContain("【图片】");
+    expect(result?.html).toContain("只包含公开页面预载的前半部分");
+  });
+
+  it("returns null when the page carries no document data", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html><body>login</body></html>")));
+    expect(await fetchFeishuSsr("https://x.feishu.cn/wiki/abc")).toBeNull();
+  });
 });
