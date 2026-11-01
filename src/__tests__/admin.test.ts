@@ -143,6 +143,10 @@ describe("admin report", () => {
     expect(html).toContain("facts trio");
     expect(html).toContain("类别");
     expect(html).toContain('class="fail"');
+    expect(html).toContain("降级路径健康度");
+    // 30 calls at 93% crosses the alert threshold; 5 calls at 80% is too few to alert.
+    expect(html).toContain('<td class="bad">proxy_pool</td>');
+    expect(html).toContain('<td class="warn">jina</td>');
     expect(html).toContain("https://mp.weixin.qq.com/s/abc");
     expect(html).toContain(encodeURIComponent("https://mp.weixin.qq.com/s/abc"));
     expect(html).toContain(`/admin/conversion?id=${row.id}`);
@@ -295,6 +299,10 @@ function sampleReport(rows: ConversionRow[]): AdminReport {
     accesses: [],
     accessTotal: 0,
     failurePreview: [],
+    providerHealth: [
+      { path: "proxy_pool", attempts: 30, failures: 28, lastError: "Proxy pool exhausted", lastFailureAt: "2026-09-29T08:00:00.000Z" },
+      { path: "jina", attempts: 5, failures: 4, lastError: "HTTP 451", lastFailureAt: "2026-09-29T07:00:00.000Z" },
+    ],
   };
 }
 

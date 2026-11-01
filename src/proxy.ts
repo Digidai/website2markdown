@@ -230,11 +230,12 @@ export async function fetchViaProxy(
           const headerEnd = indexOfBytes(rawConnect, HEADER_SEPARATOR_BYTES);
           if (headerEnd >= 0) {
             tunnelEstablished = true;
-            const statusLine = decoder.decode(rawConnect.subarray(0, headerEnd)).split("\r\n")[0];
+            const headerLines = decoder.decode(rawConnect.subarray(0, headerEnd)).split("\r\n");
+            const statusLine = headerLines[0];
             const statusMatch = statusLine.match(/HTTP\/[\d.]+ (\d+)/);
             const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : 0;
             if (statusCode < 200 || statusCode >= 300) {
-              throw new Error(`Proxy CONNECT tunnel rejected with status ${statusCode}: ${statusLine}`);
+              throw new Error(`Proxy CONNECT tunnel rejected with status ${statusCode}: ${statusLine}${proxyErrorReason(headerLines)}`);
             }
           }
         }
@@ -405,6 +406,23 @@ export async function fetchViaProxyPool(
   throw new Error(
     `All proxy attempts failed (${attempts} attempts): ${errors.join(" | ")}`,
   );
+}
+
+/**
+ * Bright Data puts the real reason for a 407 (wrong password, zone disabled,
+ * IP not allowlisted, account suspended) in these headers, not the status line.
+ * x-brd-err-msg is left out because it contains the account ID and egress IP.
+ */
+export function proxyErrorReason(headerLines: string[]): string {
+  const wanted = new Set(["x-brd-err-code", "x-brd-error", "x-luminati-error"]);
+  const parts: string[] = [];
+  for (const line of headerLines.slice(1)) {
+    const colon = line.indexOf(":");
+    if (colon <= 0) continue;
+    const name = line.slice(0, colon).trim().toLowerCase();
+    if (wanted.has(name)) parts.push(`${name}=${line.slice(colon + 1).trim().slice(0, 120)}`);
+  }
+  return parts.length ? ` (${parts.join("; ")})` : "";
 }
 
 function concatUint8Arrays(chunks: Uint8Array[], total: number): Uint8Array {

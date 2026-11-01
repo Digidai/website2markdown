@@ -96,6 +96,7 @@ import {
   resolveRequestId,
   sanitizeErrorMessage,
 } from "./observability/conversion-events";
+import { checkProviderHealth, cleanupProviderAttempts } from "./observability/provider-attempts";
 
 // 重新导出 JobCoordinator 供 wrangler Durable Object 绑定使用
 export { JobCoordinator } from "./handlers/jobs";
@@ -193,6 +194,8 @@ export default {
     ctx: ExecutionContext,
   ): Promise<void> {
     ctx.waitUntil(cleanupExpiredOperationalRows(env));
+    ctx.waitUntil(cleanupProviderAttempts(env));
+    ctx.waitUntil(checkProviderHealth(env));
   },
 
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {

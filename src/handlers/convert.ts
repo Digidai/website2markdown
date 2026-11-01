@@ -59,6 +59,7 @@ import {
   isSearchResultPage,
 } from "../policy/anonymous-guards";
 import { formatOutput } from "../helpers/format";
+import { trackProvider } from "../observability/provider-attempts";
 
 // ─── 错误类 ──────────────────────────────────────────────────
 
@@ -463,11 +464,11 @@ async function tryFirecrawlFastPath(
   providerApiKeysAllowed: boolean = true,
 ): Promise<ConvertResult> {
   await progress("fetch", "Fetching via Firecrawl");
-  const firecrawlResult = await fetchViaFirecrawl(
+  const firecrawlResult = await trackProvider(env, "firecrawl", abortSignal, () => fetchViaFirecrawl(
     targetUrl,
     getFirecrawlConfig(env, providerApiKeysAllowed),
     abortSignal,
-  );
+  ));
   const sourceContentType = "text/markdown";
   const output = formatOutput(
     firecrawlResult.markdown,
@@ -560,11 +561,11 @@ async function tryExternalMarkdownEarlyReturn(
   let firecrawlFailed = false;
 
   try {
-    const firecrawlResult = await fetchViaFirecrawl(
+    const firecrawlResult = await trackProvider(env, "firecrawl", abortSignal, () => fetchViaFirecrawl(
       targetUrl,
       getFirecrawlConfig(env, providerApiKeysAllowed),
       abortSignal,
-    );
+    ));
     fallbacks.add("firecrawl_fallback");
     return buildExternalMarkdownResult(
       targetUrl,
@@ -584,7 +585,7 @@ async function tryExternalMarkdownEarlyReturn(
   }
 
   try {
-    const jinaResult = await fetchViaJina(targetUrl, 15_000, abortSignal);
+    const jinaResult = await trackProvider(env, "jina", abortSignal, () => fetchViaJina(targetUrl, 15_000, abortSignal));
     if (firecrawlFailed) {
       fallbacks.add("firecrawl_error_fallthrough");
     }
@@ -621,7 +622,7 @@ async function tryJinaFastPath(
   abortSignal?: AbortSignal,
 ): Promise<ConvertResult> {
   await progress("fetch", "Fetching via Jina Reader");
-  const jinaResult = await fetchViaJina(targetUrl, 15_000, abortSignal);
+  const jinaResult = await trackProvider(env, "jina", abortSignal, () => fetchViaJina(targetUrl, 15_000, abortSignal));
   const jinaMarkdown = jinaResult.markdown;
   const jinaTitle = jinaResult.title;
   const sourceContentType = "text/markdown";
@@ -671,9 +672,9 @@ async function tryCfRestApi(
 
   await progress("fetch", "Converting via Cloudflare");
   try {
-    const cfResult = await fetchViaCfMarkdown(targetUrl, cfConfig, {
+    const cfResult = await trackProvider(env, "cf_markdown", abortSignal, () => fetchViaCfMarkdown(targetUrl, cfConfig, {
       signal: abortSignal,
-    });
+    }), (r) => (r.markdown?.length ?? 0) > 200);
 
     if (cfResult.markdown && cfResult.markdown.length > 200) {
       if (new TextEncoder().encode(cfResult.markdown).byteLength > MAX_RESPONSE_BYTES) {
@@ -813,10 +814,11 @@ async function tryFetchAndParse(
     }
 
     // Anonymous 用户无 browser 权限 — 先走 Browser Use 远程浏览器，再降级住宅代理
-    if (!finalHtml && env.BROWSER_USE_API_KEY) {
+    const browserUseKey = env.BROWSER_USE_API_KEY;
+    if (!finalHtml && browserUseKey) {
       throwIfAborted(abortSignal);
       await progress("fetch", "Fetching via remote browser");
-      const buHtml = await fetchViaBrowserUse(targetUrl, env.BROWSER_USE_API_KEY, abortSignal);
+      const buHtml = await trackProvider(env, "browser_use", abortSignal, () => fetchViaBrowserUse(targetUrl, browserUseKey, abortSignal), (html) => Boolean(html));
       if (buHtml) {
         if (targetUrl.includes("mp.weixin.qq.com") && isWechatVerificationHtml(buHtml)) {
           throw new ConvertError(
@@ -985,7 +987,7 @@ async function tryFetchAndParse(
 
   // 如果 JSON-LD 后仍然被 paywall 挡住，尝试存档源
   if (markdown.length < 500 && stillLooksPaywalled && getPaywallRule(conversionUrl)) {
-    const waybackHtml = await fetchWaybackSnapshot(conversionUrl, abortSignal);
+    const waybackHtml = await trackProvider(env, "wayback", abortSignal, () => fetchWaybackSnapshot(conversionUrl, abortSignal), (html) => Boolean(html));
     if (waybackHtml) {
       const wbResult = htmlToMarkdown(
         removePaywallElements(waybackHtml, getPaywallRule(conversionUrl)),
@@ -1003,7 +1005,7 @@ async function tryFetchAndParse(
     }
 
     if (markdown.length < 500) {
-      const archiveHtml = await fetchArchiveToday(conversionUrl, abortSignal);
+      const archiveHtml = await trackProvider(env, "archive_today", abortSignal, () => fetchArchiveToday(conversionUrl, abortSignal), (html) => Boolean(html));
       if (archiveHtml) {
         const arResult = htmlToMarkdown(
           removePaywallElements(archiveHtml, getPaywallRule(conversionUrl)),
@@ -1032,11 +1034,11 @@ async function tryFetchAndParse(
   ) {
     let firecrawlFailed = false;
     try {
-      const firecrawlResult = await fetchViaFirecrawl(
+      const firecrawlResult = await trackProvider(env, "firecrawl", abortSignal, () => fetchViaFirecrawl(
         conversionUrl,
         getFirecrawlConfig(env, providerApiKeysAllowed),
         abortSignal,
-      );
+      ));
       if (firecrawlResult.markdown.length > markdown.length) {
         markdown = firecrawlResult.markdown;
         extractedTitle = firecrawlResult.title || extractedTitle;
@@ -1051,7 +1053,7 @@ async function tryFetchAndParse(
 
     if (method !== "firecrawl") {
       try {
-        const jinaResult = await fetchViaJina(conversionUrl, 15_000, abortSignal);
+        const jinaResult = await trackProvider(env, "jina", abortSignal, () => fetchViaJina(conversionUrl, 15_000, abortSignal));
         if (jinaResult.markdown.length > markdown.length) {
           markdown = jinaResult.markdown;
           extractedTitle = jinaResult.title || extractedTitle;
@@ -1154,13 +1156,13 @@ async function tryBrowserRendering(
   throwIfAborted(abortSignal);
   await _progress("browser", "Rendering with browser");
   try {
-    const html = await fetchWithBrowser(
+    const html = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
       targetUrl,
       env,
       host,
       abortSignal,
       { sessionProfileScope },
-    );
+    ));
     fallbacks.add("always_browser");
     return { html, rendered: true };
   } catch (error) {
@@ -1249,7 +1251,7 @@ async function tryProxyRetry(
 
     const usePool = !!(env.PROXY_POOL && pooledConfigs.length > 0);
     if (usePool) {
-      const proxyResult = await fetchViaProxyPool(
+      const proxyResult = await trackProvider(env, "proxy_pool", abortSignal, () => fetchViaProxyPool(
         targetUrl,
         pooledConfigs,
         headerVariants,
@@ -1262,17 +1264,17 @@ async function tryProxyRetry(
             candidate.body.length > 1000 &&
             !isLikelyChallengeHtml(candidate.body),
         },
-      );
+      ));
       fallbacks.add(`proxy_pool_${proxyResult.proxyIndex + 1}_${proxyResult.variant}`);
       return { html: proxyResult.body, rendered: true };
     } else {
-      const proxyResult = await fetchViaProxy(
+      const proxyResult = await trackProvider(env, "proxy", abortSignal, () => fetchViaProxy(
         targetUrl,
         pooledConfigs[0],
         headerVariants[0].headers,
         25_000,
         abortSignal,
-      );
+      ), (r) => r.status >= 200 && r.status < 400 && r.body.length > 1000 && !isLikelyChallengeHtml(r.body));
       if (
         proxyResult.status >= 200 &&
         proxyResult.status < 400 &&
@@ -1346,7 +1348,7 @@ async function tryDirectProxyFetch(
       },
     ];
 
-    const proxyResult = await fetchViaProxyPool(
+    const proxyResult = await trackProvider(env, "proxy_pool", abortSignal, () => fetchViaProxyPool(
       targetUrl,
       pooledConfigs,
       headerVariants,
@@ -1359,7 +1361,7 @@ async function tryDirectProxyFetch(
           candidate.body.length > 1000 &&
           !isLikelyChallengeHtml(candidate.body),
       },
-    );
+    ));
     fallbacks.add(`direct_proxy_${proxyResult.variant}`);
     return proxyResult.body;
   } catch (e) {
@@ -1450,12 +1452,12 @@ async function tryStaticFetch(
   if (staticFailed && !forceBrowser) {
     if (getPaywallRule(resolvedUrl)) {
       paywallDetected = true;
-      const waybackHtml = await fetchWaybackSnapshot(resolvedUrl, abortSignal);
+      const waybackHtml = await trackProvider(env, "wayback", abortSignal, () => fetchWaybackSnapshot(resolvedUrl, abortSignal), (html) => Boolean(html));
       if (waybackHtml && waybackHtml.length > 1000) {
         finalHtml = waybackHtml;
         fallbacks.add("wayback_pre_fetch");
       } else {
-        const archiveHtml = await fetchArchiveToday(resolvedUrl, abortSignal);
+        const archiveHtml = await trackProvider(env, "archive_today", abortSignal, () => fetchArchiveToday(resolvedUrl, abortSignal), (html) => Boolean(html));
         if (archiveHtml && archiveHtml.length > 1000) {
           finalHtml = archiveHtml;
           fallbacks.add("archive_pre_fetch");
@@ -1480,13 +1482,13 @@ async function tryStaticFetch(
     throwIfAborted(abortSignal);
     await progress("browser", "Rendering with browser");
     try {
-      finalHtml = await fetchWithBrowser(
+      finalHtml = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
         targetUrl,
         env,
         host,
         abortSignal,
         { sessionProfileScope },
-      );
+      ));
       method = "browser+readability+turndown";
       browserRendered = true;
       fallbacks.add("browser_after_static_failure");
@@ -1629,13 +1631,13 @@ async function tryStaticFetch(
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {
-        finalHtml = await fetchWithBrowser(
+        finalHtml = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
           targetUrl,
           env,
           host,
           abortSignal,
           { sessionProfileScope },
-        );
+        ));
         method = "browser+readability+turndown";
         browserRendered = true;
         fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
