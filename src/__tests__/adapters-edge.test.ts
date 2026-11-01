@@ -687,3 +687,50 @@ describe("Feishu crawler-rendered document data", () => {
     expect(await fetchFeishuSsr("https://x.feishu.cn/wiki/abc")).toBeNull();
   });
 });
+
+describe("Juejin and Yuque public paths", () => {
+  it("uses Juejin's server-rendered post but not the WAF challenge page", async () => {
+    let challenged = false;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(challenged
+      ? '<html><script>var _wafchallengeid="x";</script></html>'
+      : '<html><body><div class="article-viewer markdown-body"><p>正文</p></div></body></html>')));
+    const url = "https://juejin.cn/post/7637856870833635343";
+
+    expect(await juejinAdapter.fetchDirect!(url)).toContain("<p>正文</p>");
+    challenged = true;
+    expect(await juejinAdapter.fetchDirect!(url)).toBeNull();
+  });
+
+  it("reads a Yuque doc via appData's book id and turns lake cards into HTML", async () => {
+    const appData = encodeURIComponent(JSON.stringify({ book: { id: 75338 }, doc: { slug: "doc-webhook", title: "Webhooks" } }));
+    const card = (name: string, value: unknown) =>
+      `<card type="inline" name="${name}" value="data:${encodeURIComponent(JSON.stringify(value))}"></card>`;
+    const lake = `<p>Intro</p>${card("image", { src: "https://cdn.nlark.com/a.png", title: "shot" })}` +
+      card("codeblock", { mode: "TypeScript", code: "const a = 1 < 2;" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const reqUrl = String(input);
+      if (reqUrl === "https://www.yuque.com/yuque/developer/doc-webhook") {
+        return new Response(`<script>window.appData = JSON.parse(decodeURIComponent("${appData}"));</script>`);
+      }
+      if (reqUrl === "https://www.yuque.com/api/docs/doc-webhook?book_id=75338&merge_dynamic_data=false") {
+        return Response.json({ data: { title: "Webhooks 消息推送", format: "lake", content: lake } });
+      }
+      throw new Error(`Unexpected fetch URL: ${reqUrl}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const html = await yuqueAdapter.fetchDirect!("https://www.yuque.com/yuque/developer/doc-webhook");
+
+    expect(html).toContain("<h1>Webhooks 消息推送</h1><p>Intro</p>");
+    expect(html).toContain('<img src="https://cdn.nlark.com/a.png" alt="shot">');
+    expect(html).toContain('<pre><code class="language-typescript">const a = 1 &lt; 2;</code></pre>');
+    expect(html).not.toContain("<card");
+  });
+
+  it("returns null for Yuque pages without a doc (e.g. a knowledge-base index)", async () => {
+    const appData = encodeURIComponent(JSON.stringify({ book: { id: 1 } }));
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(`<script>window.appData = JSON.parse(decodeURIComponent("${appData}"));</script>`)));
+    expect(await yuqueAdapter.fetchDirect!("https://www.yuque.com/yuque/developer")).toBeNull();
+  });
+});
