@@ -179,7 +179,7 @@ describe("index mocked branch coverage", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("# md body");
     expect((adapter.transformUrl as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("https://example.com/a");
-    expect((adapter.fetchDirect as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("https://example.com/a?t=1");
+    expect((adapter.fetchDirect as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("https://example.com/a?t=1", expect.anything());
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

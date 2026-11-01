@@ -759,7 +759,7 @@ async function tryFetchAndParse(
     throwIfAborted(abortSignal);
     await progress("fetch", "Fetching via API");
     try {
-      const directHtml = await fetchAdapter.fetchDirect(targetUrl);
+      const directHtml = await fetchAdapter.fetchDirect(targetUrl, env);
       if (directHtml) {
         finalHtml = directHtml;
         method = "readability+turndown";

@@ -1,12 +1,15 @@
-import type { SiteAdapter } from "../../types";
+import type { Env, SiteAdapter } from "../../types";
 import { DESKTOP_UA } from "../../config";
 import { escapeHtml } from "../../security";
 import { genericAdapter } from "./generic";
+import { fetchViaProxyPool, parseProxyPool } from "../../proxy";
 
 /**
  * Substack serves each post as JSON at /api/v1/posts/<slug>. One small API
  * call is far less likely to hit Substack's 429s than fetching the page, and
  * `body_html` is the clean article body. Paid posts return their free preview.
+ * Workers egress still gets 429 at times; the same call is then retried once
+ * through the configured proxy.
  */
 export const substackAdapter: SiteAdapter = {
   ...genericAdapter,
@@ -20,21 +23,26 @@ export const substackAdapter: SiteAdapter = {
     }
   },
 
-  async fetchDirect(url: string): Promise<string | null> {
+  async fetchDirect(url: string, env?: Env): Promise<string | null> {
     const { origin, pathname } = new URL(url);
     const slug = pathname.split("/")[2];
     if (!slug) return null;
+    const apiUrl = `${origin}/api/v1/posts/${encodeURIComponent(slug)}`;
+    const headers = { "User-Agent": DESKTOP_UA, "Accept": "application/json", "Referer": url };
     try {
-      const resp = await fetch(`${origin}/api/v1/posts/${encodeURIComponent(slug)}`, {
-        headers: {
-          "User-Agent": DESKTOP_UA,
-          "Accept": "application/json",
-          "Referer": url,
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!resp.ok) return null;
-      const json = (await resp.json()) as any;
+      let json: any;
+      const resp = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(8000) });
+      if (resp.ok) {
+        json = await resp.json();
+      } else {
+        const proxies = resp.status === 429 ? parseProxyPool(env?.PROXY_POOL || env?.PROXY_URL || "") : [];
+        if (proxies.length === 0) return null;
+        const proxied = await fetchViaProxyPool(apiUrl, proxies, [{
+          name: "default",
+          headers: { ...headers, "Accept-Encoding": "identity" },
+        }], { timeoutMs: 10_000, acceptResult: (r) => r.status === 200 });
+        json = JSON.parse(proxied.body);
+      }
       const post = json?.post ?? json;
       if (!post?.body_html) return null;
 

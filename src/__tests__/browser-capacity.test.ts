@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
+
+vi.mock("cloudflare:sockets", () => ({
+  connect: vi.fn(),
+}));
 import { BrowserCapacityGate } from "../browser";
 
 describe("BrowserCapacityGate", () => {
