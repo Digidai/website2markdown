@@ -11,6 +11,9 @@ import type {
 } from "../../web/contract";
 import { ACCESS_SURFACE_SQL, ACCESS_SURFACES, classifyAccessPath } from "./classify";
 import { loadProviderHealth } from "../observability/provider-attempts";
+import { loadSuspiciousIps } from "./ip-risk";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type { AdminQuery, AdminReport, ConversionDetail, ConversionRow };
 
@@ -290,6 +293,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       accessTotal,
       failurePreview: failurePreview.map(mapConversion),
       providerHealth: await loadProviderHealth(env, day),
+      suspiciousIps: await loadSuspiciousIps(env, new Date(Date.now() - DAY_MS).toISOString()),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "query failed";
@@ -384,6 +388,7 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
     accessTotal: 0,
     failurePreview: [],
     providerHealth: [],
+    suspiciousIps: [],
   };
 }
 

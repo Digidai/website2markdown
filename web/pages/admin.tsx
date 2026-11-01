@@ -58,6 +58,7 @@ import {
   type DaySplit,
   type PairRow,
   type ProviderPathHealth,
+  type SuspiciousIp,
 } from "../contract";
 
 const THEME_LABELS = { light: "浅色", dark: "深色", system: "跟随系统", title: "主题" };
@@ -417,6 +418,8 @@ function Overview({ report, onShowFailures }: { report: AdminReport; onShowFailu
         <Breakdown title="页面路径" rows={report.pagePaths} mono />
       </div>
 
+      <SuspiciousIps rows={report.suspiciousIps ?? []} query={report.query} />
+
       <Card>
         <Card.Header className="flex-row items-center justify-between gap-2">
           <div className="flex flex-col gap-1">
@@ -450,6 +453,62 @@ function Overview({ report, onShowFailures }: { report: AdminReport; onShowFailu
         </Disclosure.Content>
       </Disclosure>
     </div>
+  );
+}
+
+function SuspiciousIps({ rows, query }: { rows: SuspiciousIp[]; query: AdminQuery }) {
+  return (
+    <Card>
+      <Card.Header className="flex flex-col gap-1">
+        <Card.Title>可疑 IP</Card.Title>
+        <Card.Description>近 24 小时的匿名请求，按规则打分：3 分起为可疑，6 分起为滥用。目前只观察，不拦截。</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        {rows.length ? (
+          <Table variant="secondary">
+            <Table.ScrollContainer>
+              <Table.Content aria-label="可疑 IP" className="min-w-[760px]">
+                <Table.Header>
+                  <Table.Column isRowHeader>IP</Table.Column>
+                  <Table.Column>级别</Table.Column>
+                  <Table.Column>请求 / 转换 / 失败</Table.Column>
+                  <Table.Column>原因</Table.Column>
+                </Table.Header>
+                <Table.Body>
+                  {rows.map((row) => (
+                    <Table.Row key={row.ip} id={row.ip}>
+                      <Table.Cell className="max-w-[260px]">
+                        <a
+                          href={adminHref({ ...query, q: row.ip, page: 1, apage: 1 }, { tab: "conversions" })}
+                          className="block truncate font-mono text-sm font-medium text-foreground hover:text-accent"
+                          title="查看这个 IP 的转换记录"
+                        >
+                          {row.ip}
+                        </a>
+                        <span className="block truncate text-xs text-muted">
+                          {[row.country, row.asn ? `AS${row.asn}` : "", row.as_org, row.ua_family].filter(Boolean).join(" · ")}
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell>
+                        <Chip size="sm" variant="soft" color={row.level === "abuse" ? "danger" : "warning"} className="whitespace-nowrap">
+                          {row.level === "abuse" ? "滥用" : "可疑"} · {row.score}
+                        </Chip>
+                      </Table.Cell>
+                      <Table.Cell className="whitespace-nowrap text-muted tabular-nums">
+                        {fmt(row.requests)} / {fmt(row.conversions)} / {fmt(row.failures)}
+                      </Table.Cell>
+                      <Table.Cell className="max-w-[420px] text-xs text-muted">{row.reasons.join("；")}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted">近 24 小时没有可疑的匿名 IP。</p>
+        )}
+      </Card.Content>
+    </Card>
   );
 }
 
