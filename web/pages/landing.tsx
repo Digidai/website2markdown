@@ -31,6 +31,7 @@ import {
 import { useState, type ComponentType, type FormEvent, type ReactNode } from "react";
 import type { Lang, SitePage } from "../contract";
 import { COPY, type Copy } from "../copy";
+import { PLATFORMS } from "../platforms";
 import { Brand, CodeBlock, GithubButton, GITHUB_URL, LinkButton, SectionHeading, ThemeSwitcher } from "../components/ui";
 
 export interface LandingProps {
@@ -38,11 +39,6 @@ export interface LandingProps {
   lang: Lang;
   page: SitePage;
 }
-
-export const PLATFORMS = [
-  "WeChat", "Zhihu", "Feishu", "Yuque", "Juejin", "CSDN", "36Kr", "Toutiao",
-  "Weibo", "NetEase", "Twitter/X", "Reddit", "Notion", "GitHub", "Substack", "Medium",
-];
 
 const PAGE_PATH: Record<SitePage, string> = {
   home: "/",
@@ -308,8 +304,9 @@ function HomePage({ ctx }: { ctx: Ctx }) {
         <Container className="flex flex-col items-center gap-4">
           <p className="text-sm font-medium text-muted">{t.platformsTitle}</p>
           <div className="flex max-w-4xl flex-wrap justify-center gap-2">
-            {PLATFORMS.map((name) => (
+            {PLATFORMS.map(({ name, logo }) => (
               <Chip key={name} variant="secondary" size="lg">
+                <img src={logo} alt="" width={16} height={16} className="size-4 shrink-0 rounded-sm" />
                 {name}
               </Chip>
             ))}
