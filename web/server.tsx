@@ -100,7 +100,7 @@ export const landingPageHTML: WebRenderers["landingPageHTML"] = (host, lang: Lan
         applicationCategory: "DeveloperApplication",
         operatingSystem: "Any",
         offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-        featureList: ["URL to Markdown conversion", "16 platform adapters", "Batch API", "Structured extraction", "Deep crawl", "MCP Server", "Agent Skills", "llms.txt"],
+        featureList: ["URL to Markdown conversion", "15 platform adapters", "Batch API", "Structured extraction", "Deep crawl", "MCP Server", "Agent Skills", "llms.txt"],
         license: "https://www.apache.org/licenses/LICENSE-2.0",
         codeRepository: "https://github.com/Digidai/website2markdown",
         sameAs: [

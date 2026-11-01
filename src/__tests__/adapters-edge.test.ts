@@ -10,7 +10,6 @@ import { yuqueAdapter } from "../browser/adapters/yuque";
 import { zhihuAdapter } from "../browser/adapters/zhihu";
 import { twitterAdapter } from "../browser/adapters/twitter";
 import { substackAdapter } from "../browser/adapters/substack";
-import { mediumAdapter } from "../browser/adapters/medium";
 import { getAdapter } from "../browser";
 import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
 
@@ -750,45 +749,7 @@ describe("Juejin and Yuque public paths", () => {
   });
 });
 
-describe("Medium and Toutiao public paths", () => {
-  it("routes Medium post URLs to the adapter and leaves profiles alone", () => {
-    expect(getAdapter("https://medium.com/data-science/svm-a-progression-841d63574825")).toBe(mediumAdapter);
-    expect(getAdapter("https://karpathy.medium.com/p/a64152b37c35")).toBe(mediumAdapter);
-    expect(getAdapter("https://medium.com/@karpathy")).not.toBe(mediumAdapter);
-  });
-
-  it("renders Medium GraphQL paragraphs with markups, lists, code and images", async () => {
-    const paragraphs = [
-      { type: "H3", text: "Title" },
-      // "bold link" is linked; "link" is also bold, so the two overlap.
-      { type: "P", text: "A bold link <x>", markups: [
-        { type: "STRONG", start: 2, end: 11 },
-        { type: "A", start: 7, end: 11, href: "https://ex.com/?a=1&b=2" },
-      ] },
-      { type: "ULI", text: "one" }, { type: "ULI", text: "two" },
-      { type: "OLI", text: "first" },
-      { type: "PRE", text: "if (a < b) {}", codeBlockMetadata: { lang: "js" } },
-      { type: "IMG", text: "cap", metadata: { id: "1*abc.png", alt: "pic" } },
-    ];
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      expect(JSON.parse(String(init?.body)).variables).toEqual({ postId: "841d63574825" });
-      return Response.json({ data: { post: {
-        title: "Title", isLocked: true, firstPublishedAt: 1718064000000, creator: { name: "Jimin" },
-        content: { bodyModel: { paragraphs } },
-      } } });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const html = (await mediumAdapter.fetchDirect!("https://medium.com/ds/svm-841d63574825"))!;
-    expect(html.match(/Title/g)).toHaveLength(2); // <title> and <h1>; the body's repeat is dropped
-    expect(html).toContain("Jimin · 2024-06-11");
-    expect(html).toContain("Member-only story");
-    expect(html).toContain('<p>A <strong>bold </strong><a href="https://ex.com/?a=1&amp;b=2"><strong>link</strong></a> &lt;x&gt;</p>');
-    expect(html).toContain("<ul><li>one</li><li>two</li></ul><ol><li>first</li></ol>");
-    expect(html).toContain('<pre><code class="language-js">if (a &lt; b) {}</code></pre>');
-    expect(html).toContain('<img src="https://miro.medium.com/v2/resize:fit:1400/1*abc.png" alt="pic"><figcaption>cap</figcaption>');
-  });
-
+describe("Toutiao public path", () => {
   it("reads Toutiao articles from the mobile endpoint and skips topic pages", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe("https://m.toutiao.com/i7702980541839753728/info/");
