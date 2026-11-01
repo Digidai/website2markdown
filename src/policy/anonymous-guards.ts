@@ -16,6 +16,22 @@ export function isNegativeOriginStatus(status: number): boolean {
  * Exact search-result paths that anonymous callers were converting in bulk.
  * Other paths on these hosts, and lookalike hosts, stay convertible.
  */
+const SEARCH_RESULT_PATHS: Record<string, readonly string[]> = {
+  "www.bing.com": ["/search", "/news/search", "/images/search"],
+  "searx.be": ["/search"],
+  // SearXNG instance; anonymous product-search scraping here failed 100%.
+  "priv.au": ["/search"],
+  "html.duckduckgo.com": ["/html", "/html/"],
+  "duckduckgo.com": ["/html", "/html/"],
+  "search.brave.com": ["/search", "/images"],
+  "www.google.com": ["/search"],
+  "google.com": ["/search"],
+  "yandex.com": ["/search", "/search/", "/images/search"],
+  "search.yahoo.com": ["/search"],
+  "www.startpage.com": ["/sp/search", "/do/search"],
+  "www.baidu.com": ["/s"],
+};
+
 export function isSearchResultPage(raw: string): boolean {
   let url: URL;
   try {
@@ -23,12 +39,7 @@ export function isSearchResultPage(raw: string): boolean {
   } catch {
     return false;
   }
-  const host = url.hostname.toLowerCase();
-  const path = url.pathname;
-  if (host === "www.bing.com" && path === "/search") return true;
-  if (host === "searx.be" && path === "/search") return true;
-  if (host === "html.duckduckgo.com" && (path === "/html" || path === "/html/")) return true;
-  return false;
+  return SEARCH_RESULT_PATHS[url.hostname.toLowerCase()]?.includes(url.pathname) ?? false;
 }
 
 export function isGovCnHost(raw: string): boolean {
