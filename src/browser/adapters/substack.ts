@@ -37,12 +37,17 @@ export const substackAdapter: SiteAdapter = {
       } else {
         const proxies = resp.status === 429 ? parseProxyPool(env?.PROXY_POOL || env?.PROXY_URL || "") : [];
         if (proxies.length === 0) return null;
-        // Publications with a custom domain redirect the API to that domain,
-        // and the 429 comes from there; the proxy does not follow redirects.
-        const proxied = await fetchViaProxyPool(resp.url || apiUrl, proxies, [{
+        const viaProxy = (target: string) => fetchViaProxyPool(target, proxies, [{
           name: "default",
           headers: { ...headers, "Accept-Encoding": "identity" },
-        }], { timeoutMs: 10_000, acceptResult: (r) => r.status === 200 });
+        }], { timeoutMs: 10_000, acceptResult: (r) => r.status === 200 || (r.status >= 301 && r.status <= 308) });
+        let proxied = await viaProxy(apiUrl);
+        // Publications with a custom domain answer the proxy with a redirect
+        // to that domain, which fetchViaProxy does not follow. Follow it once.
+        if (proxied.status !== 200 && proxied.headers.location) {
+          proxied = await viaProxy(new URL(proxied.headers.location, apiUrl).href);
+        }
+        if (proxied.status !== 200) return null;
         json = JSON.parse(proxied.body);
       }
       const post = json?.post ?? json;
