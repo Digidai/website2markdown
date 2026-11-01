@@ -1,5 +1,6 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
 import { DESKTOP_UA } from "../../config";
+import { fetchYuqueDoc } from "./yuque-api";
 
 export const yuqueAdapter: SiteAdapter = {
   match(url: string): boolean {
@@ -7,6 +8,16 @@ export const yuqueAdapter: SiteAdapter = {
   },
 
   alwaysBrowser: true,
+
+  // Public docs come from the page's own doc endpoint without a browser; the
+  // browser path stays as the fallback (private docs, non-doc pages).
+  async fetchDirect(url: string): Promise<string | null> {
+    try {
+      return await fetchYuqueDoc(url);
+    } catch {
+      return null;
+    }
+  },
 
   async configurePage(page: any): Promise<void> {
     await page.setUserAgent(DESKTOP_UA);

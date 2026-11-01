@@ -1,4 +1,5 @@
 import type { SiteAdapter, ExtractResult } from "../../types";
+import { DESKTOP_UA } from "../../config";
 import { applyStealthAndDesktop } from "../stealth";
 import { createProxyRetrySignal } from "../proxy-retry";
 
@@ -14,6 +15,24 @@ export const juejinAdapter: SiteAdapter = {
   },
 
   alwaysBrowser: true,
+
+  // Post pages are server-rendered (Nuxt SSR) with the full article in
+  // .article-viewer, so a plain GET is enough. The WAF's JS challenge page
+  // (_wafchallengeid) lacks that container and falls through to the browser.
+  async fetchDirect(url: string): Promise<string | null> {
+    if (!url.includes("juejin.cn/post/")) return null;
+    try {
+      const resp = await fetch(url, {
+        headers: { "User-Agent": DESKTOP_UA, "Accept": "text/html", "Accept-Language": "zh-CN,zh;q=0.9" },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!resp.ok) return null;
+      const html = await resp.text();
+      return html.includes("article-viewer") ? html : null;
+    } catch {
+      return null;
+    }
+  },
 
   async configurePage(page: any): Promise<void> {
     await applyStealthAndDesktop(page);
