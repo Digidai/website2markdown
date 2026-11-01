@@ -39,6 +39,8 @@ import { fetchViaBrowserUse } from "../browser-use";
 import { fetchViaContextDev } from "../context-dev";
 import { bumpLimit } from "../middleware/rate-limit-d1";
 import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/wechat";
+import { isFeishuDocumentUrl } from "../browser/adapters/feishu";
+import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
 import {
   applyPaywallHeaders,
   extractJsonLdArticle,
@@ -816,6 +818,22 @@ async function tryFetchAndParse(
       }
     }
 
+    // Public Feishu docs embed their text for crawlers. One plain fetch beats
+    // Browser Use, which for wiki pages often returned only the sidebar.
+    if (!finalHtml && isFeishuDocumentUrl(targetUrl)) {
+      throwIfAborted(abortSignal);
+      await progress("fetch", "Fetching Feishu document data");
+      try {
+        const ssr = await fetchFeishuSsr(targetUrl);
+        if (ssr) {
+          finalHtml = ssr.html;
+          fallbacks.add(ssr.complete ? "feishu_ssr" : "feishu_ssr_partial");
+        }
+      } catch (e) {
+        console.error("Feishu SSR fetch failed, falling through:", errorMessage(e));
+      }
+    }
+
     // Anonymous 用户无 browser 权限 — 先走 Browser Use 远程浏览器，再降级住宅代理
     const browserUseKey = env.BROWSER_USE_API_KEY;
     if (!finalHtml && browserUseKey) {
@@ -1131,8 +1149,10 @@ async function tryFetchAndParse(
     output = proxyImageUrls(output, host);
   }
 
-  // 10. 缓存
-  if (!noCache) {
+  // 10. 缓存 — the cache is shared across tiers, so the text-only (and possibly
+  // truncated) anonymous Feishu result must not be served to callers whose
+  // browser path returns the full doc with images.
+  if (!noCache && !fallbacks.has("feishu_ssr") && !fallbacks.has("feishu_ssr_partial")) {
     throwIfAborted(abortSignal);
     await setCache(
       env, targetUrl, format,
