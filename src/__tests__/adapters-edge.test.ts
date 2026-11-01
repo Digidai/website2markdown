@@ -625,18 +625,20 @@ describe("API-first fetchDirect paths", () => {
     expect(proxies).toEqual([{ host: "proxy.test", port: 3000, username: "u", password: "p" }]);
   });
 
-  it("retries the redirected custom-domain API URL when that answers 429", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      const resp = new Response("slow down", { status: 429 });
-      Object.defineProperty(resp, "url", { value: "https://www.example.com/api/v1/posts/my-post" });
-      return resp;
-    }));
-    vi.mocked(fetchViaProxyPool).mockClear().mockResolvedValue({
-      status: 200, headers: {}, body: JSON.stringify({ title: "Proxied", body_html: "<p>Via proxy.</p>" }),
-    } as never);
+  it("follows the proxy's redirect to a custom-domain API URL", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("slow down", { status: 429 })));
+    vi.mocked(fetchViaProxyPool).mockReset()
+      .mockResolvedValueOnce({ status: 301, headers: { location: "https://www.example.com/api/v1/posts/my-post" }, body: "" } as never)
+      .mockResolvedValueOnce({
+        status: 200, headers: {}, body: JSON.stringify({ title: "Proxied", body_html: "<p>Via redirect.</p>" }),
+      } as never);
 
-    await substackAdapter.fetchDirect!("https://example.substack.com/p/my-post", { PROXY_URL: "u:p@proxy.test:3000" } as never);
-    expect(vi.mocked(fetchViaProxyPool).mock.calls[0][0]).toBe("https://www.example.com/api/v1/posts/my-post");
+    const html = await substackAdapter.fetchDirect!("https://example.substack.com/p/my-post", { PROXY_URL: "u:p@proxy.test:3000" } as never);
+    expect(html).toContain("<p>Via redirect.</p>");
+    expect(vi.mocked(fetchViaProxyPool).mock.calls.map((c) => c[0])).toEqual([
+      "https://example.substack.com/api/v1/posts/my-post",
+      "https://www.example.com/api/v1/posts/my-post",
+    ]);
   });
 
 });
