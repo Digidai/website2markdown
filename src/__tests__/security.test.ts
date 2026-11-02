@@ -174,6 +174,16 @@ describe("isValidUrl", () => {
     expect(isValidUrl("javascript:alert(1)")).toBe(false);
   });
 
+  it("rejects file names joined as hosts but keeps real TLDs that look like extensions", () => {
+    expect(isValidUrl("https://ads.txt")).toBe(false);
+    expect(isValidUrl("https://sellers.json/")).toBe(false);
+    expect(isValidUrl("https://cdn.example.com.js/x")).toBe(false);
+    expect(isValidUrl("https://example.com/ads.txt")).toBe(true);
+    expect(isValidUrl("https://github.zip")).toBe(true);
+    expect(isValidUrl("https://example.md")).toBe(true);
+    expect(isValidUrl("https://jsonplaceholder.typicode.com")).toBe(true);
+  });
+
   it("rejects invalid URLs", () => {
     expect(isValidUrl("not-a-url")).toBe(false);
     expect(isValidUrl("")).toBe(false);

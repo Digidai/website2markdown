@@ -382,6 +382,8 @@ export function isSafeUrl(url: string): boolean {
   }
 }
 
+const FILE_EXTENSION_HOST = /\.(txt|json|xml|html?|php|aspx?|js|css|jpe?g|png|gif|svg|ico|webp)$/i;
+
 /** Check that the URL is valid HTTP(S). */
 export function isValidUrl(url: string): boolean {
   if (url.length > MAX_URL_LENGTH) return false;
@@ -390,7 +392,10 @@ export function isValidUrl(url: string): boolean {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
     // A dotless host such as https://wp-content/... is a mis-joined relative path or a probe.
     // IPv6 literals keep their colons in the hostname.
-    return /[.:]/.test(parsed.hostname);
+    if (!/[.:]/.test(parsed.hostname)) return false;
+    // A host such as ads.txt or sellers.json is a file name a scanner joined as a host.
+    // These endings are not top-level domains (unlike .zip, .mov or .md), so no real site uses them.
+    return !FILE_EXTENSION_HOST.test(parsed.hostname);
   } catch {
     return false;
   }

@@ -783,6 +783,61 @@ describe("index mocked branch coverage", () => {
     expect(converted).not.toContain("FORBIDDEN-BLOCK-PAGE");
   });
 
+  it("retries an anonymous 403 once through the proxy, and points to sign-in when it fails", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>blocked</html>", {
+      status: 403,
+      statusText: "Forbidden",
+      headers: { "Content-Type": "text/html" },
+    })));
+    mocked.proxy.parseProxyUrl.mockReturnValue({
+      host: "proxy.example.com", port: 8080, username: "u", password: "p",
+    });
+    const env = createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env;
+    mocked.proxy.fetchViaProxyPool.mockResolvedValueOnce({
+      status: 200,
+      headers: {},
+      body: `<html><body><article>PROXY-BODY ${"p".repeat(1600)}</article></body></html>`,
+      proxyIndex: 0,
+      proxy: { host: "proxy.example.com", port: 8080, username: "u", password: "p" },
+      variant: "mobile",
+      attempts: 1,
+      errors: [],
+    });
+    const rescued = await worker.fetch(new Request("https://md.example.com/https://example.com/walled-a?raw=true", {
+      headers: { Accept: "text/markdown" },
+    }), env, mockCtx());
+    expect(rescued.status).toBe(200);
+    expect(rescued.headers.get("X-Markdown-Fallbacks")).toContain("direct_proxy_mobile");
+    const converted = mocked.converter.htmlToMarkdown.mock.calls.map((c: any[]) => String(c[0])).join("\n");
+    expect(converted).toContain("PROXY-BODY");
+
+    mocked.proxy.fetchViaProxyPool.mockRejectedValueOnce(new Error("All proxy attempts failed"));
+    const failed = await worker.fetch(new Request("https://md.example.com/https://example.com/walled-b", {
+      headers: { Accept: "application/json" },
+    }), env, mockCtx());
+    const payload = await failed.json() as { message?: string };
+    expect(failed.status).toBe(502);
+    expect(payload.message).toContain("Status: 403 Forbidden");
+    expect(payload.message).toContain("Sign in for free at https://mdget.dev/portal/");
+  });
+
+  it("does not retry an anonymous 404 through the proxy or suggest signing in", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("not found", {
+      status: 404,
+      statusText: "Not Found",
+      headers: { "Content-Type": "text/html" },
+    })));
+    const res = await worker.fetch(new Request("https://md.example.com/https://example.com/gone", {
+      headers: { Accept: "application/json" },
+    }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+    const payload = await res.json() as { message?: string };
+    expect(res.status).toBe(502);
+    expect(payload.message).not.toContain("Sign in");
+    expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
+  });
+
   it("keeps a real 404 as an error instead of spending Context.dev credits", async () => {
     mocked.paywall.getPaywallRule.mockReturnValue(null);
     const fetchMock = vi.fn(async () => new Response("not found", { status: 404, headers: { "Content-Type": "text/html" } }));

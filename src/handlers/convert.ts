@@ -1190,6 +1190,35 @@ async function tryFetchAndParse(
  */
 const CONTEXT_DEV_ANON_DAILY_LIMIT = 25;
 
+/** Origin statuses an anonymous request may retry once through the proxy. */
+const ANON_PROXY_STATUSES = [403, 429];
+/** Site-wide daily cap on those retries, to protect the proxy's monthly traffic. */
+const ANON_PROXY_DAILY_LIMIT = 100;
+export const ANON_SIGN_IN_HINT =
+  ". This site blocks automated requests. Sign in for free at https://mdget.dev/portal/ to use browser rendering.";
+
+/**
+ * Retries a blocked anonymous request once through the residential proxy,
+ * within a site-wide daily budget. Returns null when the budget is spent or
+ * the proxy also fails.
+ */
+async function tryAnonymousProxy(
+  targetUrl: string,
+  env: Env,
+  fallbacks: Set<string>,
+  abortSignal?: AbortSignal,
+  progress?: (step: string, label: string) => void | Promise<void>,
+): Promise<string | null> {
+  if (!env.PROXY_POOL && !env.PROXY_URL) return null;
+  const day = new Date().toISOString().slice(0, 10);
+  const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
+  if (budget.blocked) {
+    fallbacks.add("proxy_anon_budget_exhausted");
+    return null;
+  }
+  return tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress);
+}
+
 /**
  * Last resort for a page our own fetch and browser could not get. Context.dev
  * renders in a real browser behind escalating proxies. Its free quota is small,
@@ -1576,13 +1605,22 @@ async function tryStaticFetch(
       }
     } else {
       const blocked = BLOCKED_STATUSES.includes(response.status);
-      const rescued = blocked && providerApiKeysAllowed
-        ? await tryContextDev(resolvedUrl, env, fallbacks, abortSignal, progress)
-        : null;
-      if (!rescued) throw originStatusError(response);
+      let rescued: string | null = null;
+      if (blocked && providerApiKeysAllowed) {
+        rescued = await tryContextDev(resolvedUrl, env, fallbacks, abortSignal, progress);
+      } else if (!providerApiKeysAllowed && ANON_PROXY_STATUSES.includes(response.status)) {
+        rescued = await tryAnonymousProxy(resolvedUrl, env, fallbacks, abortSignal, progress);
+      }
+      if (!rescued) {
+        const error = originStatusError(response);
+        // Anonymous callers cannot use the browser; a free account can.
+        if (blocked && !providerApiKeysAllowed) error.message += ANON_SIGN_IN_HINT;
+        throw error;
+      }
       finalHtml = rescued;
       method = "proxy+readability+turndown";
-      browserRendered = true;
+      // Context.dev renders in a browser; the proxy fetch does not.
+      browserRendered = providerApiKeysAllowed;
     }
   }
 
