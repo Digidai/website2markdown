@@ -172,6 +172,15 @@ describe("admin report", () => {
     expect(html).toContain("筛选");
   });
 
+  it("renders the lead list with a mailto link and the email status", () => {
+    const html = adminPageHTML({ mode: "dashboard", report: sampleReport([]), channels: [], tab: "leads" });
+    expect(html).toContain("mailto:ann@acme.io");
+    expect(html).toContain("Ann · Acme · SG");
+    expect(html).toContain("10 万 – 100 万");
+    expect(html).toContain("未发送");
+    expect(html).not.toContain("<b>WeChat</b>");
+  });
+
   it("lists channels by configuration and merges path health", () => {
     const { env } = createMockEnv({ PROXY_URL: "http://user1:pw@204.0.0.1:3000" });
     delete (env as Partial<Env>).CF_API_TOKEN;
@@ -246,7 +255,10 @@ describe("admin report", () => {
       outcomes: r.outcomes, platforms: r.platforms, errorCodes: r.errorCodes, authTiers: r.authTiers,
       conversionTotal: r.conversionTotal,
     });
+    db.exec("INSERT INTO leads (id, created_at, email) VALUES ('l1', '2026-01-01T00:00:00.000Z', 'old@a.co'), ('l2', '2026-11-01T00:00:00.000Z', 'new@a.co')");
     const daily = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=90")));
+    // Leads ignore the day filter and come newest first.
+    expect(daily.leads.map((l) => l.email)).toEqual(["new@a.co", "old@a.co"]);
     // A search matching every row forces the raw-log path.
     const raw = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=90&q=example.com")));
     const today = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=1")));
@@ -487,6 +499,10 @@ function sampleReport(rows: ConversionRow[]): AdminReport {
       { path: "proxy_pool", attempts: 30, failures: 28, lastError: "Proxy pool exhausted", lastFailureAt: "2026-09-29T08:00:00.000Z" },
       { path: "jina", attempts: 5, failures: 4, lastError: "HTTP 451", lastFailureAt: "2026-09-29T07:00:00.000Z" },
     ],
+    leads: [{
+      id: "lead-1", created_at: "2026-11-02T03:01:38.969Z", email: "ann@acme.io", name: "Ann", company: "Acme",
+      plan: "enterprise", volume: "100k-1m", message: "Need <b>WeChat</b> at scale", lang: "zh", country: "SG", emailed: 0,
+    }],
   };
 }
 

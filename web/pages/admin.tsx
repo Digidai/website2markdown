@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CircleCheck,
   CircleXmark,
+  Envelope,
   Eye,
   EyeSlash,
   Funnel,
@@ -56,6 +57,7 @@ import {
   type ConversionFlag,
   type ConversionRow,
   type DaySplit,
+  type LeadRow,
   type PairRow,
   type ProviderPathHealth,
   type SuspiciousIp,
@@ -304,6 +306,11 @@ function Dashboard({ report, channels, tab: initialTab }: { report: AdminReport;
                 <Funnel className="size-4 max-sm:hidden" />请求记录
                 <Tabs.Indicator />
               </Tabs.Tab>
+              <Tabs.Tab id="leads" className="gap-1.5 whitespace-nowrap">
+                <Envelope className="size-4 max-sm:hidden" />留资
+                {report.leads?.length ? <Chip size="sm" variant="soft">{report.leads.length}</Chip> : null}
+                <Tabs.Indicator />
+              </Tabs.Tab>
             </Tabs.List>
           </Tabs.ListContainer>
           <Tabs.Panel id="overview" className="pt-6">
@@ -318,9 +325,76 @@ function Dashboard({ report, channels, tab: initialTab }: { report: AdminReport;
           <Tabs.Panel id="requests" className="pt-6">
             <Requests report={report} />
           </Tabs.Panel>
+          <Tabs.Panel id="leads" className="pt-6">
+            <Leads rows={report.leads ?? []} />
+          </Tabs.Panel>
         </Tabs>
       </main>
     </div>
+  );
+}
+
+const LEAD_PLAN_LABEL: Record<string, string> = { pro: "Pro", enterprise: "企业" };
+const LEAD_VOLUME_LABEL: Record<string, string> = {
+  "<10k": "1 万以下", "10k-100k": "1 万 – 10 万", "100k-1m": "10 万 – 100 万", ">1m": "100 万以上",
+};
+
+function Leads({ rows }: { rows: LeadRow[] }) {
+  return (
+    <Card>
+      <Card.Header className="flex flex-col gap-1">
+        <Card.Title>留资</Card.Title>
+        <Card.Description>Pricing 页提交的报价请求，最新 200 条，不受时间范围影响。每条提交时都会发邮件到 ADMIN_EMAIL。</Card.Description>
+      </Card.Header>
+      <Card.Content>
+        {rows.length ? (
+          <Table variant="secondary">
+            <Table.ScrollContainer>
+              <Table.Content aria-label="留资" className="min-w-[900px]">
+                <Table.Header>
+                  <Table.Column>时间</Table.Column>
+                  <Table.Column isRowHeader>联系人</Table.Column>
+                  <Table.Column>方案 / 月用量</Table.Column>
+                  <Table.Column>需求</Table.Column>
+                  <Table.Column>邮件</Table.Column>
+                </Table.Header>
+                <Table.Body>
+                  {rows.map((row) => (
+                    <Table.Row key={row.id} id={row.id}>
+                      <Table.Cell className="whitespace-nowrap align-top text-muted tabular-nums">
+                        <span title={row.created_at}>{when(row.created_at)}</span>
+                      </Table.Cell>
+                      <Table.Cell className="max-w-[260px] align-top">
+                        <a href={`mailto:${row.email}`} className="block truncate text-sm font-medium text-foreground hover:text-accent">
+                          {row.email}
+                        </a>
+                        <span className="block truncate text-xs text-muted">
+                          {[row.name, row.company, row.country, row.lang === "zh" ? "中文页" : "英文页"].filter(Boolean).join(" · ")}
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell className="whitespace-nowrap align-top text-sm">
+                        {LEAD_PLAN_LABEL[row.plan] || "—"}
+                        <span className="block text-xs text-muted">{LEAD_VOLUME_LABEL[row.volume] || "—"}</span>
+                      </Table.Cell>
+                      <Table.Cell className="max-w-[420px] align-top text-sm whitespace-pre-wrap break-words">
+                        {row.message || <span className="text-muted">—</span>}
+                      </Table.Cell>
+                      <Table.Cell className="align-top">
+                        <Chip size="sm" variant="soft" color={row.emailed ? "success" : "warning"} className="whitespace-nowrap">
+                          {row.emailed ? "已发送" : "未发送"}
+                        </Chip>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table>
+        ) : (
+          <p className="text-sm text-muted">还没有留资。</p>
+        )}
+      </Card.Content>
+    </Card>
   );
 }
 

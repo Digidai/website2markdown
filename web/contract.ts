@@ -56,7 +56,7 @@ export const THEME_BOOT_SCRIPT =
 // ─── Admin ───────────────────────────────────────────────────
 
 export type AdminView = "all" | "failures" | "access" | "conversions" | "pages" | "api";
-export type AdminTab = "overview" | "channels" | "conversions" | "requests";
+export type AdminTab = "overview" | "channels" | "conversions" | "requests" | "leads";
 export type ConversionFlag = "fail" | "warn" | "ok";
 
 export interface PairRow { label: string; n: number }
@@ -230,6 +230,22 @@ export interface AdminReport {
   providerHealth: ProviderPathHealth[];
   /** Anonymous IPs scored over the last 24 hours. Observe-only. */
   suspiciousIps: SuspiciousIp[];
+  /** Newest pricing-page quote requests, regardless of the day filter. */
+  leads: LeadRow[];
+}
+
+export interface LeadRow {
+  id: string;
+  created_at: string;
+  email: string;
+  name: string;
+  company: string;
+  plan: string;
+  volume: string;
+  message: string;
+  lang: string;
+  country: string;
+  emailed: number;
 }
 
 export interface ConversionDetail {

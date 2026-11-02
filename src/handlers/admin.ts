@@ -27,7 +27,7 @@ const HTML = {
   "Referrer-Policy": "no-referrer",
 };
 
-const TABS: AdminTab[] = ["overview", "channels", "conversions", "requests"];
+const TABS: AdminTab[] = ["overview", "channels", "conversions", "requests", "leads"];
 
 export async function handleAdmin(request: Request, env: Env, host = new URL(request.url).host): Promise<Response> {
   const url = new URL(request.url);
