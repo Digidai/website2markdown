@@ -36,6 +36,12 @@ export async function recordAccess(
 }
 
 const EXCERPT_CHARS = 8000;
+/**
+ * Successful conversions keep a short preview; the full excerpt is kept only
+ * where the text itself is the evidence (paywall detections). Fallbacks and
+ * slow runs are already flagged by their own columns.
+ */
+const PREVIEW_EXCERPT_CHARS = 1000;
 
 export async function recordConversionLog(env: Env, input: {
   request: Request;
@@ -86,6 +92,7 @@ export async function recordConversionLog(env: Env, input: {
   const outputChars = Number.isFinite(input.outputChars)
     ? Math.max(0, Math.round(input.outputChars as number))
     : (input.outputContent || "").length;
+  const preview = input.outcome === "success" && input.statusCode < 400 && !input.paywall;
   try {
     await env.AUTH_DB.prepare(`
       INSERT INTO conversion_log (
@@ -113,7 +120,7 @@ export async function recordConversionLog(env: Env, input: {
       countryOf(input.request),
       input.authTier.slice(0, 20),
       input.errorCode.slice(0, 80),
-      adminExcerpt(input.outputContent || ""),
+      adminExcerpt(input.outputContent || "").slice(0, preview ? PREVIEW_EXCERPT_CHARS : EXCERPT_CHARS),
       outputChars,
       adminExcerpt(input.errorMessage || "").slice(0, 400),
       fallbackText(input.fallbacks),

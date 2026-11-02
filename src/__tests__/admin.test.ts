@@ -279,6 +279,29 @@ describe("admin report", () => {
     expect(flat).not.toContain("secret-token");
   });
 
+  it("keeps a short preview for successes and the full excerpt for failures and paywalls", async () => {
+    const excerpts: string[] = [];
+    const prepare = vi.fn(() => {
+      const stmt = {
+        bind: vi.fn((...args: unknown[]) => { excerpts.push(String(args[15])); return stmt; }),
+        run: vi.fn(async () => ({ success: true })),
+      };
+      return stmt;
+    });
+    const { env } = createMockEnv({ AUTH_DB: { prepare } as unknown as Env["AUTH_DB"] });
+    const base = {
+      request: new Request("https://md.example.com/"), route: "convert", targetUrl: "https://example.com/a",
+      platform: "generic", outcome: "success", statusCode: 200, methodUsed: "native", cacheStatus: "miss",
+      durationMs: 900, format: "markdown", authTier: "anonymous", errorCode: "",
+      outputContent: "word ".repeat(1000), outputChars: 5000,
+    };
+    await recordConversionLog(env, base);
+    await recordConversionLog(env, { ...base, fallbacks: ["jina"] });
+    await recordConversionLog(env, { ...base, paywall: true });
+    await recordConversionLog(env, { ...base, outcome: "convert_error", statusCode: 422 });
+    expect(excerpts.map((e) => e.length)).toEqual([1000, 1000, 4999, 4999]);
+  });
+
   it("stores caller IP, network and account on the migrated schema", async () => {
     const db = new DatabaseSync(":memory:");
     for (const file of readdirSync("migrations").sort()) db.exec(readFileSync(`migrations/${file}`, "utf8"));
