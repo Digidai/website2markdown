@@ -233,6 +233,22 @@ CREATE INDEX IF NOT EXISTS idx_conversion_log_outcome ON conversion_log(outcome,
 CREATE INDEX IF NOT EXISTS idx_conversion_log_status ON conversion_log(status_code, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_ip ON conversion_log(client_ip, created_at);
 CREATE INDEX IF NOT EXISTS idx_conversion_log_account ON conversion_log(account_id, created_at);
+-- Daily conversion counts for the admin (see migrations/0010_conversion_daily.sql).
+CREATE TABLE IF NOT EXISTS conversion_daily (
+  date TEXT NOT NULL,
+  route TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  status_code INTEGER NOT NULL,
+  error_code TEXT NOT NULL,
+  auth_tier TEXT NOT NULL,
+  -- 'ok' clean success, 'warn' degraded success, 'bad' failure
+  kind TEXT NOT NULL,
+  useful INTEGER NOT NULL,
+  n INTEGER NOT NULL DEFAULT 0,
+  credits INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (date, route, platform, outcome, status_code, error_code, auth_tier, kind, useful)
+);
 -- Per-day outcome counts for each fallback path (Firecrawl, Jina, proxy pool,
 -- browser rendering, archives, ...). One row per (date, path). Stores only the
 -- latest sanitized error text, never URLs, keys, or response bodies.

@@ -202,15 +202,62 @@ describe("admin report", () => {
   });
 
 
-  it("counts useful results as substantial successes without a paywall", async () => {
-    const { env, sqls } = captureDb();
-    await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin")));
-    const totals = sqls.find((sql) => sql.includes("useful_today"));
-    expect(totals).toBeTruthy();
-    expect(totals).toContain("output_chars >= 800");
-    expect(totals).toContain("paywall = 0");
-    expect(totals).toContain("useful_window");
-    expect(totals).toContain("AS useful_today");
+  it("reads the same conversion stats from the daily table as from the raw log", async () => {
+    const db = new DatabaseSync(":memory:");
+    for (const file of readdirSync("migrations").sort()) db.exec(readFileSync(`migrations/${file}`, "utf8"));
+    const d1 = {
+      prepare: (sql: string) => {
+        let args: unknown[] = [];
+        const stmt = {
+          bind: (...values: unknown[]) => { args = values; return stmt; },
+          run: async () => { db.prepare(sql).run(...(args as never[])); return { success: true }; },
+          first: async () => db.prepare(sql).get(...(args as never[])) ?? null,
+          all: async () => ({ results: db.prepare(sql).all(...(args as never[])) }),
+        };
+        return stmt;
+      },
+    };
+    const { env } = createMockEnv({ AUTH_DB: d1 as unknown as Env["AUTH_DB"] });
+    const base = {
+      request: new Request("https://md.example.com/"), route: "convert", targetUrl: "https://example.com/a",
+      platform: "generic", outcome: "success", statusCode: 200, methodUsed: "native", cacheStatus: "miss",
+      durationMs: 900, format: "markdown", authTier: "anonymous", errorCode: "", outputContent: "x", outputChars: 2000,
+    };
+    const cases = [
+      base, base, // useful, clean
+      { ...base, outputChars: 500 }, // clean but short: not useful
+      { ...base, fallbacks: ["jina"] }, // useful but degraded
+      { ...base, paywall: true, platform: "substack" }, // degraded, not useful
+      { ...base, outputChars: 0, authTier: "free", creditCost: 2 }, // degraded, signed, credits
+      { ...base, durationMs: 31_000, route: "stream" },
+      { ...base, outcome: "convert_error", statusCode: 422, errorCode: "login_wall", platform: "wechat" },
+      { ...base, statusCode: 502, errorCode: "upstream" }, // success outcome but failed status
+    ];
+    for (const input of cases) await recordConversionLog(env, input);
+    // Rows from an earlier day only show up in the series, not today's counts.
+    const earlier = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+    db.prepare("UPDATE conversion_log SET created_at = ? WHERE platform = 'wechat'").run(`${earlier}T08:00:00.000Z`);
+    db.prepare("UPDATE conversion_daily SET date = ? WHERE platform = 'wechat'").run(earlier);
+
+    const strip = (r: AdminReport) => ({
+      conversionsToday: r.conversionsToday, conversionsWindow: r.conversionsWindow, usefulToday: r.usefulToday,
+      usefulWindow: r.usefulWindow, successRate: r.successRate, failures: r.failures, anomalies: r.anomalies,
+      anonUsage: r.anonUsage, signedUsage: r.signedUsage, creditSum: r.creditSum, conversionDays: r.conversionDays,
+      outcomes: r.outcomes, platforms: r.platforms, errorCodes: r.errorCodes, authTiers: r.authTiers,
+      conversionTotal: r.conversionTotal,
+    });
+    const daily = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=90")));
+    // A search matching every row forces the raw-log path.
+    const raw = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=90&q=example.com")));
+    const today = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=1")));
+    expect(strip(daily)).toEqual(strip(raw));
+    expect(daily).toMatchObject({ conversionsWindow: 9, usefulWindow: 4, failures: 2, anomalies: 4, signedUsage: 1, creditSum: 2 });
+    expect(daily.conversionDays).toEqual([{ day: earlier, ok: 0, warn: 0, bad: 1 }, { day: expect.any(String), ok: 3, warn: 4, bad: 1 }]);
+    expect(today.conversionsToday).toBe(8);
+
+    const failures = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=failures&days=90&platform=generic")));
+    const failuresRaw = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=failures&days=90&platform=generic&q=example.com")));
+    expect(strip(failures)).toEqual(strip(failuresRaw));
   });
 
   it("keeps the D1 conversion stats when Analytics Engine access stats fail", async () => {
@@ -281,9 +328,12 @@ describe("admin report", () => {
 
   it("keeps a short preview for successes and the full excerpt for failures and paywalls", async () => {
     const excerpts: string[] = [];
-    const prepare = vi.fn(() => {
+    const prepare = vi.fn((sql: string) => {
       const stmt = {
-        bind: vi.fn((...args: unknown[]) => { excerpts.push(String(args[15])); return stmt; }),
+        bind: vi.fn((...args: unknown[]) => {
+          if (sql.includes("INSERT INTO conversion_log")) excerpts.push(String(args[15]));
+          return stmt;
+        }),
         run: vi.fn(async () => ({ success: true })),
       };
       return stmt;
