@@ -93,6 +93,9 @@ export async function recordConversionLog(env: Env, input: {
     ? Math.max(0, Math.round(input.outputChars as number))
     : (input.outputContent || "").length;
   const preview = input.outcome === "success" && input.statusCode < 400 && !input.paywall;
+  const createdAt = new Date().toISOString();
+  const fallbacks = fallbackText(input.fallbacks);
+  const credits = Math.max(0, Math.round(input.creditCost || 0));
   try {
     await env.AUTH_DB.prepare(`
       INSERT INTO conversion_log (
@@ -106,7 +109,7 @@ export async function recordConversionLog(env: Env, input: {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       crypto.randomUUID(),
-      new Date().toISOString(),
+      createdAt,
       input.route.slice(0, 40),
       safeUrl(input.targetUrl),
       host,
@@ -123,12 +126,12 @@ export async function recordConversionLog(env: Env, input: {
       adminExcerpt(input.outputContent || "").slice(0, preview ? PREVIEW_EXCERPT_CHARS : EXCERPT_CHARS),
       outputChars,
       adminExcerpt(input.errorMessage || "").slice(0, 400),
-      fallbackText(input.fallbacks),
+      fallbacks,
       input.paywall ? 1 : 0,
       input.browserRendered ? 1 : 0,
       (input.requestId || "").slice(0, 80),
       storedEngine(input.engineRequested || ""),
-      Math.max(0, Math.round(input.creditCost || 0)),
+      credits,
       input.selectorPresent ? 1 : 0,
       input.forceBrowser ? 1 : 0,
       input.noCache ? 1 : 0,
@@ -149,6 +152,31 @@ export async function recordConversionLog(env: Env, input: {
     ).run();
   } catch (error) {
     console.error("conversion log write failed:", error instanceof Error ? error.message : "unknown");
+    return;
+  }
+  // Same rules as FAIL_SQL / ANOMALY_SQL and the useful-result rule in dashboard.ts.
+  const success = input.outcome === "success" && input.statusCode < 400;
+  const degraded = outputChars === 0 || fallbacks !== "" || Math.round(input.durationMs) >= 30_000 || Boolean(input.paywall);
+  try {
+    await env.AUTH_DB.prepare(`
+      INSERT INTO conversion_daily (date, route, platform, outcome, status_code, error_code, auth_tier, kind, useful, n, credits)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+      ON CONFLICT (date, route, platform, outcome, status_code, error_code, auth_tier, kind, useful)
+      DO UPDATE SET n = n + 1, credits = credits + excluded.credits
+    `).bind(
+      createdAt.slice(0, 10),
+      input.route.slice(0, 40),
+      input.platform.slice(0, 40),
+      input.outcome.slice(0, 40),
+      input.statusCode,
+      input.errorCode.slice(0, 80),
+      input.authTier.slice(0, 20),
+      !success ? "bad" : degraded ? "warn" : "ok",
+      success && outputChars >= 800 && !input.paywall ? 1 : 0,
+      credits,
+    ).run();
+  } catch (error) {
+    console.error("conversion daily write failed:", error instanceof Error ? error.message : "unknown");
   }
 }
 

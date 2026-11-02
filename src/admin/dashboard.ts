@@ -105,25 +105,11 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
   const showAccess = query.view !== "conversions";
   try {
     const [
-      access, conversionTotals, ledgerWindow, ledgerAll, aggregateTotals, accounts, keys,
-      conversionDays, outcomes, platforms, errorCodes, authTiers,
-      topIps, conversionTotal, conversions, failurePreview,
+      access, stats, ledgerWindow, ledgerAll, aggregateTotals, accounts, keys,
+      topIps, conversions, failurePreview,
     ] = await Promise.all([
       loadAccess(env, query, since, today, showAccess),
-      first<ConversionTotals>(env, `
-        SELECT
-          SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS today_n,
-          SUM(CASE WHEN created_at >= ? AND outcome = 'success' AND status_code < 400 AND output_chars >= 800 AND paywall = 0 THEN 1 ELSE 0 END) AS useful_today,
-          COUNT(*) AS window_n,
-          SUM(CASE WHEN outcome = 'success' AND status_code < 400 AND output_chars >= 800 AND paywall = 0 THEN 1 ELSE 0 END) AS useful_window,
-          SUM(CASE WHEN outcome = 'success' AND status_code < 400 THEN 1 ELSE 0 END) AS success_n,
-          SUM(CASE WHEN ${FAIL_SQL} THEN 1 ELSE 0 END) AS fail_n,
-          SUM(CASE WHEN ${ANOMALY_SQL} THEN 1 ELSE 0 END) AS anomaly_n,
-          SUM(CASE WHEN auth_tier = 'anonymous' OR auth_tier = '' THEN 1 ELSE 0 END) AS anon_n,
-          SUM(CASE WHEN auth_tier != 'anonymous' AND auth_tier != '' THEN 1 ELSE 0 END) AS signed_n,
-          SUM(COALESCE(credit_cost, 0)) AS credits_n
-        FROM conversion_log WHERE created_at >= ?
-      `, [today, today, since]),
+      loadConversionStats(env, query, since, today),
       first<LedgerTotals>(env, `
         SELECT COALESCE(SUM(requests), 0) AS requests, COALESCE(SUM(credits), 0) AS credits
         FROM usage_daily WHERE date >= ?
@@ -138,41 +124,12 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       `, [day]),
       count(env, "SELECT COUNT(*) AS n FROM accounts"),
       count(env, "SELECT COUNT(*) AS n FROM api_keys WHERE revoked_at IS NULL"),
-      all<DaySplit>(env, `
-        SELECT substr(created_at, 1, 10) AS day,
-          SUM(CASE WHEN ${CLEAN_SQL} THEN 1 ELSE 0 END) AS ok,
-          SUM(CASE WHEN ${ANOMALY_SQL} THEN 1 ELSE 0 END) AS warn,
-          SUM(CASE WHEN ${FAIL_SQL} THEN 1 ELSE 0 END) AS bad
-        FROM conversion_log WHERE ${conversion.clause}
-        GROUP BY day ORDER BY day
-      `, conversion.binds),
-      all<PairRow>(env, `
-        SELECT outcome AS label, COUNT(*) AS n FROM conversion_log
-        WHERE ${conversion.clause} GROUP BY outcome ORDER BY n DESC
-      `, conversion.binds),
-      all<PairRow>(env, `
-        SELECT platform AS label, COUNT(*) AS n FROM conversion_log
-        WHERE ${conversion.clause} AND platform != ''
-        GROUP BY platform ORDER BY n DESC LIMIT 12
-      `, conversion.binds),
-      all<PairRow>(env, `
-        SELECT error_code AS label, COUNT(*) AS n FROM conversion_log
-        WHERE ${conversion.clause} AND ${FAIL_SQL} AND error_code != ''
-        GROUP BY error_code ORDER BY n DESC LIMIT 12
-      `, conversion.binds),
-      all<PairRow>(env, `
-        SELECT auth_tier AS label, COUNT(*) AS n FROM conversion_log
-        WHERE ${conversion.clause} GROUP BY auth_tier ORDER BY n DESC
-      `, conversion.binds),
       all<PairRow>(env, `
         SELECT client_ip || CASE WHEN MAX(as_org) != '' THEN ' · ' || MAX(as_org) ELSE '' END AS label, COUNT(*) AS n
         FROM conversion_log
         WHERE ${conversion.clause} AND client_ip != ''
         GROUP BY client_ip ORDER BY n DESC LIMIT 12
       `, conversion.binds),
-      showConversions
-        ? count(env, `SELECT COUNT(*) AS n FROM conversion_log WHERE ${conversion.clause}`, conversion.binds)
-        : Promise.resolve(0),
       showConversions
         ? all<ConversionRow>(env, `
             ${conversionColumns(LIST_EXCERPT)}
@@ -190,6 +147,8 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
             LIMIT 8
           `, conversionAll.binds),
     ]);
+    const { totals: conversionTotals, days: conversionDays, outcomes, platforms, errorCodes, authTiers } = stats;
+    const conversionTotal = showConversions ? stats.total : 0;
     const conversionsWindow = num(conversionTotals?.window_n);
     const success = num(conversionTotals?.success_n);
     const accessTotals = access.totals;
@@ -346,10 +305,100 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
   };
 }
 
-function conversionWhere(query: AdminQuery, since: string, includeView: boolean): { clause: string; binds: SqlBind[] } {
-  const parts = ["created_at >= ?"];
-  const binds: SqlBind[] = [since];
-  if (includeView && query.view === "failures") parts.push(PROBLEM_SQL);
+interface ConversionSource {
+  table: string;
+  /** Rows each record stands for. */
+  n: string;
+  day: string;
+  /** Window start column and its bound value. */
+  from: string;
+  since: string;
+  today: string;
+  ok: string;
+  warn: string;
+  bad: string;
+  problem: string;
+  success: string;
+  useful: string;
+  credits: string;
+}
+
+/** Raw rows; needed when searching text the daily table does not keep. */
+function logSource(since: string, today: string): ConversionSource {
+  return {
+    table: "conversion_log", n: "1", day: "substr(created_at, 1, 10)", from: "created_at", since, today,
+    ok: CLEAN_SQL, warn: ANOMALY_SQL, bad: FAIL_SQL, problem: PROBLEM_SQL,
+    success: "(outcome = 'success' AND status_code < 400)",
+    useful: "(outcome = 'success' AND status_code < 400 AND output_chars >= 800 AND paywall = 0)",
+    credits: "COALESCE(credit_cost, 0)",
+  };
+}
+
+/** conversion_daily, one row per day and dimension combination (whole UTC days). */
+function dailySource(since: string, today: string): ConversionSource {
+  return {
+    table: "conversion_daily", n: "n", day: "date", from: "date", since: since.slice(0, 10), today: today.slice(0, 10),
+    ok: "kind = 'ok'", warn: "kind = 'warn'", bad: "kind = 'bad'", problem: "kind != 'ok'",
+    success: "kind != 'bad'", useful: "useful = 1", credits: "credits",
+  };
+}
+
+interface ConversionStats {
+  totals: ConversionTotals | null;
+  days: DaySplit[];
+  outcomes: PairRow[];
+  platforms: PairRow[];
+  errorCodes: PairRow[];
+  authTiers: PairRow[];
+  total: number;
+}
+
+async function loadConversionStats(env: Env, query: AdminQuery, since: string, today: string): Promise<ConversionStats> {
+  const src = query.q ? logSource(since, today) : dailySource(since, today);
+  const where = conversionWhere(query, since, true, src);
+  const sum = (cond: string) => `SUM(CASE WHEN ${cond} THEN ${src.n} ELSE 0 END)`;
+  const pairs = (column: string, extra = "", limit = "") => all<PairRow>(env, `
+    SELECT ${column} AS label, SUM(${src.n}) AS n FROM ${src.table}
+    WHERE ${where.clause}${extra} GROUP BY ${column} ORDER BY n DESC${limit}
+  `, where.binds);
+  const [totals, days, outcomes, platforms, errorCodes, authTiers, total] = await Promise.all([
+    first<ConversionTotals>(env, `
+      SELECT
+        ${sum(`${src.from} >= ?`)} AS today_n,
+        ${sum(`${src.from} >= ? AND ${src.useful}`)} AS useful_today,
+        SUM(${src.n}) AS window_n,
+        ${sum(src.useful)} AS useful_window,
+        ${sum(src.success)} AS success_n,
+        ${sum(src.bad)} AS fail_n,
+        ${sum(src.warn)} AS anomaly_n,
+        ${sum("(auth_tier = 'anonymous' OR auth_tier = '')")} AS anon_n,
+        ${sum("auth_tier != 'anonymous' AND auth_tier != ''")} AS signed_n,
+        SUM(${src.credits}) AS credits_n
+      FROM ${src.table} WHERE ${src.from} >= ?
+    `, [src.today, src.today, src.since]),
+    all<DaySplit>(env, `
+      SELECT ${src.day} AS day, ${sum(src.ok)} AS ok, ${sum(src.warn)} AS warn, ${sum(src.bad)} AS bad
+      FROM ${src.table} WHERE ${where.clause}
+      GROUP BY day ORDER BY day
+    `, where.binds),
+    pairs("outcome"),
+    pairs("platform", " AND platform != ''", " LIMIT 12"),
+    pairs("error_code", ` AND ${src.bad} AND error_code != ''`, " LIMIT 12"),
+    pairs("auth_tier"),
+    count(env, `SELECT SUM(${src.n}) AS n FROM ${src.table} WHERE ${where.clause}`, where.binds),
+  ]);
+  return { totals, days, outcomes, platforms, errorCodes, authTiers, total };
+}
+
+function conversionWhere(
+  query: AdminQuery,
+  since: string,
+  includeView: boolean,
+  src: ConversionSource = logSource(since, ""),
+): { clause: string; binds: SqlBind[] } {
+  const parts = [`${src.from} >= ?`];
+  const binds: SqlBind[] = [src.since];
+  if (includeView && query.view === "failures") parts.push(src.problem);
   if (query.outcome) {
     parts.push("outcome = ?");
     binds.push(query.outcome);
