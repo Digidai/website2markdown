@@ -21,6 +21,8 @@ export type { AdminQuery, AdminReport, ConversionDetail, ConversionRow };
 
 const PAGE_SIZE = 40;
 const LEAD_LIMIT = 200;
+const ANON_SQL = "(auth_tier = 'anonymous' OR auth_tier = '')";
+const SIGNED_SQL = "(auth_tier != 'anonymous' AND auth_tier != '')";
 const LIST_EXCERPT = 700;
 const DAY_CHOICES = [1, 7, 14, 30, 90] as const;
 const VIEWS = ["all", "failures", "access", "conversions", "pages", "api"] as const;
@@ -55,6 +57,7 @@ interface ConversionTotals {
   useful_window: number | null;
   success_n: number | null;
   fail_n: number | null;
+  signed_fail_n: number | null;
   anomaly_n: number | null;
   anon_n: number | null;
   signed_n: number | null;
@@ -71,6 +74,7 @@ export function parseAdminQuery(url: URL): AdminQuery {
   const routeRaw = url.searchParams.get("route") || "";
   const surfaceRaw = url.searchParams.get("surface") || url.searchParams.get("kind") || "";
   const platformRaw = (url.searchParams.get("platform") || "").trim().toLowerCase();
+  const tierRaw = url.searchParams.get("tier") || "";
   const statusRaw = url.searchParams.get("status");
   const statusNum = statusRaw == null || statusRaw === "" ? Number.NaN : Number(statusRaw);
   return {
@@ -80,6 +84,7 @@ export function parseAdminQuery(url: URL): AdminQuery {
     route: (ROUTES as readonly string[]).includes(routeRaw) ? routeRaw : "",
     surface: (SURFACES as readonly string[]).includes(surfaceRaw) ? surfaceRaw : "",
     platform: /^[a-z0-9_+.-]{1,40}$/.test(platformRaw) ? platformRaw : "",
+    tier: tierRaw === "signed" || tierRaw === "anonymous" ? tierRaw : "",
     status: Number.isInteger(statusNum) && statusNum >= 100 && statusNum <= 599 ? statusNum : null,
     q: (url.searchParams.get("q") || "").replace(/[\0\r\n]/g, "").trim().slice(0, 80),
     page: clampPage(url.searchParams.get("page")),
@@ -108,7 +113,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
   try {
     const [
       access, stats, ledgerWindow, ledgerAll, aggregateTotals, accounts, keys,
-      topIps, conversions, failurePreview,
+      topIps, conversions, failurePreview, signedFailurePreview,
     ] = await Promise.all([
       loadAccess(env, query, since, today, showAccess),
       loadConversionStats(env, query, since, today),
@@ -148,6 +153,14 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
             ORDER BY created_at DESC, id DESC
             LIMIT 8
           `, conversionAll.binds),
+      query.view === "failures"
+        ? Promise.resolve([])
+        : all<ConversionRow>(env, `
+            ${conversionColumns(LIST_EXCERPT)}
+            WHERE created_at >= ? AND ${SIGNED_SQL} AND ${FAIL_SQL}
+            ORDER BY created_at DESC, id DESC
+            LIMIT 8
+          `, [since]),
     ]);
     const { totals: conversionTotals, days: conversionDays, outcomes, platforms, errorCodes, authTiers } = stats;
     const conversionTotal = showConversions ? stats.total : 0;
@@ -172,6 +185,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       usefulWindow: num(conversionTotals?.useful_window),
       successRate: conversionsWindow === 0 ? 0 : Math.round((success / conversionsWindow) * 1000) / 10,
       failures: num(conversionTotals?.fail_n),
+      signedFailures: num(conversionTotals?.signed_fail_n),
       anomalies: num(conversionTotals?.anomaly_n),
       anonUsage: num(conversionTotals?.anon_n),
       signedUsage: num(conversionTotals?.signed_n),
@@ -204,6 +218,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       accesses: access.rows.map(mapAccess),
       accessTotal: access.total,
       failurePreview: failurePreview.map(mapConversion),
+      signedFailurePreview: signedFailurePreview.map(mapConversion),
       providerHealth: await loadProviderHealth(env, day),
       leads: await all<LeadRow>(env, `
         SELECT id, created_at, email, name, company, plan, volume, message, lang, country, emailed
@@ -282,6 +297,7 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
     usefulWindow: 0,
     successRate: 0,
     failures: 0,
+    signedFailures: 0,
     anomalies: 0,
     anonUsage: 0,
     signedUsage: 0,
@@ -309,6 +325,7 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
     accesses: [],
     accessTotal: 0,
     failurePreview: [],
+    signedFailurePreview: [],
     providerHealth: [],
     suspiciousIps: [],
     leads: [],
@@ -380,9 +397,10 @@ async function loadConversionStats(env: Env, query: AdminQuery, since: string, t
         ${sum(src.useful)} AS useful_window,
         ${sum(src.success)} AS success_n,
         ${sum(src.bad)} AS fail_n,
+        ${sum(`${src.bad} AND ${SIGNED_SQL}`)} AS signed_fail_n,
         ${sum(src.warn)} AS anomaly_n,
-        ${sum("(auth_tier = 'anonymous' OR auth_tier = '')")} AS anon_n,
-        ${sum("auth_tier != 'anonymous' AND auth_tier != ''")} AS signed_n,
+        ${sum(ANON_SQL)} AS anon_n,
+        ${sum(SIGNED_SQL)} AS signed_n,
         SUM(${src.credits}) AS credits_n
       FROM ${src.table} WHERE ${src.from} >= ?
     `, [src.today, src.today, src.since]),
@@ -421,6 +439,7 @@ function conversionWhere(
     parts.push("platform = ?");
     binds.push(query.platform);
   }
+  if (query.tier) parts.push(query.tier === "signed" ? SIGNED_SQL : ANON_SQL);
   if (query.status != null) {
     parts.push("status_code = ?");
     binds.push(query.status);
