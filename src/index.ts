@@ -15,6 +15,7 @@ import {
   isSafeUrl,
   isValidUrl,
   extractTargetUrl,
+  normalizeStrayQueryMarks,
   buildRawRequestPath,
   fetchWithSafeRedirects,
 } from "./security";
@@ -231,6 +232,8 @@ async function anonymousForDurableLimit(request: Request, env: Env): Promise<boo
 
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const search = normalizeStrayQueryMarks(url.search);
+    if (search !== url.search) url.search = search;
     const host = url.host;
     const path = url.pathname;
     const jsonErrors = wantsJsonError(request);

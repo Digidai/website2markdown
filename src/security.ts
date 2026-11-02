@@ -524,6 +524,17 @@ function isSelfHost(host: string, selfHost: string): boolean {
  * are unwrapped to the real inner URL. This prevents the Worker from fetching
  * itself and nesting a full conversion, which otherwise times out (CF 522).
  */
+/**
+ * Callers often append "?raw=true" to a target URL that already has a query,
+ * as in /https://site/a.jsp?id=7?raw=true. The second "?" would make "raw"
+ * part of the id value and send a broken URL to the site. Turn a "?" that
+ * starts one of our own parameters into "&". Other "?" characters stay.
+ */
+export function normalizeStrayQueryMarks(search: string): string {
+  if (search.length < 2) return search;
+  return "?" + search.slice(1).replace(/\?(?=(raw|format|selector|force_browser|no_cache|engine|debug_trace|token)=)/g, "&");
+}
+
 export function extractTargetUrl(
   path: string,
   search: string,

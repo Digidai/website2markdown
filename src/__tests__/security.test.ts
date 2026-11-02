@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   isSafeUrl,
   isValidUrl,
+  normalizeStrayQueryMarks,
   needsBrowserRendering,
   extractTargetUrl,
   buildRawRequestPath,
@@ -420,5 +421,22 @@ describe("escapeHtml", () => {
 
   it("leaves normal text unchanged", () => {
     expect(escapeHtml("Hello World 123")).toBe("Hello World 123");
+  });
+});
+
+describe("normalizeStrayQueryMarks", () => {
+  it("splits our parameters off a target query that already had one", () => {
+    const search = normalizeStrayQueryMarks("?class_id=01_01&id=4002156?raw=true");
+    expect(new URLSearchParams(search).get("raw")).toBe("true");
+    expect(extractTargetUrl("/http://kzp.mof.gov.cn/content.jsp", search))
+      .toBe("http://kzp.mof.gov.cn/content.jsp?class_id=01_01&id=4002156");
+    expect(normalizeStrayQueryMarks("?id=9?format=json?selector=main")).toBe("?id=9&format=json&selector=main");
+  });
+
+  it("leaves other question marks in the target query alone", () => {
+    expect(normalizeStrayQueryMarks("?next=/a?b=1")).toBe("?next=/a?b=1");
+    expect(normalizeStrayQueryMarks("?raw=true")).toBe("?raw=true");
+    expect(normalizeStrayQueryMarks("?q=draw=1?rawdata=2")).toBe("?q=draw=1?rawdata=2");
+    expect(normalizeStrayQueryMarks("")).toBe("");
   });
 });
