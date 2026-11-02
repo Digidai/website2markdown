@@ -7,6 +7,7 @@ import type {
   ConversionRow,
   DayRow,
   DaySplit,
+  LeadRow,
   PairRow,
 } from "../../web/contract";
 import { ACCESS_SURFACES, classifyAccessPath } from "./classify";
@@ -19,6 +20,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export type { AdminQuery, AdminReport, ConversionDetail, ConversionRow };
 
 const PAGE_SIZE = 40;
+const LEAD_LIMIT = 200;
 const LIST_EXCERPT = 700;
 const DAY_CHOICES = [1, 7, 14, 30, 90] as const;
 const VIEWS = ["all", "failures", "access", "conversions", "pages", "api"] as const;
@@ -203,6 +205,13 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       accessTotal: access.total,
       failurePreview: failurePreview.map(mapConversion),
       providerHealth: await loadProviderHealth(env, day),
+      leads: await all<LeadRow>(env, `
+        SELECT id, created_at, email, name, company, plan, volume, message, lang, country, emailed
+        FROM leads ORDER BY created_at DESC LIMIT ${LEAD_LIMIT}
+      `).catch((error) => {
+        console.error("leads load failed:", error instanceof Error ? error.message : "unknown");
+        return [];
+      }),
       suspiciousIps: await loadSuspiciousIps(env, new Date(Date.now() - DAY_MS).toISOString()).catch((error) => {
         console.error("suspicious ip scoring failed:", error instanceof Error ? error.message : "unknown");
         return [];
@@ -302,6 +311,7 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
     failurePreview: [],
     providerHealth: [],
     suspiciousIps: [],
+    leads: [],
   };
 }
 
