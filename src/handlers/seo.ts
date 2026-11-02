@@ -88,6 +88,13 @@ export function handleSitemap(host: string): Response {
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://${host}/pricing</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://${host}/pricing"/>
+    <xhtml:link rel="alternate" hreflang="zh" href="https://${host}/pricing?lang=zh"/>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://${host}/llms.txt</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>

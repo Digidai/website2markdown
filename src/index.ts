@@ -27,6 +27,7 @@ import {
 import { setPaywallRulesFromJson, getPaywallRuleStats } from "./paywall";
 import { errorMessage } from "./utils";
 import { landingPageHTML, loadingPageHTML, portalPageHTML } from "@web/server";
+import { handleLead } from "./handlers/leads";
 
 // 从拆分模块导入
 import { incrementCounter, logMetric } from "./runtime-state";
@@ -314,6 +315,13 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       }
       return handleSendMagicLink(request, env, host);
     }
+    // POST /api/leads — pricing-page contact form
+    if (path === "/api/leads") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST", ...CORS_HEADERS } });
+      }
+      return handleLead(request, env);
+    }
     if (path === "/api/auth/verify") {
       if (request.method !== "GET") {
         return new Response("Method Not Allowed", { status: 405, headers: { Allow: "GET", ...CORS_HEADERS } });
@@ -437,7 +445,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
-      if (path === "/" || path === "/examples" || path === "/docs" || path === "/integrations" || path === "/integration") {
+      if (path === "/" || path === "/examples" || path === "/docs" || path === "/integrations" || path === "/integration" || path === "/pricing") {
         return new Response(null, {
           status: 200,
           headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -761,6 +769,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         path === "/examples" ? "examples"
         : path === "/docs" ? "docs"
         : path === "/integrations" || path === "/integration" ? "integration"
+        : path === "/pricing" ? "pricing"
         : "home";
       return new Response(landingPageHTML(publicHost(host), landingLang, sitePage), {
         headers: {

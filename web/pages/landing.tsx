@@ -17,15 +17,20 @@ import {
 } from "@gravity-ui/icons";
 import {
   Accordion,
+  Alert,
   Button,
   Card,
   Chip,
   Dropdown,
+  Input,
   InputGroup,
   Label,
+  ListBox,
+  Select,
   Separator,
   Table,
   Tabs,
+  TextArea,
   TextField,
 } from "@heroui/react";
 import { useState, type ComponentType, type FormEvent, type ReactNode } from "react";
@@ -45,6 +50,7 @@ const PAGE_PATH: Record<SitePage, string> = {
   examples: "/examples",
   docs: "/docs",
   integration: "/integrations",
+  pricing: "/pricing",
 };
 
 export function langHref(pathname: string, lang: Lang): string {
@@ -74,6 +80,7 @@ export function LandingPage({ host, lang, page }: LandingProps) {
         {page === "examples" ? <ExamplesPage ctx={ctx} /> : null}
         {page === "docs" ? <DocsPage ctx={ctx} /> : null}
         {page === "integration" ? <IntegrationPage ctx={ctx} /> : null}
+        {page === "pricing" ? <PricingPage ctx={ctx} /> : null}
       </main>
       <SiteFooter ctx={ctx} page={page} />
     </div>
@@ -89,6 +96,7 @@ function SiteHeader({ ctx, page }: { ctx: Ctx; page: SitePage }) {
     { page: "examples", label: isZh ? "示例" : "Examples" },
     { page: "docs", label: t.tabDocs },
     { page: "integration", label: t.tabIntegration },
+    { page: "pricing", label: isZh ? "价格" : "Pricing" },
   ];
   const themeLabels = { light: t.footerThemeLight, dark: t.footerThemeDark, system: t.footerThemeSystem, title: t.themeLabel };
   return (
@@ -183,6 +191,7 @@ function SiteFooter({ ctx }: { ctx: Ctx; page: SitePage }) {
         { label: isZh ? "示例" : "Examples", href: stay("/examples") },
         { label: isZh ? "文档" : "Docs", href: stay("/docs") },
         { label: isZh ? "参数" : "Parameters", href: `${stay("/docs")}#params` },
+        { label: isZh ? "价格" : "Pricing", href: stay("/pricing") },
         { label: "Health", href: "/api/health" },
       ],
     },
@@ -1029,3 +1038,260 @@ function IntegrationPage({ ctx }: { ctx: Ctx }) {
   );
 }
 
+/* ───────────────────────── Pricing ───────────────────────── */
+
+type LeadPlan = "pro" | "enterprise";
+const LEAD_VOLUMES = ["<10k", "10k-100k", "100k-1m", ">1m"] as const;
+
+function PricingPage({ ctx }: { ctx: Ctx }) {
+  const { isZh, stay } = ctx;
+  const [plan, setPlan] = useState<LeadPlan>("pro");
+  const choose = (next: LeadPlan) => {
+    setPlan(next);
+    document.getElementById("contact")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const plans: {
+    id: "free" | LeadPlan;
+    name: string;
+    price: string;
+    note: string;
+    features: string[];
+    highlight?: boolean;
+  }[] = [
+    {
+      id: "free",
+      name: isZh ? "免费" : "Free",
+      price: "$0",
+      note: isZh ? "注册即可获得 API key" : "Sign up for an API key",
+      features: isZh
+        ? ["每月 1,000 credits", "浏览器渲染、批量、抽取、深度爬取", "15 个平台适配器", "不注册也能用：每 IP 每天 100 次"]
+        : ["1,000 credits a month", "Browser rendering, batch, extraction, deep crawl", "15 platform adapters", "No signup needed for 100 requests a day per IP"],
+    },
+    {
+      id: "pro",
+      name: "Pro",
+      price: isZh ? "按用量报价" : "Custom quote",
+      note: isZh ? "按你的用量单独报价" : "Priced for your volume",
+      highlight: true,
+      features: isZh
+        ? ["每月 50,000 credits 起", "代理出口，打开更多被拦的页面", "指定引擎（Firecrawl、Jina 等）", "no_cache 强制实时抓取"]
+        : ["From 50,000 credits a month", "Proxy egress for pages that block datacenters", "Choose the engine (Firecrawl, Jina, ...)", "no_cache for always-fresh fetches"],
+    },
+    {
+      id: "enterprise",
+      name: isZh ? "企业" : "Enterprise",
+      price: isZh ? "联系我们" : "Contact us",
+      note: isZh ? "大批量或定制需求" : "High volume or custom needs",
+      features: isZh
+        ? ["自定义额度和并发", "为你的目标站点定制适配器"]
+        : ["Custom quota and concurrency", "Adapters built for your target sites"],
+    },
+  ];
+  return (
+    <>
+      <PageIntro
+        eyebrow={isZh ? "价格" : "Pricing"}
+        title={isZh ? "先免费用，量大了再谈" : "Start free. Talk to us when you scale."}
+        description={
+          isZh
+            ? "免费档足够个人和小项目。需要更大额度、代理或定制适配器时，留下联系方式，我们按你的用量报价。"
+            : "The free tier covers personal projects. For more volume, proxies, or custom adapters, leave your details and we will quote for your usage."
+        }
+      />
+      <section className="py-14 sm:py-16">
+        <Container>
+          <div className="grid gap-4 md:grid-cols-3">
+            {plans.map((p) => (
+              <Card key={p.id} className={p.highlight ? "ring-2 ring-accent" : ""}>
+                <Card.Header className="gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Card.Title className="text-lg">{p.name}</Card.Title>
+                    {p.highlight ? <Chip size="sm" color="accent" variant="soft">{isZh ? "最常选" : "Most popular"}</Chip> : null}
+                  </div>
+                  <p className="text-3xl font-semibold tracking-tight">{p.price}</p>
+                  <Card.Description>{p.note}</Card.Description>
+                </Card.Header>
+                <Card.Content>
+                  <ul className="flex flex-col gap-2.5 text-sm">
+                    {p.features.map((f) => (
+                      <li key={f} className="flex gap-2">
+                        <CircleCheck className="mt-0.5 size-4 shrink-0 text-success" />
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Card.Content>
+                <Card.Footer className="mt-auto">
+                  {p.id === "free" ? (
+                    <LinkButton href="/portal/" variant="secondary" className="w-full">
+                      {isZh ? "免费获取 API key" : "Get a free API key"}
+                    </LinkButton>
+                  ) : (
+                    <Button
+                      fullWidth
+                      variant={p.highlight ? "primary" : "secondary"}
+                      onPress={() => choose(p.id as LeadPlan)}
+                    >
+                      {isZh ? "获取报价" : "Get a quote"}
+                      <ArrowRight className="size-4" />
+                    </Button>
+                  )}
+                </Card.Footer>
+              </Card>
+            ))}
+          </div>
+          <p className="mt-4 text-sm text-muted">
+            {isZh ? "1 次转换计 1 credit；实际走了浏览器渲染计 3 credits，缓存命中仍是 1。" : "A conversion costs 1 credit; a live browser render costs 3, and a cache hit stays at 1."}{" "}
+            <a href={`${stay("/docs")}#params`} className="text-accent hover:underline">{isZh ? "参数说明" : "Parameters"}</a>
+          </p>
+        </Container>
+      </section>
+      <section id="contact" className="scroll-mt-20 border-t border-separator bg-surface-secondary/40 py-14 sm:py-16">
+        <Container className="grid gap-10 md:grid-cols-[1fr_1.2fr]">
+          <div>
+            <SectionHeading title={isZh ? "获取报价" : "Get a quote"} />
+            <p className="mt-3 max-w-md text-muted">
+              {isZh
+                ? "告诉我们你要转换哪些站点、每月大概多少次，我们会通过邮件回复报价。"
+                : "Tell us which sites you convert and roughly how many pages a month, and we will email you a quote."}
+            </p>
+          </div>
+          <LeadForm ctx={ctx} plan={plan} onPlanChange={setPlan} />
+        </Container>
+      </section>
+    </>
+  );
+}
+
+function LeadForm({ ctx, plan, onPlanChange }: { ctx: Ctx; plan: LeadPlan; onPlanChange: (plan: LeadPlan) => void }) {
+  const { isZh, lang } = ctx;
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [company, setCompany] = useState("");
+  const [volume, setVolume] = useState<string>("10k-100k");
+  const [message, setMessage] = useState("");
+  const [website, setWebsite] = useState("");
+  const [state, setState] = useState<"idle" | "pending" | "sent" | "error">("idle");
+  const [error, setError] = useState("");
+  const volumeLabel: Record<(typeof LEAD_VOLUMES)[number], string> = isZh
+    ? { "<10k": "1 万次以下", "10k-100k": "1 万 – 10 万次", "100k-1m": "10 万 – 100 万次", ">1m": "100 万次以上" }
+    : { "<10k": "Under 10k", "10k-100k": "10k – 100k", "100k-1m": "100k – 1M", ">1m": "Over 1M" };
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setState("error");
+      setError(isZh ? "请填写有效的邮箱。" : "Enter a valid email address.");
+      return;
+    }
+    setState("pending");
+    setError("");
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, name, company, plan, volume, message, website, lang }),
+      });
+      if (res.ok) {
+        setState("sent");
+        return;
+      }
+      setState("error");
+      setError(
+        res.status === 429
+          ? (isZh ? "提交太频繁了，请稍后再试。" : "Too many requests. Try again later.")
+          : (isZh ? "提交失败，请稍后再试。" : "Something went wrong. Try again later."),
+      );
+    } catch {
+      setState("error");
+      setError(isZh ? "网络错误，请稍后再试。" : "Network error. Try again later.");
+    }
+  };
+
+  if (state === "sent") {
+    return (
+      <Alert status="success">
+        <Alert.Indicator />
+        <Alert.Content>
+          <Alert.Title>{isZh ? "已收到，谢谢！" : "Thanks, we got it."}</Alert.Title>
+          <Alert.Description>
+            {isZh ? `我们会回复到 ${email.trim()}。` : `We will reply to ${email.trim()}.`}
+          </Alert.Description>
+        </Alert.Content>
+      </Alert>
+    );
+  }
+
+  return (
+    <Card>
+      <Card.Content>
+        <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
+          <TextField isRequired type="email" name="email" value={email} onChange={setEmail} autoComplete="email" isDisabled={state === "pending"}>
+            <Label>{isZh ? "工作邮箱" : "Work email"}</Label>
+            <Input placeholder="you@company.com" />
+          </TextField>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField name="name" value={name} onChange={setName} autoComplete="name" maxLength={120} isDisabled={state === "pending"}>
+              <Label>{isZh ? "姓名" : "Name"}</Label>
+              <Input />
+            </TextField>
+            <TextField name="company" value={company} onChange={setCompany} autoComplete="organization" maxLength={160} isDisabled={state === "pending"}>
+              <Label>{isZh ? "公司" : "Company"}</Label>
+              <Input />
+            </TextField>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select value={plan} onChange={(key) => onPlanChange(key as LeadPlan)} isDisabled={state === "pending"}>
+              <Label>{isZh ? "方案" : "Plan"}</Label>
+              <Select.Trigger>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  <ListBox.Item id="pro" textValue="Pro">Pro<ListBox.ItemIndicator /></ListBox.Item>
+                  <ListBox.Item id="enterprise" textValue={isZh ? "企业" : "Enterprise"}>
+                    {isZh ? "企业" : "Enterprise"}
+                    <ListBox.ItemIndicator />
+                  </ListBox.Item>
+                </ListBox>
+              </Select.Popover>
+            </Select>
+            <Select value={volume} onChange={(key) => setVolume(String(key))} isDisabled={state === "pending"}>
+              <Label>{isZh ? "每月预计转换量" : "Pages a month"}</Label>
+              <Select.Trigger>
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  {LEAD_VOLUMES.map((v) => (
+                    <ListBox.Item key={v} id={v} textValue={volumeLabel[v]}>
+                      {volumeLabel[v]}
+                      <ListBox.ItemIndicator />
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
+          </div>
+          <TextField name="message" value={message} onChange={setMessage} maxLength={2000} isDisabled={state === "pending"}>
+            <Label>{isZh ? "需求说明" : "What do you need?"}</Label>
+            <TextArea rows={4} placeholder={isZh ? "要转换的站点、使用场景、需要的功能……" : "Target sites, use case, features you need..."} />
+          </TextField>
+          {/* Hidden from people; bots that fill every field get dropped server-side. */}
+          <div aria-hidden="true" className="absolute -left-[9999px] h-0 w-0 overflow-hidden">
+            <label>
+              Website
+              <input tabIndex={-1} autoComplete="off" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
+            </label>
+          </div>
+          <p role="alert" className="min-h-5 text-sm text-danger">{state === "error" ? error : ""}</p>
+          <Button type="submit" size="lg" isPending={state === "pending"}>
+            {state === "pending" ? (isZh ? "提交中…" : "Sending…") : (isZh ? "提交，获取报价" : "Request a quote")}
+          </Button>
+        </form>
+      </Card.Content>
+    </Card>
+  );
+}
