@@ -36,6 +36,8 @@ export async function recordAccess(
 }
 
 const EXCERPT_CHARS = 8000;
+/** Clean successes keep a short preview; failures and anomalies keep the full excerpt for debugging. */
+const CLEAN_EXCERPT_CHARS = 1000;
 
 export async function recordConversionLog(env: Env, input: {
   request: Request;
@@ -86,6 +88,9 @@ export async function recordConversionLog(env: Env, input: {
   const outputChars = Number.isFinite(input.outputChars)
     ? Math.max(0, Math.round(input.outputChars as number))
     : (input.outputContent || "").length;
+  // Same rule as CLEAN_SQL in dashboard.ts.
+  const clean = input.outcome === "success" && input.statusCode < 400 && outputChars !== 0
+    && !(input.fallbacks || []).length && input.durationMs < 30_000 && !input.paywall;
   try {
     await env.AUTH_DB.prepare(`
       INSERT INTO conversion_log (
@@ -113,7 +118,7 @@ export async function recordConversionLog(env: Env, input: {
       countryOf(input.request),
       input.authTier.slice(0, 20),
       input.errorCode.slice(0, 80),
-      adminExcerpt(input.outputContent || ""),
+      adminExcerpt(input.outputContent || "").slice(0, clean ? CLEAN_EXCERPT_CHARS : EXCERPT_CHARS),
       outputChars,
       adminExcerpt(input.errorMessage || "").slice(0, 400),
       fallbackText(input.fallbacks),
