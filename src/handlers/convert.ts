@@ -1184,8 +1184,11 @@ async function tryFetchAndParse(
 
 // ─── 子函数：Context.dev 兜底 ────────────────────────────────
 
-/** Anonymous Context.dev calls allowed per UTC day across the whole site. */
-const CONTEXT_DEV_ANON_DAILY_LIMIT = 40;
+/**
+ * Anonymous Context.dev calls allowed per UTC day across the whole site.
+ * 25/day keeps a full month (~750) under the free tier's 1,000 credits.
+ */
+const CONTEXT_DEV_ANON_DAILY_LIMIT = 25;
 
 /**
  * Last resort for a page our own fetch and browser could not get. Context.dev
