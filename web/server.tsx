@@ -67,6 +67,7 @@ const PAGE_PATH: Record<SitePage, string> = {
   examples: "/examples",
   docs: "/docs",
   integration: "/integrations",
+  pricing: "/pricing",
 };
 
 function zhHref(path: string) {
@@ -82,6 +83,7 @@ export const landingPageHTML: WebRenderers["landingPageHTML"] = (host, lang: Lan
     page === "examples" ? (isZh ? "示例" : "Examples")
     : page === "docs" ? (isZh ? "文档" : "Docs")
     : page === "integration" ? (isZh ? "集成" : "Integrations")
+    : page === "pricing" ? (isZh ? "价格" : "Pricing")
     : t.pageTitle;
   const canonical = `https://${h}${isZh ? zhHref(path) : path}`;
   const faqs = [1, 2, 3, 4, 5, 6].map((n) => ({

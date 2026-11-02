@@ -262,3 +262,20 @@ CREATE TABLE IF NOT EXISTS provider_attempts_daily (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (date, path)
 );
+
+-- Pricing-page contact requests (see migrations/0011_leads.sql).
+CREATE TABLE IF NOT EXISTS leads (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL,
+  email TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  company TEXT NOT NULL DEFAULT '',
+  plan TEXT NOT NULL DEFAULT '',
+  volume TEXT NOT NULL DEFAULT '',
+  message TEXT NOT NULL DEFAULT '',
+  lang TEXT NOT NULL DEFAULT '',
+  client_ip TEXT NOT NULL DEFAULT '',
+  country TEXT NOT NULL DEFAULT '',
+  emailed INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at);

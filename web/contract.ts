@@ -8,7 +8,7 @@
  */
 
 export type Lang = "en" | "zh";
-export type SitePage = "home" | "examples" | "docs" | "integration";
+export type SitePage = "home" | "examples" | "docs" | "integration" | "pricing";
 export type ReaderMethod =
   | "native"
   | "fallback"
