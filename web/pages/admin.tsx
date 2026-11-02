@@ -122,6 +122,7 @@ export function adminHref(query: AdminQuery, patch: Partial<AdminQuery> & { tab?
   if (next.outcome) params.set("outcome", next.outcome);
   if (next.route) params.set("route", next.route);
   if (next.platform) params.set("platform", next.platform);
+  if (next.tier) params.set("tier", next.tier);
   if (next.surface) params.set("surface", next.surface);
   if (next.status != null) params.set("status", String(next.status));
   if (next.q) params.set("q", next.q);
@@ -497,6 +498,23 @@ function Overview({ report, onShowFailures }: { report: AdminReport; onShowFailu
       <Card>
         <Card.Header className="flex-row items-center justify-between gap-2">
           <div className="flex flex-col gap-1">
+            <Card.Title>登录用户的失败 · {fmt(report.signedFailures)}</Card.Title>
+            <Card.Description>free 和 pro 账号的失败请求，这些是付费转化最该关心的。</Card.Description>
+          </div>
+          <LinkButton size="sm" variant="secondary" href={adminHref(report.query, { tab: "conversions", view: "failures", tier: "signed", page: 1 })}>查看全部</LinkButton>
+        </Card.Header>
+        <Card.Content>
+          {report.signedFailurePreview.length ? (
+            <ConversionTable rows={report.signedFailurePreview} query={report.query} compact />
+          ) : (
+            <p className="py-6 text-center text-sm text-muted">这个范围内登录用户没有失败。</p>
+          )}
+        </Card.Content>
+      </Card>
+
+      <Card>
+        <Card.Header className="flex-row items-center justify-between gap-2">
+          <div className="flex flex-col gap-1">
             <Card.Title>最近的失败与异常</Card.Title>
             <Card.Description>异常：成功但正文为空、走了回退、超过 30 秒或遇到付费墙。</Card.Description>
           </div>
@@ -820,7 +838,7 @@ function FilterField({ name, label, value, placeholder, className }: { name: str
 }
 
 function Filters({ query, tab, children }: { query: AdminQuery; tab: AdminTab; children: ReactNode }) {
-  const active = Boolean(query.outcome || query.route || query.platform || query.surface || query.status != null || query.q || query.view !== "all");
+  const active = Boolean(query.outcome || query.route || query.platform || query.tier || query.surface || query.status != null || query.q || query.view !== "all");
   return (
     <Card variant="secondary">
       <Card.Content>
@@ -837,7 +855,7 @@ function Filters({ query, tab, children }: { query: AdminQuery; tab: AdminTab; c
           </TextField>
           <div className="flex gap-2">
             <Button type="submit">筛选</Button>
-            {active ? <LinkButton href={adminHref({ ...query, view: "all", outcome: "", route: "", platform: "", surface: "", status: null, q: "", page: 1, apage: 1 }, { tab })} variant="ghost">清除</LinkButton> : null}
+            {active ? <LinkButton href={adminHref({ ...query, view: "all", outcome: "", route: "", platform: "", tier: "", surface: "", status: null, q: "", page: 1, apage: 1 }, { tab })} variant="ghost">清除</LinkButton> : null}
           </div>
         </form>
       </Card.Content>
@@ -853,6 +871,7 @@ function Conversions({ report }: { report: AdminReport }) {
         <FilterSelect name="view" label="记录" value={query.view === "failures" ? "failures" : "all"} options={[["all", "全部"], ["failures", "失败与异常"]]} />
         <FilterSelect name="outcome" label="结果" value={query.outcome} options={[["", "全部结果"], ["success", "success"], ["convert_error", "convert_error"], ["unexpected_error", "unexpected_error"]]} />
         <FilterSelect name="route" label="路由" value={query.route} options={[["", "全部路由"], ["convert", "convert"], ["stream", "stream"]]} />
+        <FilterSelect name="tier" label="用户" value={query.tier} options={[["", "全部用户"], ["signed", "登录用户"], ["anonymous", "匿名"]]} />
         <FilterField name="platform" label="平台" value={query.platform} placeholder="wechat" />
         <FilterField name="status" label="状态码" value={query.status == null ? "" : String(query.status)} placeholder="502" className="sm:w-28" />
       </Filters>

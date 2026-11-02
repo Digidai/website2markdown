@@ -148,6 +148,8 @@ export interface AdminQuery {
   outcome: string;
   route: string;
   platform: string;
+  /** "signed" (free or pro), "anonymous", or "" for both. */
+  tier: "" | "signed" | "anonymous";
   surface: string;
   status: number | null;
   q: string;
@@ -199,6 +201,8 @@ export interface AdminReport {
   usefulWindow: number;
   successRate: number;
   failures: number;
+  /** Failed signed-in (free or pro) conversions in the window. */
+  signedFailures: number;
   anomalies: number;
   anonUsage: number;
   signedUsage: number;
@@ -227,6 +231,8 @@ export interface AdminReport {
   accesses: AccessRow[];
   accessTotal: number;
   failurePreview: ConversionRow[];
+  /** Latest failures of signed-in (free or pro) requests in the window. */
+  signedFailurePreview: ConversionRow[];
   providerHealth: ProviderPathHealth[];
   /** Anonymous IPs scored over the last 24 hours. Observe-only. */
   suspiciousIps: SuspiciousIp[];

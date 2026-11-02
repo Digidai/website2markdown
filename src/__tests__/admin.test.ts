@@ -241,6 +241,7 @@ describe("admin report", () => {
       { ...base, durationMs: 31_000, route: "stream" },
       { ...base, outcome: "convert_error", statusCode: 422, errorCode: "login_wall", platform: "wechat" },
       { ...base, statusCode: 502, errorCode: "upstream" }, // success outcome but failed status
+      { ...base, outcome: "convert_error", statusCode: 502, errorCode: "fetch_failed", authTier: "free" }, // signed failure
     ];
     for (const input of cases) await recordConversionLog(env, input);
     // Rows from an earlier day only show up in the series, not today's counts.
@@ -250,7 +251,7 @@ describe("admin report", () => {
 
     const strip = (r: AdminReport) => ({
       conversionsToday: r.conversionsToday, conversionsWindow: r.conversionsWindow, usefulToday: r.usefulToday,
-      usefulWindow: r.usefulWindow, successRate: r.successRate, failures: r.failures, anomalies: r.anomalies,
+      usefulWindow: r.usefulWindow, successRate: r.successRate, failures: r.failures, signedFailures: r.signedFailures, anomalies: r.anomalies,
       anonUsage: r.anonUsage, signedUsage: r.signedUsage, creditSum: r.creditSum, conversionDays: r.conversionDays,
       outcomes: r.outcomes, platforms: r.platforms, errorCodes: r.errorCodes, authTiers: r.authTiers,
       conversionTotal: r.conversionTotal,
@@ -263,9 +264,17 @@ describe("admin report", () => {
     const raw = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=90&q=example.com")));
     const today = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=1")));
     expect(strip(daily)).toEqual(strip(raw));
-    expect(daily).toMatchObject({ conversionsWindow: 9, usefulWindow: 4, failures: 2, anomalies: 4, signedUsage: 1, creditSum: 2 });
-    expect(daily.conversionDays).toEqual([{ day: earlier, ok: 0, warn: 0, bad: 1 }, { day: expect.any(String), ok: 3, warn: 4, bad: 1 }]);
-    expect(today.conversionsToday).toBe(8);
+    expect(daily).toMatchObject({ conversionsWindow: 10, usefulWindow: 4, failures: 3, signedFailures: 1, anomalies: 4, signedUsage: 2, creditSum: 2 });
+    expect(daily.signedFailurePreview.map((r) => r.error_code)).toEqual(["fetch_failed"]);
+    expect(daily.conversionDays).toEqual([{ day: earlier, ok: 0, warn: 0, bad: 1 }, { day: expect.any(String), ok: 3, warn: 4, bad: 2 }]);
+    expect(today.conversionsToday).toBe(9);
+    // The tier filter keeps only free and pro rows, in both sources.
+    const signed = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=90&tier=signed")));
+    const signedRaw = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=conversions&days=90&tier=signed&q=example.com")));
+    expect(signed.conversionTotal).toBe(2);
+    expect(signed.conversions.every((r) => r.auth_tier === "free")).toBe(true);
+    const counts = (r: AdminReport) => ({ total: r.conversionTotal, failures: r.failures, days: r.conversionDays });
+    expect(counts(signed)).toEqual(counts(signedRaw));
 
     const failures = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=failures&days=90&platform=generic")));
     const failuresRaw = await loadAdminReport(env, parseAdminQuery(new URL("https://md.example.com/admin?view=failures&days=90&platform=generic&q=example.com")));
@@ -463,6 +472,7 @@ function sampleReport(rows: ConversionRow[]): AdminReport {
     usefulWindow: 3,
     successRate: 50,
     failures: 1,
+    signedFailures: 0,
     anomalies: 1,
     anonUsage: 5,
     signedUsage: 1,
@@ -490,6 +500,7 @@ function sampleReport(rows: ConversionRow[]): AdminReport {
     accesses: [],
     accessTotal: 0,
     failurePreview: [],
+    signedFailurePreview: [],
     suspiciousIps: [{
       ip: "203.0.113.9", asn: 64500, as_org: "Example Cloud", country: "SG", ua_family: "bot",
       requests: 420, conversions: 400, failures: 380, hosts: 2, top_host: "priv.au",
