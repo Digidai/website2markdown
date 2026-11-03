@@ -45,6 +45,7 @@ function createMockD1(): {
                 email: t.email,
                 expires_at: t.expires_at,
                 used_at: t.used_at,
+                source: t.source ?? "",
               } as T;
             }
           }
@@ -85,9 +86,9 @@ function createMockD1(): {
       async run() {
         // INSERT magic_link_tokens
         if (sql.includes("INSERT INTO magic_link_tokens")) {
-          const [id, email, token_hash, expires_at, created_at] = binds;
+          const [id, email, token_hash, expires_at, created_at, source] = binds;
           tables.magic_link_tokens.set(id, {
-            id, email, token_hash, expires_at, created_at, used_at: null,
+            id, email, token_hash, expires_at, created_at, used_at: null, source,
           });
           return {};
         }
@@ -103,10 +104,10 @@ function createMockD1(): {
         }
         // INSERT accounts
         if (sql.includes("INSERT INTO accounts")) {
-          const [id, email, tier, monthly_credits_used, monthly_credits_reset_at, created_at, updated_at] = binds;
+          const [id, email, tier, monthly_credits_used, monthly_credits_reset_at, created_at, updated_at, signup_source] = binds;
           tables.accounts.set(id, {
             id, email, tier, monthly_credits_used, monthly_credits_reset_at,
-            created_at, updated_at, github_id: null,
+            created_at, updated_at, github_id: null, signup_source,
           });
           return {};
         }
@@ -184,6 +185,21 @@ describe("Magic Link: POST /api/auth/magic-link", () => {
     expect(warning).not.toContain(stored.token_hash);
   });
 
+  it("keeps a well-formed signup source on the token and drops anything else", async () => {
+    const d1 = createMockD1();
+    const { env } = createMockEnv({ AUTH_DB: d1.db });
+    const send = (email: string, source: unknown) => worker.fetch(new Request("https://md.example.com/api/auth/magic-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, source }),
+    }), env, mockCtx());
+    expect((await send("a@example.com", "Blocked")).status).toBe(200);
+    expect((await send("b@example.com", "<script>")).status).toBe(200);
+    expect((await send("c@example.com", undefined)).status).toBe(200);
+    const sources = Object.fromEntries(Array.from(d1.tables.magic_link_tokens.values()).map((t) => [t.email, t.source]));
+    expect(sources).toEqual({ "a@example.com": "blocked", "b@example.com": "", "c@example.com": "" });
+  });
+
   it("normalizes email to lowercase", async () => {
     const d1 = createMockD1();
     const { env } = createMockEnv({ AUTH_DB: d1.db });
@@ -239,6 +255,7 @@ describe("Magic Link: GET /api/auth/verify", () => {
     email?: string;
     expiresAt?: string;
     usedAt?: string | null;
+    source?: string;
   } = {}): Promise<string> {
     const token = "a".repeat(64);
     const tokenHash = await sha256Hex(token);
@@ -250,6 +267,7 @@ describe("Magic Link: GET /api/auth/verify", () => {
       expires_at: overrides.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000).toISOString(),
       used_at: overrides.usedAt ?? null,
       created_at: new Date().toISOString(),
+      source: overrides.source ?? "",
     });
     return token;
   }
@@ -321,6 +339,15 @@ describe("Magic Link: GET /api/auth/verify", () => {
     // Token was marked as used
     const storedToken = Array.from(d1.tables.magic_link_tokens.values())[0];
     expect(storedToken.used_at).not.toBeNull();
+  });
+
+  it("records the token's signup source on a newly created account", async () => {
+    const d1 = createMockD1();
+    const token = await seedToken(d1, { source: "blocked" });
+    const { env } = createMockEnv({ AUTH_DB: d1.db });
+    const res = await worker.fetch(new Request(`https://md.example.com/api/auth/verify?token=${token}`), env, mockCtx());
+    expect(res.status).toBe(302);
+    expect(Array.from(d1.tables.accounts.values())[0].signup_source).toBe("blocked");
   });
 
   it("reuses existing account for known email", async () => {

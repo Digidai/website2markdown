@@ -133,7 +133,8 @@ function SignIn({ banner: initial }: { banner: Banner }) {
     if (!email.trim()) return;
     setPending(true);
     try {
-      const resp = await api.json("/api/auth/magic-link", "POST", { email: email.trim() });
+      const source = new URL(location.href).searchParams.get("ref") || undefined;
+      const resp = await api.json("/api/auth/magic-link", "POST", { email: email.trim(), source });
       const data = (await resp.json().catch(() => ({}))) as { error?: string };
       setBanner(
         resp.ok

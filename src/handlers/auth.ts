@@ -67,9 +67,13 @@ export async function handleSendMagicLink(
   }
 
   let email: string;
+  let source: string;
   try {
-    const body = JSON.parse(bodyText) as { email?: string };
+    const body = JSON.parse(bodyText) as { email?: string; source?: string };
     email = String(body?.email || "").trim().toLowerCase();
+    // Signup attribution from the portal's ?ref=. Anything unexpected is dropped.
+    const rawSource = String(body?.source || "").trim().toLowerCase();
+    source = /^[a-z0-9_-]{1,32}$/.test(rawSource) ? rawSource : "";
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400, headers: CORS_HEADERS });
   }
@@ -116,14 +120,15 @@ export async function handleSendMagicLink(
 
   try {
     await env.AUTH_DB.prepare(`
-      INSERT INTO magic_link_tokens (id, email, token_hash, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO magic_link_tokens (id, email, token_hash, expires_at, created_at, source)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).bind(
       tokenId,
       email,
       tokenHash,
       expiresAt.toISOString(),
       now.toISOString(),
+      source,
     ).run();
   } catch (err) {
     console.error("Magic link insert failed:", sanitizeErrorMessage(err));
@@ -199,7 +204,7 @@ export async function handleVerifyMagicLink(
 
   try {
     const row = await env.AUTH_DB.prepare(`
-      SELECT id, email, expires_at, used_at
+      SELECT id, email, expires_at, used_at, source
       FROM magic_link_tokens
       WHERE token_hash = ?
       LIMIT 1
@@ -208,6 +213,7 @@ export async function handleVerifyMagicLink(
       email: string;
       expires_at: string;
       used_at: string | null;
+      source: string | null;
     }>();
 
     if (!row) {
@@ -243,9 +249,9 @@ export async function handleVerifyMagicLink(
       const nowIso = now.toISOString();
       const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
       await env.AUTH_DB.prepare(`
-        INSERT INTO accounts (id, email, tier, monthly_credits_used, monthly_credits_reset_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(accountId, email, "free", 0, nextMonth, nowIso, nowIso).run();
+        INSERT INTO accounts (id, email, tier, monthly_credits_used, monthly_credits_reset_at, created_at, updated_at, signup_source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(accountId, email, "free", 0, nextMonth, nowIso, nowIso, row.source || "").run();
     }
 
     // Create session

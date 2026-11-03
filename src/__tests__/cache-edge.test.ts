@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getCached, getImage, setCache, storeImage } from "../cache";
+import { getCached, getImage, setCache, setNegativeCache, storeImage } from "../cache";
 import type { Env } from "../types";
 
 function createCacheEnv(): {
@@ -317,5 +317,19 @@ describe("cache edge behavior", () => {
 
     expect(result).toBeNull();
     expect(mocks.r2Get).toHaveBeenCalledTimes(1);
+  });
+
+  it("remembers a 410 for a day, a 404 for six hours, and a 403 for 30 minutes", async () => {
+    const { env, mocks } = createCacheEnv();
+    const ttlFor = async (status: number) => {
+      mocks.kvPut.mockClear();
+      await setNegativeCache(env, `https://example.com/neg-${status}`, {
+        title: "Fetch Failed", message: `Status: ${status}`, statusCode: 502, targetStatus: status,
+      });
+      return (mocks.kvPut.mock.calls[0]?.[2] as { expirationTtl?: number } | undefined)?.expirationTtl;
+    };
+    expect(await ttlFor(410)).toBe(86_400);
+    expect(await ttlFor(404)).toBe(21_600);
+    expect(await ttlFor(403)).toBe(1_800);
   });
 });
