@@ -490,6 +490,7 @@ function sampleReport(rows: ConversionRow[]): AdminReport {
     pagePaths: [{ label: "/", n: 4 }],
     apiPaths: [{ label: "/https://example.com", n: 8 }],
     authTiers: [{ label: "anonymous", n: 5 }],
+    signupSources: [],
     topIps: [{ label: "203.0.113.9 · Example Cloud", n: 5 }],
     countries: [{ label: "CN", n: 4 }],
     outcomes: [{ label: "convert_error", n: 1 }],

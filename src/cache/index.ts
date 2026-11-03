@@ -23,7 +23,17 @@ const cacheKeyMemo = new Map<string, string>();
 
 /** Anonymous origin failures. Separate from the 15s positive hot cache. */
 const NEGATIVE_CACHE_TTL_SECONDS = 1800;
-const NEGATIVE_HOT_TTL_MS = NEGATIVE_CACHE_TTL_SECONDS * 1000;
+
+/**
+ * How long an anonymous origin failure is remembered. 410 means gone for good
+ * and a 404 rarely turns into a page within hours, so both stay longer than
+ * 403/429, which are often temporary blocks.
+ */
+export function negativeCacheTtlSeconds(targetStatus: number): number {
+  if (targetStatus === 410) return 86_400;
+  if (targetStatus === 404) return 6 * 3600;
+  return NEGATIVE_CACHE_TTL_SECONDS;
+}
 const NEGATIVE_HOT_CAPACITY = 128;
 
 export interface NegativeCacheEntry {
@@ -414,7 +424,7 @@ function writeNegativeHot(key: string, value: NegativeCacheEntry): void {
   touchBoundedMap(
     negativeHot,
     key,
-    { value: { ...value }, expiresAt: Date.now() + NEGATIVE_HOT_TTL_MS },
+    { value: { ...value }, expiresAt: Date.now() + negativeCacheTtlSeconds(value.targetStatus) * 1000 },
     NEGATIVE_HOT_CAPACITY,
   );
 }
@@ -442,7 +452,7 @@ async function writeNegativeCacheApi(key: string, data: NegativeCacheEntry): Pro
     const response = new Response(JSON.stringify(data), {
       headers: {
         "Content-Type": "application/json",
-        "Cache-Control": `max-age=${NEGATIVE_CACHE_TTL_SECONDS}`,
+        "Cache-Control": `max-age=${negativeCacheTtlSeconds(data.targetStatus)}`,
       },
     });
     await withTimeout(
@@ -487,7 +497,7 @@ export async function getNegativeCache(
   }
 }
 
-/** Remember an anonymous origin failure for 30 minutes. Failures here are non-fatal. */
+/** Remember an anonymous origin failure (see negativeCacheTtlSeconds). Failures here are non-fatal. */
 export async function setNegativeCache(
   env: Env,
   url: string,
@@ -501,7 +511,7 @@ export async function setNegativeCache(
     await withTransientRetry(() =>
       withTimeout(
         env.CACHE_KV.put(key, JSON.stringify(data), {
-          expirationTtl: NEGATIVE_CACHE_TTL_SECONDS,
+          expirationTtl: negativeCacheTtlSeconds(data.targetStatus),
         }),
         CACHE_WRITE_TIMEOUT_MS,
         "KV write timed out",

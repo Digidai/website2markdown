@@ -435,14 +435,14 @@ describe("index mocked branch coverage", () => {
     expect(res.headers.get("X-Markdown-Fallbacks")).not.toContain("wechat_static_fallback");
   });
 
-  it("lets anonymous WeChat reads fall back to Context.dev within a daily budget", async () => {
+  it("lets anonymous browser-only reads fall back to Context.dev within a daily budget", async () => {
     mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
-    const article = `<html><body><div id='js_content'><p>Context article prose.</p>${"<p>正文</p>".repeat(200)}</div></body></html>`;
+    const article = `<html><body><article><p>Context article prose.</p>${"<p>body text</p>".repeat(200)}</article></body></html>`;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).startsWith("https://api.context.dev/")) {
         return Response.json({ html: { success: true, data: article }, metadata: {}, key_metadata: { credits_remaining: 10 } });
       }
-      return new Response("<html><body>视频 小程序 赞 在看</body></html>", { status: 200, headers: { "Content-Type": "text/html" } });
+      return new Response("<html><body>loading</body></html>", { status: 200, headers: { "Content-Type": "text/html" } });
     });
     vi.stubGlobal("fetch", fetchMock);
     mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
@@ -464,7 +464,7 @@ describe("index mocked branch coverage", () => {
       }),
     }) as unknown as D1Database;
 
-    const ok = await worker.fetch(new Request("https://md.example.com/https://mp.weixin.qq.com/s/ctx-anon?raw=true", {
+    const ok = await worker.fetch(new Request("https://md.example.com/https://example.com/ctx-anon?raw=true", {
       headers: { Accept: "text/markdown" },
     }), createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", AUTH_DB: budgetDb(1) }).env, mockCtx());
     expect(ok.status).toBe(200);
@@ -473,7 +473,7 @@ describe("index mocked branch coverage", () => {
     expect(contextDevCalls()).toBe(1);
 
     // Call 41 of the day is over the anonymous budget: no Context.dev request.
-    const capped = await worker.fetch(new Request("https://md.example.com/https://mp.weixin.qq.com/s/ctx-anon-2?raw=true", {
+    const capped = await worker.fetch(new Request("https://md.example.com/https://example.com/ctx-anon-2?raw=true", {
       headers: { Accept: "text/markdown" },
     }), createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", AUTH_DB: budgetDb(41) }).env, mockCtx());
     expect(capped.status).toBe(502);
@@ -868,6 +868,21 @@ describe("index mocked branch coverage", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not spend Context.dev credits on WeChat articles", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith("https://api.context.dev/")) {
+        return Response.json({ html: { success: true, data: "<html><body>verify</body></html>" } });
+      }
+      return new Response("<html><body>环境异常 去验证</body></html>", { status: 200, headers: { "Content-Type": "text/html" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await worker.fetch(new Request("https://md.example.com/https://mp.weixin.qq.com/s/abc", {
+      headers: { Accept: "application/json" },
+    }), createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test" }).env, mockCtx());
+    expect(fetchMock.mock.calls.some((c: unknown[]) => String(c[0]).startsWith("https://api.context.dev/"))).toBe(false);
   });
 
   it("keeps a real 404 as an error instead of spending Context.dev credits", async () => {

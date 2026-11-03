@@ -1217,7 +1217,7 @@ const ANON_PROXY_STATUSES = [403, 429];
 /** Site-wide daily cap on those retries, to protect the proxy's monthly traffic. */
 const ANON_PROXY_DAILY_LIMIT = 100;
 export const ANON_SIGN_IN_HINT =
-  ". This site blocks automated requests. Sign in for free at https://mdget.dev/portal/ to use browser rendering.";
+  ". This site blocks automated requests. Sign in for free at https://mdget.dev/portal/?ref=blocked to use browser rendering.";
 
 /**
  * Retries a blocked anonymous request once through the residential proxy,
@@ -1257,6 +1257,9 @@ async function tryContextDev(
 ): Promise<string | null> {
   const apiKey = env.CONTEXT_DEV_API_KEY;
   if (!apiKey) return null;
+  // Context.dev has never returned a WeChat article body, only the
+  // verification page or an empty shell, so a call there only spends credits.
+  if (targetUrl.includes("mp.weixin.qq.com")) return null;
   if (anonymous) {
     // One site-wide daily budget for anonymous callers, so they cannot drain
     // the monthly quota that signed-in requests rely on.

@@ -488,6 +488,7 @@ function Overview({ report, onShowFailures }: { report: AdminReport; onShowFailu
         <Breakdown title="失败原因" rows={report.errorCodes} color={() => "bg-danger"} />
         <Breakdown title="平台" rows={report.platforms} />
         <Breakdown title="身份" rows={report.authTiers} />
+        <Breakdown title="新注册来源" rows={report.signupSources ?? []} />
         <Breakdown title="来源 IP" rows={report.topIps ?? []} mono />
         <Breakdown title="API 路径" rows={report.apiPaths} mono />
         <Breakdown title="页面路径" rows={report.pagePaths} mono />

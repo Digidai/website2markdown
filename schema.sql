@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   monthly_credits_used INTEGER NOT NULL DEFAULT 0,
   monthly_credits_reset_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  signup_source TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -166,7 +167,8 @@ CREATE TABLE IF NOT EXISTS magic_link_tokens (
   token_hash TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   used_at TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_magic_hash ON magic_link_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_magic_email ON magic_link_tokens(email);

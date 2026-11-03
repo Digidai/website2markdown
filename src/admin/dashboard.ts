@@ -113,7 +113,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
   try {
     const [
       access, stats, ledgerWindow, ledgerAll, aggregateTotals, accounts, keys,
-      topIps, conversions, failurePreview, signedFailurePreview,
+      topIps, conversions, failurePreview, signedFailurePreview, signupSources,
     ] = await Promise.all([
       loadAccess(env, query, since, today, showAccess),
       loadConversionStats(env, query, since, today),
@@ -161,6 +161,10 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
             ORDER BY created_at DESC, id DESC
             LIMIT 8
           `, [since]),
+      all<PairRow>(env, `
+        SELECT CASE WHEN signup_source = '' THEN 'direct' ELSE signup_source END AS label, COUNT(*) AS n
+        FROM accounts WHERE created_at >= ? GROUP BY label ORDER BY n DESC
+      `, [since]).catch(() => []),
     ]);
     const { totals: conversionTotals, days: conversionDays, outcomes, platforms, errorCodes, authTiers } = stats;
     const conversionTotal = showConversions ? stats.total : 0;
@@ -208,6 +212,7 @@ export async function loadAdminReport(env: Env, query: AdminQuery): Promise<Admi
       pagePaths: normalizePairs(access.pagePaths),
       apiPaths: normalizePairs(access.apiPaths),
       authTiers: normalizePairs(authTiers),
+      signupSources: normalizePairs(signupSources),
       topIps: normalizePairs(topIps),
       countries: normalizePairs(access.countries),
       outcomes: normalizePairs(outcomes),
@@ -315,6 +320,7 @@ function emptyReport(error: string, query: AdminQuery): AdminReport {
     pagePaths: [],
     apiPaths: [],
     authTiers: [],
+    signupSources: [],
     topIps: [],
     countries: [],
     outcomes: [],

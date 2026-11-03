@@ -220,6 +220,8 @@ export interface AdminReport {
   pagePaths: PairRow[];
   apiPaths: PairRow[];
   authTiers: PairRow[];
+  /** New accounts in the window by signup source ("direct" when none). */
+  signupSources: PairRow[];
   /** Conversions per caller IP, labelled with the network name. */
   topIps: PairRow[];
   countries: PairRow[];
