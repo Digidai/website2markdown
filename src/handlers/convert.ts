@@ -208,6 +208,28 @@ export function asFetchConvertError(error: unknown): ConvertError {
   );
 }
 
+/**
+ * Sites hosted in mainland China, government and university sites above all,
+ * often drop connections from outside China. Cloudflare has no mainland egress,
+ * so waiting the full 30 seconds only delays the same timeout. Those hosts get
+ * a shorter wait and an error that says why.
+ */
+const MAINLAND_FETCH_TIMEOUT = 10_000;
+/** Hosts outside .cn that timed out from every overseas location we tested. */
+const MAINLAND_ONLY_HOSTS = new Set(["www.tsrcw.com", "tsrcw.com"]);
+export const MAINLAND_TIMEOUT_MESSAGE =
+  "The site did not answer within 10 seconds. Many sites hosted in mainland China, especially government and university sites, refuse connections from outside China, and this service fetches from outside China.";
+
+export function isLikelyMainlandOnlyHost(raw: string): boolean {
+  let host = "";
+  try {
+    host = new URL(raw).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return host.endsWith(".cn") || MAINLAND_ONLY_HOSTS.has(host);
+}
+
 /** Bot walls answer these; other statuses are the page's real answer. */
 const BLOCKED_STATUSES = [401, 403, 429, 503];
 
@@ -1548,8 +1570,12 @@ async function tryStaticFetch(
 
   let response: Response;
   let cleanupFetchSignal = () => {};
+  const mainlandOnly = isLikelyMainlandOnlyHost(targetUrl);
   try {
-    const { signal, cleanup } = createTimeoutSignal(BROWSER_TIMEOUT, abortSignal);
+    const { signal, cleanup } = createTimeoutSignal(
+      mainlandOnly ? MAINLAND_FETCH_TIMEOUT : BROWSER_TIMEOUT,
+      abortSignal,
+    );
     cleanupFetchSignal = cleanup;
     const result = await fetchWithSafeRedirects(targetUrl, {
       headers: fetchHeaders,
@@ -1559,6 +1585,9 @@ async function tryStaticFetch(
     resolvedUrl = result.finalUrl;
   } catch (e) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
+    if (mainlandOnly && isTimeoutLikeError(e)) {
+      throw new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504);
+    }
     throw asFetchConvertError(e);
   } finally {
     cleanupFetchSignal();
