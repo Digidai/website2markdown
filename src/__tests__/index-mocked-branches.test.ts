@@ -838,6 +838,38 @@ describe("index mocked branch coverage", () => {
     expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
   });
 
+  it("gives up on an unanswering mainland China host after 10 seconds and says why", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    vi.useFakeTimers();
+    try {
+      const hang = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      }));
+      vi.stubGlobal("fetch", hang);
+      const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+        headers: { Accept: "application/json" },
+      }), createMockEnv().env, mockCtx());
+      let settled = false;
+      void pending.then(() => { settled = true; });
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_500);
+      const res = await pending;
+      const payload = await res.json() as { message?: string };
+      expect(res.status).toBe(504);
+      expect(payload.message).toContain("refuse connections from outside China");
+
+      const other = worker.fetch(new Request("https://md.example.com/https://www.example.com/a.html", {
+        headers: { Accept: "application/json" },
+      }), createMockEnv().env, mockCtx());
+      await vi.advanceTimersByTimeAsync(31_000);
+      const otherPayload = await (await other).json() as { message?: string };
+      expect(otherPayload.message).toContain("timed out after 30 seconds");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps a real 404 as an error instead of spending Context.dev credits", async () => {
     mocked.paywall.getPaywallRule.mockReturnValue(null);
     const fetchMock = vi.fn(async () => new Response("not found", { status: 404, headers: { "Content-Type": "text/html" } }));
