@@ -191,6 +191,7 @@ export function handleStream(
       const charged = chargedCreditCost(observability.creditCost ?? 0, {
         browserRendered,
         cacheHit,
+        bodyChars: result.bodyChars,
       });
       await send("done", {
         rawUrl: rawRequestPath,

@@ -8,6 +8,7 @@ type CachedPayload = {
   method: string;
   title: string;
   sourceContentType?: string;
+  bodyChars?: number;
 };
 
 /** In-process hot cache to reduce KV roundtrips and JSON parse overhead. */
@@ -143,6 +144,7 @@ function clonePayload(data: CachedPayload): CachedPayload {
     method: data.method,
     title: data.title,
     ...(data.sourceContentType ? { sourceContentType: data.sourceContentType } : {}),
+    ...(typeof data.bodyChars === "number" ? { bodyChars: data.bodyChars } : {}),
   };
 }
 
@@ -164,6 +166,7 @@ function parseCachedPayload(raw: string): CachedPayload | null {
     ...(typeof parsed.sourceContentType === "string" && parsed.sourceContentType
       ? { sourceContentType: parsed.sourceContentType }
       : {}),
+    ...(typeof parsed.bodyChars === "number" ? { bodyChars: parsed.bodyChars } : {}),
   };
 }
 

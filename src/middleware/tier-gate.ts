@@ -29,10 +29,19 @@ export function isPublicKeylessEngine(engine?: string): boolean {
   return !!engine && PUBLIC_KEYLESS_ENGINES.has(engine);
 }
 
+/**
+ * A result whose body (markdownBodyChars) is shorter than this is free: a
+ * title with no body, or a "暂无数据" shell. These count as successes, so
+ * without this they would be charged. A result without a measured body, such
+ * as a cache entry written before bodyChars was stored, is charged as usual.
+ */
+export const EMPTY_RESULT_MAX_CHARS = 100;
+
 export function chargedCreditCost(
   baseCost: number,
-  opts: { browserRendered: boolean; cacheHit: boolean },
+  opts: { browserRendered: boolean; cacheHit: boolean; bodyChars: number | undefined },
 ): number {
+  if (opts.bodyChars !== undefined && opts.bodyChars < EMPTY_RESULT_MAX_CHARS) return 0;
   if (baseCost <= 0 || opts.cacheHit || !opts.browserRendered) return Math.max(0, baseCost);
   return baseCost + BROWSER_CREDIT_SURCHARGE;
 }

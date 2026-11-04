@@ -98,7 +98,9 @@ your email to get an API key. No password; a sign-in link is emailed to you.
 Convert, stream, and each batch URL cost 1 credit. A successful live browser
 render on those routes costs 3. Cache hits stay at the route cost, including
 when the cached page was originally rendered in a browser. Failures are not
-charged.
+charged, and neither is a result whose body has fewer than 100
+non-whitespace characters (not counting the title or link and image URLs),
+such as a title with no body.
 
 | Endpoint | Credits |
 |---|---|

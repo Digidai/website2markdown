@@ -30,7 +30,7 @@ interface D1StatementCall {
 
 function convertResult(overrides: Partial<ConvertResult> = {}): ConvertResult {
   return {
-    content: "# converted\n\nBody",
+    content: `# converted\n\n${"Body text of the converted page. ".repeat(4)}`,
     title: "Converted",
     method: "native",
     tokenCount: "4",
@@ -643,6 +643,38 @@ describe("conversion observability", () => {
     expect(binds).not.toContain("cached@example.com");
     expect(binds).not.toContain("session_secret");
     expect(binds).not.toContain("acct_raw_456");
+  });
+
+  it("reports the same credit cost for a cached document page as it records", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const costFor = async (content: string, path: string, bodyChars?: number) => {
+      const { db } = createD1Mock({
+        sessionRow: {
+          session_id: "sess_raw_123",
+          account_id: "acct_raw_456",
+          expires_at: "2099-01-01T00:00:00.000Z",
+          email: "person@example.com",
+          tier: "pro",
+          github_id: null,
+        },
+      });
+      const { env, mocks } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+      mocks.kvGet.mockResolvedValueOnce(JSON.stringify({
+        content, method: "native", title: "Cached", sourceContentType: "text/markdown",
+        ...(bodyChars === undefined ? {} : { bodyChars }),
+      }));
+      const res = await worker.fetch(new Request(`https://md.example.com/https://example.com/${path}`, {
+        headers: { Accept: "text/html", "Sec-Fetch-Dest": "document", Cookie: "md_session=session_secret" },
+      }), env, mockCtx());
+      expect(res.status).toBe(200);
+      return res.headers.get("X-Request-Cost");
+    };
+
+    // Distinct URLs: the in-memory hot cache would otherwise serve the first page again.
+    expect(await costFor("# Cached\n\n暂无数据", "cached-shell", 4)).toBe("0");
+    expect(await costFor(`# Cached\n\n${"A real cached article paragraph. ".repeat(5)}`, "cached-article", 140)).toBe("1");
+    // An entry cached before bodyChars was stored is charged as before.
+    expect(await costFor("# Cached\n\n暂无数据", "cached-legacy")).toBe("1");
   });
 
   it("writes short-lived redacted debug trace for authenticated opt-in callers", async () => {

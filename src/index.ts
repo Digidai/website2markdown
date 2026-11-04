@@ -983,6 +983,11 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         if (!noCache && !forceBrowser) {
           const cached = await getCached(env, targetUrl, "markdown", selector, engine);
           if (cached) {
+            const cachedCharge = chargedCreditCost(policy.creditCost, {
+              browserRendered: false,
+              cacheHit: true,
+              bodyChars: cached.bodyChars,
+            });
             incrementCounter("conversionsTotal");
             incrementCounter("cacheHits");
             logMetric("convert.cache_hit", {
@@ -1009,13 +1014,13 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
               selector,
               forceBrowser,
               noCache,
-              creditCost: policy.creditCost,
+              creditCost: cachedCharge,
               quotaRemaining: policy.quotaRemaining,
               debugTrace: eventDebugTrace,
             }));
             recordUsage(
               auth,
-              policy.creditCost,
+              cachedCharge,
               cached.method === "browser+readability+turndown",
               true,
             );
@@ -1040,6 +1045,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
             for (const [k, v] of Object.entries(policyHeaders(policy, auth))) {
               resp.headers.set(k, v);
             }
+            if (policy.tier !== "anonymous") resp.headers.set("X-Request-Cost", String(cachedCharge));
             resp.headers.set("X-Request-ID", requestId);
             return resp;
           }
@@ -1164,6 +1170,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       const charged = chargedCreditCost(policy.creditCost, {
         browserRendered: liveBrowser,
         cacheHit,
+        bodyChars: result.bodyChars,
       });
       recordUsage(auth, charged, liveBrowser, cacheHit);
       if (shouldFlush()) {

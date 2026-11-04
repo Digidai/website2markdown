@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { browserAllowedForRequest, buildPolicy, chargedCreditCost, checkPolicy, isPublicKeylessEngine } from "../middleware/tier-gate";
+import { browserAllowedForRequest, buildPolicy, chargedCreditCost, checkPolicy, EMPTY_RESULT_MAX_CHARS, isPublicKeylessEngine } from "../middleware/tier-gate";
+import { markdownBodyChars } from "../helpers/format";
 import type { AuthContext } from "../types";
 
 function auth(tier: AuthContext["tier"]): AuthContext {
@@ -59,10 +60,41 @@ describe("tier gate engine policy", () => {
 
 describe("browser credit surcharge", () => {
   it("charges 3 for a live browser success and keeps cache hits at the route cost", () => {
-    expect(chargedCreditCost(1, { browserRendered: true, cacheHit: false })).toBe(3);
-    expect(chargedCreditCost(1, { browserRendered: true, cacheHit: true })).toBe(1);
-    expect(chargedCreditCost(1, { browserRendered: false, cacheHit: false })).toBe(1);
-    expect(chargedCreditCost(0, { browserRendered: true, cacheHit: false })).toBe(0);
+    const full = { bodyChars: 220 };
+    expect(chargedCreditCost(1, { browserRendered: true, cacheHit: false, ...full })).toBe(3);
+    expect(chargedCreditCost(1, { browserRendered: true, cacheHit: true, ...full })).toBe(1);
+    expect(chargedCreditCost(1, { browserRendered: false, cacheHit: false, ...full })).toBe(1);
+    expect(chargedCreditCost(0, { browserRendered: true, cacheHit: false, ...full })).toBe(0);
+  });
+
+  it("does not charge for a nearly empty body, and charges an unmeasured one as usual", () => {
+    const charge = (bodyChars: number | undefined) =>
+      chargedCreditCost(1, { browserRendered: true, cacheHit: false, bodyChars });
+    expect(charge(markdownBodyChars("# 会计信息\n\n暂无数据"))).toBe(0);
+    expect(charge(undefined)).toBe(3);
+
+    // The title line is removed once; body text that repeats it still counts.
+    expect(markdownBodyChars(`# Test title\n\n${"x".repeat(95)}`)).toBe(95);
+    expect(markdownBodyChars(`Ten chars!\n==========\n\n${"x".repeat(95)}`)).toBe(95);
+    expect(markdownBodyChars(`# Hello world\n\nHello world ${"x".repeat(90)}`)).toBe(100);
+    // Image and link URLs are not body, even with parentheses inside them.
+    const images = `# Gallery\n\n${`![](https://cdn.example.com/${"sig".repeat(300)})\n`.repeat(3)}`;
+    expect(markdownBodyChars(images)).toBe(6);
+    expect(markdownBodyChars(`![](https://cdn.example.com/(original)/${"f".repeat(150)}.png)`)).toBe(2);
+    expect(markdownBodyChars(`[a](https://e.com/a\\)b)${"y".repeat(5)}`)).toBe(7);
+    // Everything else counts as written, code included.
+    const code = `handlers[key]("${"z".repeat(200)}")`;
+    expect(markdownBodyChars("```js\n" + code + "\n```")).toBe(code.length + 8);
+    expect(markdownBodyChars("`" + code + "`")).toBe(code.length + 2);
+    expect(markdownBodyChars("A-B ".repeat(40))).toBe(120);
+    expect(charge(markdownBodyChars("x".repeat(EMPTY_RESULT_MAX_CHARS)))).toBe(3);
+
+    // Untrusted input is scanned in linear time.
+    const started = Date.now();
+    for (const hostile of ["](".repeat(500_000), "[".repeat(1_000_000), " ".repeat(1_000_000) + "#", " ".repeat(1_000_000) + "x\n=".repeat(10)]) {
+      markdownBodyChars(hostile, Infinity);
+    }
+    expect(Date.now() - started).toBeLessThan(500);
   });
 
   it("refuses force_browser when the account cannot pay for a render", () => {

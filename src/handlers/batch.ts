@@ -241,7 +241,7 @@ export async function handleBatch(
         );
         recordUsage(
           access.auth,
-          chargedCreditCost(access.policy.creditCost, { browserRendered: liveBrowser, cacheHit }),
+          chargedCreditCost(access.policy.creditCost, { browserRendered: liveBrowser, cacheHit, bodyChars: result.bodyChars }),
           liveBrowser,
           cacheHit,
         );
