@@ -131,6 +131,35 @@ describe("anonymous origin failure cache", () => {
     const remembered = mocks.kvPut.mock.calls.filter((call) => String(call[0]).includes("https://md-neg/"));
     expect(remembered).toHaveLength(0);
   });
+
+  it("fails a deleted or video WeChat post on the first fetch and remembers it", async () => {
+    const wechatPage = (body: string) => new Response(`<html><body>${body}</body></html>`, {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+    const deleted = '<div class="weui-msg"><h2 class="weui-msg__title">此内容发送失败无法查看</h2></div>';
+    const video = `<script>var x = { item_show_type: '5' * 1 };</script>
+      <div id="js_content" class="share_notice_wrp"></div>`;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      wechatPage(String(input instanceof Request ? input.url : input).includes("deleted") ? deleted : video));
+    vi.stubGlobal("fetch", fetchMock);
+    const { env } = createMockEnv({ BROWSER_USE_API_KEY: "bu-key" });
+
+    const first = await convert("https://md.example.com/https://mp.weixin.qq.com/s/deleted?raw=true", env);
+    expect(first.status).toBe(410);
+    expect((await first.json() as { message?: string }).message).toContain("deleted or blocked");
+    // Only the static fetch ran; Browser Use and the proxy were skipped.
+    const afterFirst = fetchMock.mock.calls.length;
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("browser-use"))).toBe(false);
+
+    const again = await convert("https://md.example.com/https://mp.weixin.qq.com/s/deleted?raw=true", env);
+    expect(again.status).toBe(410);
+    expect(fetchMock.mock.calls.length).toBe(afterFirst);
+
+    const videoRes = await convert("https://md.example.com/https://mp.weixin.qq.com/s/video?raw=true", env);
+    expect(videoRes.status).toBe(422);
+    expect((await videoRes.json() as { message?: string }).message).toContain("video");
+  });
 });
 
 describe("anonymous search-page gate", () => {

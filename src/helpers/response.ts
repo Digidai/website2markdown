@@ -53,6 +53,8 @@ export class ConvertError extends Error {
     public readonly statusCode: number,
     /** Origin HTTP status when this failure is safe to remember for anonymous retries. */
     public readonly targetStatus?: number,
+    /** True when replayed from the negative cache instead of a fresh origin fetch. */
+    public readonly fromCache = false,
   ) {
     super(message);
   }

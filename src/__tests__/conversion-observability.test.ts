@@ -247,6 +247,29 @@ describe("conversion observability", () => {
     expect(logged).not.toContain("example.com");
   });
 
+  it("records a negative-cache replay as a cache hit, and a fresh failure as a miss", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const cacheStatusFor = async (fromCache: boolean) => {
+      vi.mocked(convertUrlWithMetrics).mockRejectedValueOnce(
+        new ConvertError("Fetch Failed", "Could not fetch the target URL. Status: 410 Gone", 502, 410, fromCache),
+      );
+      const { db, statements } = createD1Mock();
+      const { env } = createMockEnv({ AUTH_DB: db, ANALYTICS_SALT: "test-salt" });
+      const ctx = mockCtx();
+      const res = await worker.fetch(new Request(
+        "https://md.example.com/https://example.com/gone?raw=true",
+        { headers: { Accept: "application/json" } },
+      ), env, ctx);
+      await flushWaitUntil(ctx);
+      expect(res.status).toBe(502);
+      const binds = aggregateStatements(statements)[0].binds;
+      return ["hit", "miss"].filter((status) => binds.includes(status));
+    };
+
+    expect(await cacheStatusFor(true)).toEqual(["hit"]);
+    expect(await cacheStatusFor(false)).toEqual(["miss"]);
+  });
+
   it("records unexpected errors without changing the generic 500 response", async () => {
     vi.mocked(convertUrlWithMetrics).mockRejectedValue(
       new Error("boom secret=raw_secret"),
