@@ -178,6 +178,10 @@ describe("isValidUrl", () => {
   it("rejects file names joined as hosts but keeps real TLDs that look like extensions", () => {
     expect(isValidUrl("https://ads.txt")).toBe(false);
     expect(isValidUrl("https://sellers.json/")).toBe(false);
+    expect(isValidUrl("https://phpinfo.php.bak/")).toBe(false);
+    expect(isValidUrl("https://info.php.old")).toBe(false);
+    expect(isValidUrl("https://phpinfo.php.save/")).toBe(false);
+    expect(isValidUrl("https://shop.save/")).toBe(true);
     expect(isValidUrl("https://cdn.example.com.js/x")).toBe(false);
     expect(isValidUrl("https://example.com/ads.txt")).toBe(true);
     expect(isValidUrl("https://github.zip")).toBe(true);

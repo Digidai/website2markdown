@@ -337,3 +337,25 @@ describe("anonymous search-page gate", () => {
     expect(fetchMock.mock.calls.length).toBe(afterFirst);
   });
 });
+
+describe("billable body length", () => {
+  it("is the same for markdown, html, text, and json output of one page, and survives the cache", async () => {
+    const page = `<!doctype html><html><head><title>Test title</title></head><body><article>
+      <h1>Test title</h1><p>${"x".repeat(95)}</p></article></body></html>`;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(page, {
+      status: 200, headers: { "Content-Type": "text/html; charset=utf-8" },
+    })));
+    const { env } = createMockEnv();
+    const lengths = [];
+    for (const format of ["markdown", "html", "text", "json"] as const) {
+      const result = await convertUrl("https://body-length.example/post", env, "md.example.com", format, undefined, false, false);
+      lengths.push(result.bodyChars);
+      const cached = await convertUrl("https://body-length.example/post", env, "md.example.com", format, undefined, false, false);
+      expect(cached.cached).toBe(true);
+      expect(cached.bodyChars).toBe(result.bodyChars);
+    }
+    expect(new Set(lengths).size).toBe(1);
+    expect(lengths[0]).toBeLessThan(100);
+  });
+});
+

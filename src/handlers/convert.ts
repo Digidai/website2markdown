@@ -41,6 +41,7 @@ import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/we
 import { isFeishuDocumentUrl } from "../browser/adapters/feishu";
 import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
 import { substackAdapter } from "../browser/adapters/substack";
+import { mediumArticleFromFeed, mediumFeedFor } from "../medium-feed";
 import {
   applyPaywallHeaders,
   extractJsonLdArticle,
@@ -61,7 +62,7 @@ import {
   isNegativeOriginStatus,
   anonymousBlockMessage,
 } from "../policy/anonymous-guards";
-import { formatOutput } from "../helpers/format";
+import { formatOutput, markdownBodyChars } from "../helpers/format";
 import { trackProvider } from "../observability/provider-attempts";
 
 // ─── 错误类 ──────────────────────────────────────────────────
@@ -348,6 +349,8 @@ export interface ConvertResult {
   title: string;
   method: ConvertMethod;
   tokenCount: string;
+  /** markdownBodyChars of the markdown before formatting; absent on cache entries written before it was stored. */
+  bodyChars?: number;
   sourceContentType: string;
   cached: boolean;
   diagnostics: ConvertDiagnostics;
@@ -414,6 +417,7 @@ export async function convertUrl(
         title: cached.title || "",
         method: cached.method as ConvertMethod,
         tokenCount: "",
+        bodyChars: cached.bodyChars,
         sourceContentType: resolveCachedSourceContentType(
           cached.method,
           cached.sourceContentType,
@@ -538,6 +542,7 @@ async function tryFirecrawlFastPath(
     firecrawlResult.title,
     "firecrawl",
   );
+  const outputBodyChars = markdownBodyChars(firecrawlResult.markdown);
 
   if (!noCache) {
     await setCache(
@@ -547,6 +552,7 @@ async function tryFirecrawlFastPath(
         method: "firecrawl",
         title: firecrawlResult.title,
         sourceContentType,
+        bodyChars: outputBodyChars,
       },
       selector, undefined, engine,
     );
@@ -557,6 +563,7 @@ async function tryFirecrawlFastPath(
     title: firecrawlResult.title,
     method: "firecrawl",
     tokenCount: "",
+    bodyChars: outputBodyChars,
     sourceContentType,
     cached: false,
     diagnostics: {
@@ -582,11 +589,12 @@ async function buildExternalMarkdownResult(
 ): Promise<ConvertResult> {
   const sourceContentType = "text/markdown";
   const output = formatOutput(markdown, format, targetUrl, title, method);
+  const outputBodyChars = markdownBodyChars(markdown);
 
   if (!noCache) {
     await setCache(
       env, targetUrl, format,
-      { content: output, method, title, sourceContentType },
+      { content: output, method, title, sourceContentType, bodyChars: outputBodyChars },
       selector, undefined, engine,
     );
   }
@@ -596,6 +604,7 @@ async function buildExternalMarkdownResult(
     title,
     method,
     tokenCount: "",
+    bodyChars: outputBodyChars,
     sourceContentType,
     cached: false,
     diagnostics: {
@@ -689,11 +698,12 @@ async function tryJinaFastPath(
   const sourceContentType = "text/markdown";
 
   const output = formatOutput(jinaMarkdown, format, targetUrl, jinaTitle, "jina");
+  const outputBodyChars = markdownBodyChars(jinaMarkdown);
 
   if (!noCache) {
     await setCache(
       env, targetUrl, format,
-      { content: output, method: "jina", title: jinaTitle, sourceContentType },
+      { content: output, method: "jina", title: jinaTitle, sourceContentType, bodyChars: outputBodyChars },
       selector, undefined, engine,
     );
   }
@@ -703,6 +713,7 @@ async function tryJinaFastPath(
     title: jinaTitle,
     method: "jina",
     tokenCount: "",
+    bodyChars: outputBodyChars,
     sourceContentType,
     cached: false,
     diagnostics: {
@@ -745,10 +756,11 @@ async function tryCfRestApi(
       const sourceContentType = "text/markdown";
 
       const output = formatOutput(cfResult.markdown, format, targetUrl, cfTitle, "cf");
+      const outputBodyChars = markdownBodyChars(cfResult.markdown);
 
       if (!noCache) {
         await setCache(env, targetUrl, format, {
-          content: output, method: "cf", title: cfTitle, sourceContentType,
+          content: output, method: "cf", title: cfTitle, sourceContentType, bodyChars: outputBodyChars,
         }, selector, undefined, engine);
       }
 
@@ -757,6 +769,7 @@ async function tryCfRestApi(
         title: cfTitle,
         method: "cf" as ConvertMethod,
         tokenCount: "",
+        bodyChars: outputBodyChars,
         sourceContentType,
         cached: false,
         diagnostics: {
@@ -1218,7 +1231,7 @@ async function tryFetchAndParse(
     throwIfAborted(abortSignal);
     await setCache(
       env, targetUrl, format,
-      { content: output, method, title: extractedTitle, sourceContentType },
+      { content: output, method, title: extractedTitle, sourceContentType, bodyChars: markdownBodyChars(markdown) },
       selector, undefined, engine,
     );
   }
@@ -1228,6 +1241,7 @@ async function tryFetchAndParse(
     title: extractedTitle,
     method,
     tokenCount: "",
+    bodyChars: markdownBodyChars(markdown),
     sourceContentType,
     cached: false,
     diagnostics: {
@@ -1276,6 +1290,45 @@ async function tryAnonymousProxy(
     return null;
   }
   return tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress);
+}
+
+/**
+ * Reads a blocked Medium post from its author's or publication's RSS feed.
+ * Medium answers feed reads from Cloudflare egress with 429, so a failed
+ * direct read retries through the proxy (the anonymous one within its budget).
+ */
+async function tryMediumFeed(
+  url: string,
+  env: Env,
+  fallbacks: Set<string>,
+  abortSignal: AbortSignal | undefined,
+  progress: (step: string, label: string) => void | Promise<void>,
+  providerApiKeysAllowed: boolean,
+): Promise<string | null> {
+  const target = mediumFeedFor(url);
+  if (!target) return null;
+  await progress("fetch", "Reading the Medium feed");
+  let xml = "";
+  const { signal, cleanup } = createTimeoutSignal(8_000, abortSignal);
+  try {
+    const resp = await fetch(target.feedUrl, {
+      headers: { "User-Agent": DESKTOP_UA, Accept: "application/rss+xml, application/xml;q=0.9, */*;q=0.8" },
+      signal,
+    });
+    if (resp.ok) xml = await resp.text();
+  } catch {
+    if (abortSignal?.aborted) throw new RequestAbortedError();
+  } finally {
+    cleanup();
+  }
+  if (!xml.includes("<item>")) {
+    xml = (providerApiKeysAllowed
+      ? await tryDirectProxyFetch(target.feedUrl, env, fallbacks, abortSignal, progress)
+      : await tryAnonymousProxy(target.feedUrl, env, fallbacks, abortSignal, progress)) ?? "";
+  }
+  const html = mediumArticleFromFeed(xml, target.postId);
+  if (html) fallbacks.add("medium_feed");
+  return html;
 }
 
 /**
@@ -1656,6 +1709,13 @@ async function tryStaticFetch(
     }
   }
 
+  // Medium challenges every page; its RSS feed still has recent free posts.
+  // Before the paywall archives, which cost ~10s and fail for Medium.
+  if (staticFailed && !forceBrowser && !finalHtml && BLOCKED_STATUSES.includes(response.status)) {
+    const mediumHtml = await tryMediumFeed(resolvedUrl, env, fallbacks, abortSignal, progress, providerApiKeysAllowed);
+    if (mediumHtml) finalHtml = mediumHtml;
+  }
+
   if (staticFailed && !forceBrowser && !finalHtml) {
     if (getPaywallRule(resolvedUrl)) {
       paywallDetected = true;
@@ -1827,7 +1887,7 @@ async function tryStaticFetch(
         throwIfAborted(abortSignal);
         await setCache(
           env, targetUrl, format,
-          { content: nativeOutput, method: "native", title: "", sourceContentType },
+          { content: nativeOutput, method: "native", title: "", sourceContentType, bodyChars: markdownBodyChars(body) },
           selector, undefined, engine,
         );
       }
@@ -1838,6 +1898,7 @@ async function tryStaticFetch(
           title: "",
           method: "native",
           tokenCount,
+          bodyChars: markdownBodyChars(body),
           sourceContentType,
           cached: false,
           diagnostics: {

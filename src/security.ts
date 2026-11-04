@@ -382,7 +382,10 @@ export function isSafeUrl(url: string): boolean {
   }
 }
 
-const FILE_EXTENSION_HOST = /\.(txt|json|xml|html?|php|aspx?|js|css|jpe?g|png|gif|svg|ico|webp)$/i;
+// A trailing backup suffix (phpinfo.php.bak, info.php.old) is the same probe.
+// The suffix only counts after a file extension, so a real .save domain still works.
+const FILE_EXTENSION_HOST =
+  /\.(txt|json|xml|html?|php|aspx?|js|css|jpe?g|png|gif|svg|ico|webp)(\.(bak|old|save|swp|orig|tmp|backup|\d+))?$/i;
 
 /** Check that the URL is valid HTTP(S). */
 export function isValidUrl(url: string): boolean {

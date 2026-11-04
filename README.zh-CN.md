@@ -95,7 +95,7 @@ API key。无需密码，登录链接会发到你的邮箱。
 | **Free** | 1,000 credits | 有。一次真实渲染计 3 credits | `engine=jina` 和 `engine=firecrawl`。`engine=cf`、proxy、`no_cache` 需要 Pro |
 | **Pro** | 50,000 credits | 有。一次真实渲染计 3 credits | 全部引擎，以及 `no_cache` 和 `force_browser` |
 
-转换、stream，以及 batch 里的每个 URL 计 1 credit。这些接口上一次成功的真实浏览器渲染计 3 credits。缓存命中保持该接口原价，即使缓存内容当初来自浏览器。失败不计费。
+转换、stream，以及 batch 里的每个 URL 计 1 credit。这些接口上一次成功的真实浏览器渲染计 3 credits。缓存命中保持该接口原价，即使缓存内容当初来自浏览器。失败不计费；正文非空白字符不足 100 个的结果（不计标题和链接、图片地址，例如只有标题、没有正文）也不计费。
 
 | 端点 | Credits |
 |---|---|
