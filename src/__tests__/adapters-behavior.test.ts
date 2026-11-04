@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { genericAdapter } from "../browser/adapters/generic";
-import { wechatAdapter } from "../browser/adapters/wechat";
+import { hasWechatArticleBody, wechatAdapter } from "../browser/adapters/wechat";
 import { redditAdapter } from "../browser/adapters/reddit";
 import { neteaseAdapter } from "../browser/adapters/netease";
 import { feishuAdapter, isFeishuDocumentUrl } from "../browser/adapters/feishu";
@@ -142,6 +142,22 @@ describe("adapter behavior", () => {
     const processed = wechatAdapter.postProcess!(html);
     expect(processed).toContain("Brief article prose.");
     expect(processed).not.toContain("点击右上角");
+  });
+
+  it("wechat keeps an image article whose text opens with a QR-code prompt", () => {
+    const html = `<html><head><title>校招</title></head><body>
+      <div id="js_content"><p><img data-src="https://mmbiz.qpic.cn/a.jpg"></p>
+        <p>扫描二维码查看央企校招专栏</p><p><img data-src="https://mmbiz.qpic.cn/b.jpg"></p></div>
+    </body></html>`;
+
+    expect(hasWechatArticleBody(html)).toBe(true);
+    expect(wechatAdapter.postProcess!(html)).toContain("mmbiz.qpic.cn/b.jpg");
+
+    const qrNotice = (cls: string, images: number) => `<html><body>
+      <div id="js_content" class="${cls}"><p>扫描二维码分享给朋友</p>
+        ${'<img data-src="https://mmbiz.qpic.cn/qr.png">'.repeat(images)}</div></body></html>`;
+    expect(hasWechatArticleBody(qrNotice("rich_media_content", 1))).toBe(false);
+    expect(hasWechatArticleBody(qrNotice("share_notice_wrp", 3))).toBe(false);
   });
 
   it("wechat postProcess promotes js_content into a focused article document", () => {

@@ -44,7 +44,13 @@ function contentScore(node: any, title: string): number {
   // A share notice may precede the real article in another js_content node.
   const shareNotice = /^(?:点击右上角|长按|扫码|扫描二维码|分享给|转发给|请在微信)/.test(text);
   const paragraphs = copy.querySelectorAll?.("p").length || 0;
-  return text.length + paragraphs * 50 + mediaCount * 50 - (shareNotice ? 1000 : 0);
+  const score = text.length + paragraphs * 50 + mediaCount * 50;
+  if (!shareNotice) return score;
+  // Rank a notice last. Image articles often open with a "扫描二维码" prompt, so
+  // several images still make a body; a lone QR code or WeChat's own share
+  // notice container does not.
+  const imageArticle = mediaCount >= 2 && !/\bshare_notice_wrp\b/.test(node.getAttribute?.("class") || "");
+  return Math.max(imageArticle ? 0 : -1, score - 1000);
 }
 
 function bestWechatContent(document: any): any | null {

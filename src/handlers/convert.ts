@@ -274,6 +274,37 @@ export function isWechatVerificationHtml(body: string): boolean {
   );
 }
 
+/**
+ * WeChat pages that no fallback can turn into an article: a deleted or blocked
+ * post, or a video post. targetStatus 410 lets anonymous repeats hit the
+ * negative cache for a day instead of rerunning the remote browser and proxy.
+ */
+export function wechatUnavailableError(html: string): ConvertError | null {
+  if (/weui-msg__title[^>]*>[^<]*(?:无法查看|删除|违规|停止访问)/.test(html)) {
+    return new ConvertError(
+      "Content Unavailable",
+      "This WeChat article was deleted or blocked by WeChat and cannot be viewed.",
+      410,
+      410,
+    );
+  }
+  if (/\bitem_show_type\s*[:=]\s*['"]5['"]/.test(html)) {
+    return new ConvertError(
+      "Unsupported Content",
+      "This WeChat post is a video and has no article text to convert.",
+      422,
+      410,
+    );
+  }
+  return null;
+}
+
+function throwIfWechatUnavailable(targetUrl: string, html: string): void {
+  if (!targetUrl.includes("mp.weixin.qq.com")) return;
+  const error = wechatUnavailableError(html);
+  if (error) throw error;
+}
+
 function isWechatVerificationUrl(url: string): boolean {
   try {
     return new URL(url).pathname.toLowerCase().includes("wappoc_appmsgcaptcha");
@@ -406,6 +437,7 @@ export async function convertUrl(
         negative.message,
         negative.statusCode,
         negative.targetStatus,
+        true,
       );
     }
   }
@@ -835,6 +867,7 @@ async function tryFetchAndParse(
       paywallDetected = staticResult.paywallDetected;
       sourceContentType = staticResult.sourceContentType;
       if (finalHtml && !hasWechatArticleBody(finalHtml)) {
+        throwIfWechatUnavailable(targetUrl, finalHtml);
         finalHtml = "";
         wechatShellSeen = true;
       }
@@ -874,6 +907,7 @@ async function tryFetchAndParse(
           );
         }
         if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(buHtml)) {
+          throwIfWechatUnavailable(targetUrl, buHtml);
           wechatShellSeen = true;
         } else {
           finalHtml = buHtml;
@@ -895,6 +929,7 @@ async function tryFetchAndParse(
           );
         }
         if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(proxyResult)) {
+          throwIfWechatUnavailable(targetUrl, proxyResult);
           wechatShellSeen = true;
         } else {
           finalHtml = proxyResult;
@@ -908,6 +943,7 @@ async function tryFetchAndParse(
       );
       if (rescued) {
         if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(rescued)) {
+          throwIfWechatUnavailable(targetUrl, rescued);
           wechatShellSeen = true;
         } else {
           finalHtml = rescued;
@@ -961,6 +997,7 @@ async function tryFetchAndParse(
     );
   }
   if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(finalHtml)) {
+    throwIfWechatUnavailable(targetUrl, finalHtml);
     throw new ConvertError(
       "Fetch Failed",
       "WeChat returned only page controls or a title, without article content.",
