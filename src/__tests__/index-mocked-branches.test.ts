@@ -1200,6 +1200,22 @@ describe("index mocked branch coverage", () => {
     expect(res.status).toBe(200);
   });
 
+  it("fails as blocked when a browser render is only a denial title", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><div id=\"app\"></div></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({ markdown: "# Access Denied - Macy's\n\nAccess Denied - Macy's", title: "Access Denied - Macy's", contentHtml: "" });
+
+    const req = new Request("https://md.example.com/https://example.com/shop?force_browser=true", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(502);
+    expect((await res.json() as { code?: string }).code).toBe("target_blocked");
+  });
+
   it("does not take a provider's cut-down copy of the block page as a rescue", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("https://r.jina.ai/")
       ? Response.json({ code: 200, data: { title: "Access Denied - Macy's", content: "# Access Denied - Macy's\n\nAccess Denied - Macy's" } })
