@@ -344,7 +344,7 @@ const ARTICLE_TYPES = new Set([
  */
 export function extractJsonLdArticle(html: string): string | null {
   // Find all <script type="application/ld+json"> blocks
-  const regex = /<script\s+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  const regex = /<script\s+type\s*=\s*["']application\/ld\+json["'][^<>]*>([\s\S]*?)<\/script>/gi;
   let match: RegExpExecArray | null;
   const candidates: Array<{ headline: string; body: string }> = [];
 

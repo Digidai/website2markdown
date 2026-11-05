@@ -51,7 +51,7 @@ describe("extractEmbeddedArticles", () => {
       ],
     };
     const html = `<script>Fusion.globalContent=${JSON.stringify(fusion)};Fusion.spa=true;</script>`;
-    const [article] = extractEmbeddedArticles(html, "");
+    const [article] = extractEmbeddedArticles(html, "", "https://news.example.com/harbour");
     expect(article.source).toBe("fusion");
     expect(article.html).toContain("<title>Harbour vote</title>");
     expect(article.html).toContain("<h3>What comes next</h3>");
@@ -61,28 +61,64 @@ describe("extractEmbeddedArticles", () => {
     expect(article.html).not.toContain("advert");
   });
 
-  it("takes the article HTML from __NEXT_DATA__, not longer non-article strings", () => {
-    const data = {
+  const nextData = (data: unknown) =>
+    `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+  const paragraphs = (list: string[]) => list.map((p) => `<p>${p}</p>`).join("");
+
+  it("takes the requested article's HTML from __NEXT_DATA__, not longer non-article strings", () => {
+    const html = nextData({
       props: {
         pageProps: {
-          data: { body: `<html><body><div>${PARAGRAPHS.map((p) => `<p>${p}</p>`).join("")}</div></body></html>` },
+          data: {
+            path: "/business/harbour-vote-delayed",
+            body: `<html><body><div>${paragraphs(PARAGRAPHS)}</div></body></html>`,
+          },
           stylesheet: "x".repeat(5000),
           svg: `<svg>${"<path d='M0'/>".repeat(400)}</svg>`,
         },
       },
-    };
-    const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
-    const [article] = extractEmbeddedArticles(html, "Harbour vote");
+    });
+    const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/business/harbour-vote-delayed");
     expect(article.source).toBe("next_data");
     expect(article.html).toContain("<p>Paragraph 12 reports");
     const inner = article.html.slice(article.html.indexOf("<article>"), article.html.indexOf("</article>"));
     expect(inner).not.toMatch(/<\/?(?:html|body)\b/);
   });
 
+  it("skips a longer related article, even when an outer record names the page", () => {
+    const related = Array.from({ length: 40 }, (_, i) => `Related story paragraph ${i + 1} about a different town entirely.`);
+    const html = nextData({
+      props: {
+        pageProps: {
+          slug: "harbour-vote-delayed",
+          article: { headline: "Council delays the harbour vote", body: paragraphs(PARAGRAPHS) },
+          relatedArticles: [{ headline: "A different town votes", body: paragraphs(related) }],
+        },
+      },
+    });
+    const [article] = extractEmbeddedArticles(
+      html, "Council delays the harbour vote | Example News", "https://news.example.com/2026/11/harbour-vote-delayed",
+    );
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("different town");
+  });
+
+  it("ignores page state that does not name the requested article", () => {
+    const html = nextData({ props: { pageProps: { story: { url: "https://news.example.com/other-story", body: paragraphs(PARAGRAPHS) } } } });
+    expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")).toEqual([]);
+  });
+
+  it("stays linear on HTML with many unclosed angle brackets", () => {
+    const html = nextData({ props: { article: { slug: "harbour-vote-delayed", body: `<p>${PARAGRAPHS.join(" ")}</p>${"<".repeat(200_000)}` } } });
+    const started = performance.now();
+    extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("ignores short teasers and unparsable state", () => {
     const html = `<script id="__NEXT_DATA__" type="application/json">{"props":{"teaser":"<p>Short.</p>"}}</script>
       <script>window.__INITIAL_STATE__ = {"a": undefined};</script>`;
-    expect(extractEmbeddedArticles(html, "T")).toEqual([]);
+    expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")).toEqual([]);
   });
 });
 
@@ -110,7 +146,7 @@ describe("WordPress REST", () => {
 describe("embedded article fallback in conversion", () => {
   it("replaces a truncated page with the full body from __NEXT_DATA__", async () => {
     const body = [...PARAGRAPHS, LAST].map((p) => `<p>${p}</p>`).join("");
-    const data = { props: { pageProps: { data: { body } } } };
+    const data = { props: { pageProps: { data: { url: "https://news.example.com/2026/11/harbour-vote", body } } } };
     const url = "https://news.example.com/2026/11/harbour-vote";
     stubPages({
       [url]: {
@@ -153,7 +189,7 @@ describe("embedded article fallback in conversion", () => {
       [url]: {
         body: htmlPage(
           `<link rel="alternate" type="application/json" href="${api}">`,
-          `<article><h1>Harbour vote</h1><p>${PARAGRAPHS[0]}</p><div class="gate">Subscribe to continue reading.</div></article>`,
+          `<article><h1>Harbour vote</h1><p>${PARAGRAPHS[0]}</p><div class="paywall">Subscribe to continue reading.</div></article>`,
         ),
       },
       [api]: {

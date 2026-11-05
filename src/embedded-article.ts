@@ -20,9 +20,19 @@ const MIN_TEXT_CHARS = 500;
 /** Bounds the walk over large page-state blobs. */
 const MAX_WALK_NODES = 200_000;
 
+/**
+ * A tag. `[^<>]` rather than `[^>]` keeps every scan linear: an unclosed `<`
+ * stops at the next `<` instead of rescanning the rest of the string.
+ */
+const TAG = /<[^<>]*>/g;
+
+function stripTags(html: string): string {
+  return html.replace(TAG, "");
+}
+
 /** Non-whitespace characters of text, the same measure as markdownBodyChars. */
 export function htmlTextChars(html: string): number {
-  return html.replace(/<[^>]*>/g, "").replace(/\s+/g, "").length;
+  return stripTags(html).replace(/\s+/g, "").length;
 }
 
 function escapeHtml(s: string): string {
@@ -37,7 +47,7 @@ function wrapArticle(title: string, body: string): string {
 
 /** Drops the document wrapper some CMSs leave around a stored body. */
 function stripDocumentTags(html: string): string {
-  return html.replace(/<!DOCTYPE[^>]*>|<\/?(?:html|head|body)\b[^>]*>/gi, "");
+  return html.replace(/<!DOCTYPE[^<>]*>|<\/?(?:html|head|body)\b[^<>]*>/gi, "");
 }
 
 /**
@@ -73,16 +83,87 @@ function readAssignedJson(html: string, marker: RegExp): unknown {
   return match ? readJsonObject(html, match.index + match[0].length) : null;
 }
 
-/** The longest string in `data` that is article HTML (has paragraphs). */
-function longestHtmlString(data: unknown): string | null {
+/** What identifies the requested article among the records in page state. */
+interface ArticleIdentity {
+  path: string;
+  slug: string;
+  title: string;
+}
+
+function normalizeText(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function articleIdentity(pageUrl: string, title: string): ArticleIdentity {
+  let path = "";
+  try {
+    path = decodeURIComponent(new URL(pageUrl).pathname).replace(/\/+$/, "").toLowerCase();
+  } catch {
+    /* keep empty */
+  }
+  const slug = path.split("/").pop() ?? "";
+  const normalizedTitle = normalizeText(title);
+  return {
+    path: path.length > 1 ? path : "",
+    slug: slug.length >= 8 ? slug : "",
+    title: normalizedTitle.length >= 12 ? normalizedTitle : "",
+  };
+}
+
+/** Keys whose value says which article a record is. */
+const IDENTITY_KEY = /^(?:url|canonical_?url|path|slug|permalink|link|headline|title)$/i;
+
+/**
+ * Whether a record names the requested article: true if one of its own short
+ * string values is the article's URL, path, slug, or headline; false if it has
+ * identity keys that name something else; null if it has no identity keys.
+ */
+function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null {
+  if (namesArticle(record, id)) return true;
+  const hasIdentity = Object.entries(record).some(([key, value]) => typeof value === "string" && IDENTITY_KEY.test(key));
+  return hasIdentity ? false : null;
+}
+
+function namesArticle(record: object, id: ArticleIdentity): boolean {
+  for (const value of Object.values(record)) {
+    if (typeof value !== "string" || value.length > 2000) continue;
+    const lower = value.toLowerCase();
+    if (id.slug && lower.includes(id.slug)) return true;
+    if (id.path && lower.endsWith(id.path)) return true;
+    if (id.title) {
+      // The page title may carry a site suffix ("Headline | Site").
+      const text = normalizeText(value);
+      if (text.length >= 12 && id.title.startsWith(text)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The longest article HTML string (one with paragraphs) in `data` that belongs
+ * to the requested article: the nearest of its three enclosing records that
+ * says which article it is must name this one. That keeps a longer prefetched
+ * related article from replacing the requested one.
+ */
+function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
   let best: string | null = null;
   let bestChars = MIN_TEXT_CHARS - 1;
-  const stack: unknown[] = [data];
+  const verdicts = new Map<object, boolean | null>();
+  const belongs = (records: object[]) => {
+    for (const record of records) {
+      let verdict = verdicts.get(record);
+      if (verdict === undefined) verdicts.set(record, (verdict = recordNamesArticle(record, id)));
+      if (verdict !== null) return verdict;
+    }
+    return false;
+  };
+  // Each entry carries its nearest enclosing records, nearest first.
+  const stack: Array<[unknown, object[]]> = [[data, []]];
   let visited = 0;
   while (stack.length > 0 && visited++ < MAX_WALK_NODES) {
-    const node = stack.pop();
+    const [node, records] = stack.pop()!;
     if (typeof node === "string") {
-      if (node.length > bestChars && /<p[\s>]/i.test(node)) {
+      if (node.length > bestChars && /<p[\s>]/i.test(node) && belongs(records)) {
         const chars = htmlTextChars(node);
         if (chars > bestChars) {
           best = node;
@@ -90,9 +171,10 @@ function longestHtmlString(data: unknown): string | null {
         }
       }
     } else if (Array.isArray(node)) {
-      for (const item of node) stack.push(item);
+      for (const item of node) stack.push([item, records]);
     } else if (node && typeof node === "object") {
-      for (const value of Object.values(node)) stack.push(value);
+      const inner = [node, ...records].slice(0, 3);
+      for (const value of Object.values(node)) stack.push([value, inner]);
     }
   }
   return best;
@@ -131,7 +213,7 @@ function renderArcElements(elements: unknown, depth = 0): string {
         if (/^https?:\/\//i.test(url)) {
           const caption = str(e.caption);
           parts.push(
-            `<figure><img src="${escapeHtml(url)}" alt="${escapeHtml(caption.replace(/<[^>]*>/g, ""))}">` +
+            `<figure><img src="${escapeHtml(url)}" alt="${escapeHtml(stripTags(caption))}">` +
               (caption ? `<figcaption>${caption}</figcaption>` : "") +
               "</figure>",
           );
@@ -147,11 +229,13 @@ function renderArcElements(elements: unknown, depth = 0): string {
 }
 
 /**
- * Every article body embedded in the raw page HTML (scripts intact). `title`
- * is the page title from the normal conversion; it heads each candidate.
+ * Every article body embedded in the raw page HTML (scripts intact) of
+ * `pageUrl`. `title` is the page title from the normal conversion; it heads
+ * each candidate and helps pick the requested article out of page state.
  */
-export function extractEmbeddedArticles(rawHtml: string, title: string): EmbeddedArticle[] {
+export function extractEmbeddedArticles(rawHtml: string, title: string, pageUrl: string): EmbeddedArticle[] {
   const found: EmbeddedArticle[] = [];
+  const id = articleIdentity(pageUrl, title);
 
   const jsonLd = extractJsonLdArticle(rawHtml);
   if (jsonLd) found.push({ source: "jsonld", html: jsonLd });
@@ -165,10 +249,12 @@ export function extractEmbeddedArticles(rawHtml: string, title: string): Embedde
     }
   }
 
-  const nextData = /<script\b[^>]*\bid\s*=\s*["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i.exec(rawHtml);
-  if (nextData) {
+  const nextOpen = /<script\b[^<>]*\bid\s*=\s*["']__NEXT_DATA__["'][^<>]*>/i.exec(rawHtml);
+  const nextStart = nextOpen ? nextOpen.index + nextOpen[0].length : -1;
+  const nextEnd = nextOpen ? rawHtml.indexOf("</script>", nextStart) : -1;
+  if (nextEnd > nextStart) {
     try {
-      const body = longestHtmlString(JSON.parse(nextData[1]));
+      const body = longestArticleHtml(JSON.parse(rawHtml.slice(nextStart, nextEnd)), id);
       if (body) found.push({ source: "next_data", html: wrapArticle(title, stripDocumentTags(body)) });
     } catch {
       /* not JSON */
@@ -177,7 +263,7 @@ export function extractEmbeddedArticles(rawHtml: string, title: string): Embedde
 
   const state = readAssignedJson(rawHtml, /\b__(?:PRELOADED|INITIAL|APOLLO)_STATE__\s*=\s*/);
   if (state) {
-    const body = longestHtmlString(state);
+    const body = longestArticleHtml(state, id);
     if (body) found.push({ source: "page_state", html: wrapArticle(title, stripDocumentTags(body)) });
   }
 
@@ -191,7 +277,7 @@ export function extractEmbeddedArticles(rawHtml: string, title: string): Embedde
  */
 export function findWpJsonUrl(rawHtml: string, pageUrl: string): string | null {
   const page = new URL(pageUrl);
-  for (const tag of rawHtml.match(/<link\b[^>]*>/gi) ?? []) {
+  for (const tag of rawHtml.match(/<link\b[^<>]*>/gi) ?? []) {
     if (!/\brel\s*=\s*["']?alternate\b/i.test(tag)) continue;
     if (!/\btype\s*=\s*["']application\/json["']/i.test(tag)) continue;
     const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]?.replace(/&amp;/g, "&");
@@ -212,6 +298,6 @@ export function wpJsonArticle(json: unknown, title: string): EmbeddedArticle | n
   const post = json as { content?: { rendered?: unknown }; title?: { rendered?: unknown } } | null;
   const body = str(post?.content?.rendered);
   if (htmlTextChars(body) < MIN_TEXT_CHARS) return null;
-  const restTitle = str(post?.title?.rendered).replace(/<[^>]*>/g, "");
+  const restTitle = stripTags(str(post?.title?.rendered));
   return { source: "wp_json", html: wrapArticle(title || restTitle, body) };
 }

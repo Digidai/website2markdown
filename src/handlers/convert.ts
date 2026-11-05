@@ -1040,11 +1040,12 @@ async function tryFetchAndParse(
   }
 
   // 8.5. Paywall 绕过：移除 paywall 元素并提取 JSON-LD 回退
+  // Judged before cleanup, which also removes subscription prompts inside .paywall.
+  const pageLooksPaywalled = looksPaywalled(finalHtml);
   finalHtml = removePaywallElements(finalHtml, getPaywallRule(resolvedUrl));
 
   // 8.6. 如果内容看起来被 paywall 挡住，尝试 AMP 版本
-  const htmlLooksPaywalled = looksPaywalled(finalHtml);
-  if (htmlLooksPaywalled && getPaywallRule(resolvedUrl)) {
+  if (pageLooksPaywalled && getPaywallRule(resolvedUrl)) {
     paywallDetected = true;
     const ampUrl = extractAmpLink(finalHtml);
     if (ampUrl) {
@@ -1092,8 +1093,10 @@ async function tryFetchAndParse(
   // Pages that hide or hydrate the body with JavaScript often embed all of it
   // as data. A caller's selector targets the page markup, so it skips this.
   if (!selector) {
-    let embedded = longerEmbeddedArticle(markdown, extractEmbeddedArticles(rawHtml, extractedTitle), conversionUrl);
-    if (!embedded && stillLooksPaywalled) {
+    let embedded = longerEmbeddedArticle(
+      markdown, extractEmbeddedArticles(rawHtml, extractedTitle, conversionUrl), conversionUrl,
+    );
+    if (!embedded && (pageLooksPaywalled || stillLooksPaywalled)) {
       const wp = await fetchWpJsonArticle(rawHtml, conversionUrl, host, extractedTitle, abortSignal);
       if (wp) embedded = longerEmbeddedArticle(markdown, [wp], conversionUrl);
     }
@@ -1309,7 +1312,8 @@ async function fetchWpJsonArticle(
   try {
     const { response } = await fetchWithSafeRedirects(apiUrl, { headers, signal });
     if (!response.ok) return null;
-    return wpJsonArticle(await response.json(), title);
+    const body = await readTextWithLimit(response, MAX_RESPONSE_BYTES, "WordPress REST response too large", signal);
+    return wpJsonArticle(JSON.parse(body), title);
   } catch (error) {
     console.debug("WordPress REST fallback unavailable:", errorMessage(error));
     return null;
