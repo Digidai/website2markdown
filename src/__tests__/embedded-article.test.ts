@@ -272,6 +272,26 @@ describe("extractEmbeddedArticles", () => {
     expect(live.html).not.toContain("Yesterday");
   });
 
+  it("lets any enclosing URL or slug conflict rule out an article", () => {
+    const older = Array.from({ length: 40 }, (_, i) => `Yesterday's live paragraph ${i + 1}.`);
+    const check = (html: string, pageUrl: string, title = "Live election updates") => {
+      const [article] = extractEmbeddedArticles(html, title, pageUrl);
+      expect(article.html).toContain("Paragraph 12 reports");
+      expect(article.html).not.toContain("Yesterday");
+    };
+    const state = (current: object, prefetched: object) => nextData({ props: { pageProps: { current, prefetched } } });
+    const body = (b: string[]) => ({ headline: "Live election updates", body: paragraphs(b) });
+    // A parent's URL decides over its child's headline.
+    check(state({ url: "/live/2026-11-05", content: body(PARAGRAPHS) }, { url: "/live/2026-11-04", content: body(older) }),
+      "https://news.example.com/live/2026-11-05");
+    // A short slug still rules out another one.
+    check(state({ slug: "nov-5", ...body(PARAGRAPHS) }, { slug: "nov-4", ...body(older) }), "https://news.example.com/live/nov-5");
+    // Relative URLs resolve against the page.
+    check(state({ url: "nov-5", ...body(PARAGRAPHS) }, { url: "nov-4", ...body(older) }), "https://news.example.com/live/nov-5");
+    // Slugs keep their case.
+    check(state({ slug: "AbCdEfGh", ...body(PARAGRAPHS) }, { slug: "abcdefgh", ...body(older) }), "https://news.example.com/view/AbCdEfGh");
+  });
+
   it("ignores short teasers and unparsable state", () => {
     const html = `<script id="__NEXT_DATA__" type="application/json">{"props":{"teaser":"<p>Short.</p>"}}</script>
       <script>window.__INITIAL_STATE__ = {"a": undefined};</script>`;

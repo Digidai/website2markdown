@@ -109,6 +109,7 @@ interface ArticleIdentity {
   /** The page URL as articleUrl() normalises it. */
   url: string;
   pageUrl: string;
+  /** The path's last segment, case kept; short ones only rule records out. */
   slug: string;
   title: string;
 }
@@ -148,11 +149,10 @@ function articleIdentity(pageUrl: string, title: string): ArticleIdentity {
   } catch {
     /* keep empty */
   }
-  const slug = hasQuery ? "" : path.split("/").pop() ?? "";
   return {
     url: path.length > 1 || hasQuery ? articleUrl(pageUrl, pageUrl) ?? "" : "",
     pageUrl,
-    slug: slug.length >= 8 ? slug.toLowerCase() : "",
+    slug: hasQuery ? "" : path.split("/").pop() ?? "",
     title: normalizeText(title),
   };
 }
@@ -164,7 +164,11 @@ const MIN_COMPARABLE_TITLE = 12;
 const IDENTITY_KEY = /^(?:url|canonical_?url|path|slug|permalink|link|headline|title)$/i;
 /** Keys that say which page a record is when they hold a URL (JSON-LD `@id`, `mainEntityOfPage`). */
 const PAGE_REF_KEY = /^(?:@?id|page|mainentityofpage)$/i;
+/** Keys that hold an address, absolute or relative to the page (`other-vote`). */
+const ADDRESS_KEY = /^(?:url|canonical_?url|path|permalink|link)$/i;
 const URL_LIKE = /^(?:https?:)?\/\/|^\//i;
+/** Bare slugs this long are specific enough to name the page by themselves. */
+const MIN_NAMING_SLUG = 8;
 
 /**
  * Whether a record names the requested article: true if it names the page,
@@ -175,15 +179,19 @@ const URL_LIKE = /^(?:https?:)?\/\/|^\//i;
 function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null {
   let namesOtherUrl = false;
   for (const [key, value] of Object.entries(record)) {
-    if (typeof value !== "string" || value.length > 2000 || !URL_LIKE.test(value)) continue;
-    if (!IDENTITY_KEY.test(key) && !PAGE_REF_KEY.test(key)) continue;
+    if (typeof value !== "string" || value.length > 2000 || /\s/.test(value)) continue;
+    const isAddress = ADDRESS_KEY.test(key) || (PAGE_REF_KEY.test(key) && URL_LIKE.test(value));
+    if (!isAddress || !value) continue;
     if (id.url && articleUrl(value, id.pageUrl) === id.url) return true;
     namesOtherUrl = true;
   }
   if (namesOtherUrl) return false;
-  // A bare slug decides over a title the same way.
+  // A bare slug decides over a title the same way; a short one can only rule out.
   const slug = (record as Record<string, unknown>).slug;
-  if (id.slug && typeof slug === "string" && slug && !URL_LIKE.test(slug)) return slug.toLowerCase() === id.slug;
+  if (id.slug && typeof slug === "string" && slug && !URL_LIKE.test(slug)) {
+    if (slug !== id.slug) return false;
+    if (slug.length >= MIN_NAMING_SLUG) return true;
+  }
   if (namesArticle(record, id)) return true;
   const hasIdentity = Object.entries(record).some(([key, value]) => {
     if (typeof value !== "string" || !IDENTITY_KEY.test(key)) return false;
@@ -208,7 +216,7 @@ function namesArticle(record: object, id: ArticleIdentity): boolean {
     if (typeof value !== "string" || value.length > 2000) continue;
     if (URL_LIKE.test(value)) {
       if (id.url && articleUrl(value, id.pageUrl) === id.url) return true;
-    } else if (id.slug && value.toLowerCase() === id.slug) {
+    } else if (id.slug.length >= MIN_NAMING_SLUG && value === id.slug) {
       return true;
     }
     if (id.title) {
@@ -229,21 +237,25 @@ const NON_BODY_KEY = /^(?:comments?|replies|responses|discussion|related\w*|reco
 
 /**
  * The longest article HTML string (one with paragraphs) in `data` that belongs
- * to the requested article: the nearest of its three enclosing records that
- * says which article it is must name this one. That keeps a longer prefetched
+ * to the requested article (see `belongs`). That keeps a longer prefetched
  * related article from replacing the requested one.
  */
 function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
   let best: string | null = null;
   let bestChars = MIN_TEXT_CHARS - 1;
   const verdicts = new Map<object, boolean | null>();
+  // A string belongs when one of its enclosing records names the page and
+  // none names another article: a prefetched {url: old, content: {headline:
+  // same}} is ruled out by its URL, a related story under the page by its headline.
   const belongs = (records: object[]) => {
+    let named = false;
     for (const record of records) {
       let verdict = verdicts.get(record);
       if (verdict === undefined) verdicts.set(record, (verdict = recordNamesArticle(record, id)));
-      if (verdict !== null) return verdict;
+      if (verdict === false) return false;
+      if (verdict) named = true;
     }
-    return false;
+    return named;
   };
   // Each entry carries its nearest enclosing records, nearest first. Only
   // strings and containers are queued, and the budget is spent when queuing,
