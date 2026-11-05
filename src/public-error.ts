@@ -51,6 +51,8 @@ export interface PublicErrorDetail {
   originStatus?: number;
   /** A curated, caller-safe sentence that replaces the catalog message. */
   publicMessage?: string;
+  /** A curated next step that replaces the catalog hint. */
+  publicHint?: string;
   /** Whether the caller is anonymous (an API key would open more pages). */
   anonymous?: boolean;
 }
@@ -241,7 +243,7 @@ export function publicError(code: PublicErrorCode | undefined, status: number, d
     cause: entry.cause,
     retryable: entry.retryable,
     message: detail.publicMessage || entry.message(detail.originStatus),
-    hint: anonymousHint ? `${entry.hint} ${KEY_HINT}` : entry.hint,
+    hint: anonymousHint ? `${detail.publicHint || entry.hint} ${KEY_HINT}` : detail.publicHint || entry.hint,
     ...(detail.originStatus !== undefined ? { targetStatus: detail.originStatus } : {}),
   };
 }

@@ -73,7 +73,7 @@ A failed conversion returns JSON (send Accept: application/json or text/markdown
   - target_rejected: the site rejected this URL. Check its path and query parameters.
   - target_error, target_unreachable, target_timeout: the site is failing, down, or slow. Retry later.
   - target_unreadable: the page could not be read. Check it opens in a browser; retry later.
-  - unsupported_content: not a web page (PDF, image, feed, API). Pass the page's URL.
+  - unsupported_content: not a web page (PDF, image, feed, API). Pass the page's URL. For PDF, Office, CSV, and image files, the hint points to DocParse (https://docparse.genedai.me/llms.txt), which converts the same URL to Markdown.
   - content_too_large: over 5 MB. Use a more specific URL.
   - no_content: the page has no readable text (empty, app shell, video).
   - invalid_request, blocked_address: fix the request; private addresses are not allowed.

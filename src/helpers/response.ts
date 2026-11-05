@@ -55,6 +55,8 @@ export interface ConvertErrorPublic {
   originStatus?: number;
   /** A caller-safe sentence instead of the catalog's. */
   publicMessage?: string;
+  /** A caller-safe next step instead of the catalog's. */
+  publicHint?: string;
 }
 
 /**
@@ -80,6 +82,7 @@ export class ConvertError extends Error {
       // targetStatus can be a synthetic status kept for the negative cache; only originStatus is the site's.
       originStatus: this.reason.originStatus,
       publicMessage: this.reason.publicMessage,
+      publicHint: this.reason.publicHint,
       anonymous,
     });
   }

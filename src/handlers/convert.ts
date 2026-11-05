@@ -255,12 +255,19 @@ const WECHAT_SHELL: ConvertErrorPublic = {
   publicMessage: "WeChat returned only page controls or a title, without article content.",
 };
 
+/** PDF, Office, OpenDocument, RTF, CSV, and image files, which DocParse converts. */
+const DOCUMENT_TYPE = /^(application\/(pdf|msword|rtf|vnd\.ms-(excel|powerpoint)|vnd\.openxmlformats-officedocument\.|vnd\.oasis\.opendocument\.)|text\/csv|image\/)/;
+
+const DOCPARSE_HINT =
+  "This is a document file. To convert it to Markdown, send the same URL to DocParse: https://docparse.genedai.me/ (POST /v1/parse accepts a file URL; see https://docparse.genedai.me/llms.txt).";
+
 /** The site's content type is the site's own fact, so the caller may see it. */
 function unsupportedContent(contentType: string): ConvertErrorPublic {
   const type = contentType.split(";")[0].trim().toLowerCase().replace(/[^\w.+\/-]/g, "").slice(0, 80);
   return {
     code: "unsupported_content",
     publicMessage: `This URL returns ${type || "content"} rather than a web page. Only HTML and plain-text pages can be converted.`,
+    ...(DOCUMENT_TYPE.test(type) ? { publicHint: DOCPARSE_HINT } : {}),
   };
 }
 
