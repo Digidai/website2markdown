@@ -88,7 +88,6 @@ export async function fetchViaFirecrawl(
         formats: ["markdown"],
         onlyMainContent: true,
         onlyCleanContent: false,
-        // Inline scripts of any type (Home Depot's speculation rules) otherwise come out as text.
         excludeTags: ["script", "style"],
         removeBase64Images: true,
         blockAds: true,
@@ -122,7 +121,12 @@ export async function fetchViaFirecrawl(
       throw new Error(json.error || "Firecrawl returned success=false");
     }
 
-    const markdown = json.data?.markdown || "";
+    // Firecrawl still emits <script type="speculationrules"> (Home Depot) as escaped text despite
+    // excludeTags, so drop a leading speculation-rules JSON object up to its closing-brace line.
+    const markdown = (json.data?.markdown || "").replace(
+      /^\s*\{\s*"(?:prefetch|prerender)"[\s\S]*?\n[ \t]*\}[ \t]*(?:\n\s*|$)/,
+      "",
+    );
     if (!markdown.trim()) {
       throw new Error("Firecrawl returned empty markdown");
     }

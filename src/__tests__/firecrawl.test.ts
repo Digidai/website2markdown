@@ -36,6 +36,45 @@ describe("fetchViaFirecrawl", () => {
     });
   });
 
+  it("drops a leading speculation-rules block that Firecrawl leaks as text", async () => {
+    // Shape copied from a production Home Depot response.
+    const leaked = [
+      "{",
+      ' "prefetch": \\[\\',
+      " {\\",
+      ' "where": {"and": \\[\\',
+      ' {"href\\_matches": "/\\*"},\\',
+      ' { "not": { "href\\_matches": "/cart" } }\\',
+      " \\]},\\",
+      ' "eagerness": "moderate"\\',
+      " }\\",
+      " \\]",
+      " }",
+      "",
+      "",
+      "",
+    ].join("\n");
+    const body = "HDX Scouring Pad - The Home Depot\n\n```json\n{\n}\n```";
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      Response.json({ success: true, data: { markdown: leaked + body } }),
+    );
+
+    const result = await fetchViaFirecrawl("https://www.homedepot.com/p/1");
+
+    expect(result.markdown).toBe(body);
+  });
+
+  it("keeps a page that starts with ordinary JSON", async () => {
+    const markdown = '{\n "name": "prefetch"\n}\n\nBody';
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      Response.json({ success: true, data: { markdown } }),
+    );
+
+    const result = await fetchViaFirecrawl("https://example.com");
+
+    expect(result.markdown).toBe(markdown);
+  });
+
   it("sends Authorization when an API key is configured", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       Response.json({
