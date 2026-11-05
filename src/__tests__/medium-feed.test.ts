@@ -87,7 +87,7 @@ describe("medium feed fallback", () => {
       <h2>Access blocked by publisher.</h2></main></body></html>`)).toBeNull();
   });
 
-  it("reads a challenged member-only post through Freedium and says so", async () => {
+  it("reads a challenged member-only post through the mirror and says it is a copy without naming the mirror", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input instanceof Request ? input.url : input);
       if (url === "https://medium.com/feed/data-science") {
@@ -108,17 +108,19 @@ describe("medium feed fallback", () => {
 
     expect(res.status).toBe(200);
     expect(body).toContain("The member-only story continues here");
-    expect(body).toContain("Read through Freedium (freedium-mirror.cfd)");
+    expect(body).toContain("this copy was read from a third-party mirror of the post");
+    expect(body).not.toMatch(/freedium/i);
     expect(body).toContain("![chart](https://miro.medium.com/v2/resize:fit:700/1*abcDEF.png)");
     expect(body).toContain("light_copy = fit(X, y)");
     expect(body).not.toContain("dark_copy");
-    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("freedium");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
 
     const html = await (await worker.fetch(new Request(
       "https://md.example.com/https://medium.com/data-science/members-only-7b4cc0efd235?raw=true&format=html&nocache=true",
     ), env, mockCtx())).text();
     expect(html).toContain("The member-only story continues here");
-    expect(html).toContain("Read through Freedium (freedium-mirror.cfd)");
+    expect(html).toContain("this copy was read from a third-party mirror of the post");
+    expect(html).not.toMatch(/freedium/i);
     const fetched = fetchMock.mock.calls.map(([input]) => String(input instanceof Request ? input.url : input));
     expect(fetched.some((url) => url.includes("archive.org") || url.includes("archive.ph"))).toBe(false);
   });

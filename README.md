@@ -58,8 +58,8 @@ Fetch target with Accept: text/markdown
 | **Native** | Target site supports Markdown for Agents | Cloudflare edge converts via `Accept: text/markdown` content negotiation | `native` |
 | **Fallback** | Normal HTML pages | Readability extracts main content → Turndown converts to Markdown | `readability+turndown` |
 | **Browser** | Anti-bot pages, JS-rendered content | Headless Chrome renders the page → Readability + Turndown | `browser+readability+turndown` |
-| **Firecrawl** | API key plus explicit `engine=firecrawl`, a non-text document, or thin local extraction | Convert via Firecrawl v2 scrape. Anonymous callers never reach this path | `firecrawl` |
-| **Jina** | API key plus explicit `engine=jina`, or an authenticated last-resort fallback | Convert via Jina Reader API while preserving the same output/query surface | `jina` |
+| **Firecrawl** | API key plus explicit `engine=firecrawl`, a non-text document, or thin local extraction | Convert via Firecrawl v2 scrape. Anonymous callers never reach this path | `readability+turndown` |
+| **Jina** | API key plus explicit `engine=jina`, or an authenticated last-resort fallback | Convert via Jina Reader API while preserving the same output/query surface | `readability+turndown` |
 
 ## API Usage
 
@@ -257,8 +257,7 @@ Response:
       "markdown": "...",
       "title": "...",
       "method": "...",
-      "cached": false,
-      "fallbacks": ["jsonld"]
+      "cached": false
     },
     {
       "url": "...",
@@ -495,9 +494,8 @@ directly.
 | `X-Source-URL` | The original target URL |
 | `X-Markdown-Tokens` | Token count (native Markdown for Agents only) |
 | `X-Markdown-Native` | `"true"` when native, `"false"` otherwise |
-| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, `"browser+readability+turndown"`, `"jina"`, `"firecrawl"`, or `"cf"` |
+| `X-Markdown-Method` | `"native"`, `"readability+turndown"`, or `"browser+readability+turndown"`. Which service fetched the page is not reported. |
 | `X-Cache-Status` | `"HIT"` or `"MISS"` |
-| `X-Markdown-Fallbacks` | Comma-separated fallback list (when used) |
 | `X-Browser-Rendered` | `"true"` when browser rendering path was used |
 | `X-Paywall-Detected` | `"true"` when paywall heuristics were triggered |
 | `X-RateLimit-Limit` | Monthly credit quota (authenticated requests only) |

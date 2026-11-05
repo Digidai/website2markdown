@@ -58,8 +58,8 @@ Fetch target with Accept: text/markdown
 | **Native** | 目标站点支持 Markdown for Agents | 通过 `Accept: text/markdown` 在 Cloudflare 边缘协商原生 Markdown | `native` |
 | **Fallback** | 普通 HTML 页面 | Readability 提取正文 → Turndown 转 Markdown | `readability+turndown` |
 | **Browser** | 反爬或重 JS 页面 | 无头浏览器渲染后再走 Readability + Turndown | `browser+readability+turndown` |
-| **Firecrawl** | 持有 API key，并显式指定 `engine=firecrawl`、遇到非文本文档或本地提取过薄 | 通过 Firecrawl v2 scrape 转换。匿名请求不会进入这条路径 | `firecrawl` |
-| **Jina** | 持有 API key，并显式指定 `engine=jina`，或作为已登录请求的最后兜底 | 通过 Jina Reader API 转换，同时保留相同的输出格式接口 | `jina` |
+| **Firecrawl** | 持有 API key，并显式指定 `engine=firecrawl`、遇到非文本文档或本地提取过薄 | 通过 Firecrawl v2 scrape 转换。匿名请求不会进入这条路径 | `readability+turndown` |
+| **Jina** | 持有 API key，并显式指定 `engine=jina`，或作为已登录请求的最后兜底 | 通过 Jina Reader API 转换，同时保留相同的输出格式接口 | `readability+turndown` |
 
 ## API 使用
 
@@ -451,9 +451,8 @@ batch / extract / deepcrawl / jobs 端点始终需要认证，因为它们要么
 | `X-Source-URL` | 原始目标 URL |
 | `X-Markdown-Tokens` | Token 数（仅原生 Markdown for Agents） |
 | `X-Markdown-Native` | 原生路径为 `"true"`，否则 `"false"` |
-| `X-Markdown-Method` | `"native"`、`"readability+turndown"`、`"browser+readability+turndown"`、`"jina"`、`"firecrawl"`、`"cf"` |
+| `X-Markdown-Method` | `"native"`、`"readability+turndown"` 或 `"browser+readability+turndown"`，不返回具体由哪个服务抓取 |
 | `X-Cache-Status` | `"HIT"` 或 `"MISS"` |
-| `X-Markdown-Fallbacks` | 逗号分隔的兜底链路（如有） |
 | `X-Browser-Rendered` | 使用浏览器渲染时为 `"true"` |
 | `X-Paywall-Detected` | 命中付费墙规则时为 `"true"` |
 | `X-RateLimit-Limit` | 月度 credit 配额（仅认证请求） |

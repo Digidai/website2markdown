@@ -1,5 +1,6 @@
 // 任务调度处理
 
+import { publicMethod } from "../helpers/format";
 import type {
   Env,
 } from "../types";
@@ -466,10 +467,9 @@ export async function executeJobRun(
           return {
             success: true,
             result: {
-              method: converted.method,
+              method: publicMethod(converted.method),
               cached: converted.cached,
               title: converted.title,
-              fallbacks: converted.diagnostics.fallbacks,
             },
           };
         } catch (error) {

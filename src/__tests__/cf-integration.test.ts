@@ -186,7 +186,7 @@ describe("CF REST API integration in convertUrl", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain("# CF Title");
-    expect(res.headers.get("X-Markdown-Method")).toBe("cf");
+    expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
     expect(mocked.cfRest.fetchViaCfMarkdown).toHaveBeenCalledTimes(1);
   });
 

@@ -1,5 +1,6 @@
 // SSE 流式响应处理
 
+import { publicMethod } from "../helpers/format";
 import type { AuthContext, Env } from "../types";
 import { CORS_HEADERS, MAX_SELECTOR_LENGTH } from "../config";
 import { isSafeUrl, isValidUrl, buildRawRequestPath } from "../security";
@@ -197,10 +198,9 @@ export function handleStream(
       await send("done", {
         rawUrl: rawRequestPath,
         title: result.title,
-        method: result.method,
+        method: publicMethod(result.method),
         tokenCount: result.tokenCount,
         cached: result.cached,
-        fallbacks: result.diagnostics.fallbacks,
         creditCost: charged,
       });
       incrementCounter("conversionsTotal");

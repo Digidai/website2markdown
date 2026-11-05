@@ -2,6 +2,7 @@
 
 import type { ConvertMethod, OutputFormat } from "../types";
 import { CORS_HEADERS } from "../config";
+import { publicMethod } from "./format";
 import { buildRawRequestPath } from "../security";
 import { errorPageHTML, renderedPageHTML } from "@web/server";
 import { publicError, publicErrorFields, type PublicError, type PublicErrorCode } from "../public-error";
@@ -151,17 +152,7 @@ export function buildResponse(
   diagnostics?: ConvertDiagnostics,
   rawRequestPath?: string,
 ): Response {
-  type MethodLabel = "native" | "fallback" | "browser" | "proxy" | "jina" | "firecrawl" | "cloudflare";
-  const methodLabelMap: Record<ConvertMethod, MethodLabel> = {
-    "browser+readability+turndown": "browser",
-    "proxy+readability+turndown": "proxy",
-    "native": "native",
-    "jina": "jina",
-    "firecrawl": "firecrawl",
-    "cf": "cloudflare",
-    "readability+turndown": "fallback",
-  };
-  const methodLabel = methodLabelMap[method];
+  const shownMethod = publicMethod(method);
 
   if (wantsRaw || format === "json" || format === "text" || format === "html") {
     const contentType =
@@ -178,11 +169,8 @@ export function buildResponse(
         "Content-Type": contentType,
         "X-Source-URL": sourceUrl.replace(/[\r\n]/g, ""),
         "X-Markdown-Native": method === "native" ? "true" : "false",
-        "X-Markdown-Method": method,
+        "X-Markdown-Method": shownMethod,
         "X-Cache-Status": cached ? "HIT" : "MISS",
-        ...(diagnostics?.fallbacks.length
-          ? { "X-Markdown-Fallbacks": diagnostics.fallbacks.join(",") }
-          : {}),
         ...(diagnostics?.browserRendered ? { "X-Browser-Rendered": "true" } : {}),
         ...(diagnostics?.paywallDetected ? { "X-Paywall-Detected": "true" } : {}),
         ...(tokenCount ? { "X-Markdown-Tokens": tokenCount } : {}),
@@ -204,7 +192,7 @@ export function buildResponse(
       content,
       sourceUrl,
       tokenCount,
-      methodLabel,
+      shownMethod,
       cached,
       title,
       rawRequestPath,

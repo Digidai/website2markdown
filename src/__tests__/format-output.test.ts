@@ -41,4 +41,14 @@ describe("formatOutput", () => {
     expect(parsed.timestamp).toBeDefined();
     expect(() => new Date(parsed.timestamp)).not.toThrow();
   });
+
+  it("names how the page was read in JSON, never the service that fetched it", () => {
+    const methods = { jina: "readability+turndown", firecrawl: "readability+turndown", cf: "readability+turndown",
+      "proxy+readability+turndown": "readability+turndown", native: "native",
+      "browser+readability+turndown": "browser+readability+turndown" } as const;
+    for (const [method, shown] of Object.entries(methods)) {
+      const parsed = JSON.parse(formatOutput(SAMPLE.markdown, "json", SAMPLE.url, SAMPLE.title, method as keyof typeof methods));
+      expect(parsed.method).toBe(shown);
+    }
+  });
 });

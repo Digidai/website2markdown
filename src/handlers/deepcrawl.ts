@@ -1,6 +1,7 @@
 // 深度爬取处理
 
-import type { Env } from "../types";
+import { publicMethod } from "../helpers/format";
+import type { ConvertMethod, Env } from "../types";
 import {
   CORS_HEADERS,
   MAX_RESPONSE_BYTES,
@@ -162,6 +163,11 @@ class DeepCrawlRequestError extends Error {
   ) {
     super(message);
   }
+}
+
+/** A node as callers see it: the method never names the service that fetched the page. */
+function publicNode(node: DeepCrawlNode): DeepCrawlNode {
+  return node.method ? { ...node, method: publicMethod(node.method as ConvertMethod) } : node;
 }
 
 interface DeepCrawlExecutionResult {
@@ -547,7 +553,7 @@ export async function executeDeepCrawl(
       }
       : {}),
     onResult: async (node) => {
-      if (onNode) await onNode(node);
+      if (onNode) await onNode(publicNode(node));
     },
   };
 
@@ -615,7 +621,8 @@ export async function executeDeepCrawl(
     startedAt: startedAtIso,
     finishedAt: finishedAtIso,
     durationMs,
-    results: crawlResult.results,
+    // Checkpoints keep the internal method; resumed nodes are mapped here too.
+    results: crawlResult.results.map(publicNode),
     stats: crawlResult.stats,
   };
 }

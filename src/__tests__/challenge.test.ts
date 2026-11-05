@@ -220,7 +220,7 @@ describe("challenge pages in conversion", () => {
     }), env, mockCtx());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Method")).toBe("jina");
+    expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
     expect(await res.text()).toContain("approved the harbour plan");
   });
 
@@ -243,7 +243,7 @@ describe("challenge pages in conversion", () => {
     }), env, mockCtx());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Method")).toBe("jina");
+    expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
     // Firecrawl's block page counts as its failure.
     const attempts = log.mock.calls.map(([line]) => { try { return JSON.parse(String(line)); } catch { return {}; } })
       .filter((m) => m.event === "provider.attempt").map((m) => [m.path, m.ok]);
@@ -273,7 +273,7 @@ describe("challenge pages in conversion", () => {
     }), env, mockCtx());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Method")).toBe("firecrawl");
+    expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
     expect(await res.text()).toContain("approved the harbour plan");
   });
 });

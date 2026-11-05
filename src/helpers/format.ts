@@ -83,6 +83,14 @@ export function markdownBodyChars(markdown: string, stopAt = 10_000): number {
   return count;
 }
 
+/** Public responses name only how the page was read, never which channel or vendor fetched it. */
+export type PublicMethod = "native" | "readability+turndown" | "browser+readability+turndown";
+
+export function publicMethod(method: ConvertMethod): PublicMethod {
+  if (method === "native" || method === "browser+readability+turndown") return method;
+  return "readability+turndown";
+}
+
 /**
  * 统一的格式输出函数，合并原来散布在多处的 switch(format) 逻辑。
  * 将 markdown 内容按指定 format 转换为最终输出字符串。
@@ -103,7 +111,7 @@ export function formatOutput(
       return markdownToPlainText(markdown);
     case "json":
       return JSON.stringify({
-        url, title, markdown, method,
+        url, title, markdown, method: publicMethod(method),
         timestamp: ts,
       });
     default:

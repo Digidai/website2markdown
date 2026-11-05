@@ -1,5 +1,6 @@
 // 批量转换处理
 
+import { publicMethod } from "../helpers/format";
 import type { Env, OutputFormat } from "../types";
 import {
   CORS_HEADERS,
@@ -261,9 +262,8 @@ export async function handleBatch(
           content: result.content,
           ...(item.format === "markdown" ? { markdown: result.content } : {}),
           title: result.title,
-          method: result.method,
+          method: publicMethod(result.method),
           cached: result.cached,
-          fallbacks: result.diagnostics.fallbacks,
         };
       } catch (e) {
         if (e instanceof ConvertError) {
