@@ -25,6 +25,12 @@ describe("detectChallengePage", () => {
       .toBe("cloudflare");
     expect(detectChallengePage(`<html><head><META NAME="robots" CONTENT="noindex,nofollow"><script src="/_Incapsula_Resource?SWJIYLWA=5074a744e2e3d891814e9a2dace20bd4,719d34d31c8e3a6e6fffd425f7e032f3"></script></head><body></body></html>`))
       .toBe("imperva");
+    expect(detectChallengePage(`<html><head><noscript><title>Pardon Our Interruption</title></noscript>
+      <script>window.reeseSkipExpirationCheck = true; const isSpa = window.isImpervaSpaSupport;</script>
+      <script>window.onProtectionInitialized = function (protection) { if (!isSpa) window.location.reload(true); };</script></head>
+      <body><div class="container"><h1>Pardon Our Interruption</h1><p>MSCdirect.com is currently not available for your use.
+      If you feel you have received this message in error, please call eCommerce Customer Support.</p><p>Please stand by</p></div></body></html>`))
+      .toBe("imperva");
     expect(detectChallengePage(`<html><body>Request unsuccessful. Incapsula incident ID: 395000400344476801-462616682734225973</body></html>`))
       .toBe("imperva");
     expect(detectChallengePage(`<html><head><title>wsj.com</title></head><body><p>Please enable JS and disable any ad blocker</p>
@@ -122,6 +128,9 @@ describe("detectChallengePage", () => {
     // Nor a regex literal, or a "</template>" in a template's comment or attribute.
     expect(detectChallengePage(`<html><head><title>Rules</title><script>const pattern = /gokuProps =/; const re = /_cf_chl_opt = /i;</script></head>
       <body><h1>Rules</h1><p>Our detector rules.</p></body></html>`)).toBeNull();
+    // Nor a page that only reads or describes Imperva's globals.
+    expect(detectChallengePage(`<html><head><title>Bot notes</title><script>if (window.reeseSkipAutoLoad) log("reese"); const doc = "window.onProtectionInitialized = fn";</script></head>
+      <body><h1>Bot notes</h1><p>Imperva sets window.reeseSkipExpirationCheck = true on its interstitial.</p></body></html>`)).toBeNull();
     // Including one after a keyword, a comment, or a condition, while a division stays a division.
     expect(detectChallengePage(`<html><head><title>Rules</title><script>if (enabled) /_cf_chl_opt =/.test(input)</script></head>
       <body><h1>Rules</h1><p>Our detector rules.</p></body></html>`)).toBeNull();

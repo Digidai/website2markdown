@@ -42,6 +42,8 @@ const VENDOR_SCRIPTS: Array<[ChallengeVendor, { globals: RegExp[]; sources: stri
   // Its c.js or captcha iframe.
   ["datadome", { globals: [], sources: ["captcha-delivery.com"] }],
   ["aws_waf", { globals: [new RegExp(`${ASSIGNED}gokuprops\\s*=(?!=)`)], sources: [] }],
+  // Imperva Advanced Bot Protection's 200 interstitial ("Pardon Our Interruption"), which loads its script by a random path.
+  ["imperva", { globals: [new RegExp(`${ASSIGNED}(?:reeseskipexpirationcheck|reeseskipautoload|onprotectioninitialized)\\s*=(?!=)`)], sources: [] }],
 ];
 /** PerimeterX globals and scripts; its captcha container alone could be any element id. */
 const PERIMETERX_SCRIPT = /_pxappid|perimeterx|px-cdn\.net|px-cloud\.net/;
