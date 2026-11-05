@@ -1177,8 +1177,9 @@ async function tryFetchAndParse(
   );
   // A browser's block page the HTML rules missed (its markup varies by session):
   // its Markdown, title and headings still read as one.
-  // Only the page's title counts as its heading: a section "## Access denied" is not the page.
-  if (!challenge && browserRendered) challenge = markdownChallenge(markdown, extractedTitle, false);
+  // Only the page's title counts as its heading: a section "## Access denied" is not the page,
+  // and neither is the part a selector picked.
+  if (!challenge && browserRendered && !selector) challenge = markdownChallenge(markdown, extractedTitle, false);
   // The challenge page's own text; once another source replaces it, the page is rescued.
   const challengeMarkdown = challenge ? markdown : null;
   let output: string;
