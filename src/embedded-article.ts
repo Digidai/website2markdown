@@ -286,9 +286,14 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
       // or headings) is one candidate, in order. An item that is an article
       // itself, with an identity and its own paragraphs, makes it a list of
       // articles instead, which is walked item by item below.
-      const isArticle = (item: unknown) => item !== null && typeof item === "object" && !Array.isArray(item) &&
-        recordVerdict(item, id) !== null &&
-        Object.entries(item).some(([key, value]) => BODY_KEY.test(key) && typeof value === "string" && value.trim() !== "");
+      const isArticle = (item: unknown) => {
+        if (item === null || typeof item !== "object" || Array.isArray(item)) return false;
+        // A typed block (paragraph, heading, image, ...) is part of a body, whatever its title or url.
+        if (BLOCK_TYPE.test(str((item as Record<string, unknown>).type))) return false;
+        const verdict = recordVerdict(item, id);
+        return (verdict === "match" || verdict === "other") &&
+          Object.entries(item).some(([key, value]) => BODY_KEY.test(key) && typeof value === "string" && value.trim() !== "");
+      };
       const fragments = named && BODY_KEY.test(nodeKey) && node.length <= MAX_WALK_NODES && !node.some(isArticle);
       if (fragments) {
         const joined = node.map(renderBlock).join("\n");
@@ -321,6 +326,9 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
+
+/** Types of the blocks a body is split into. */
+const BLOCK_TYPE = /^(?:p|paragraph|text|heading|header|subhead\w*|h[1-6]|image|photo|figure|picture|video|embed|list|list_?item|quote|blockquote|pullquote|code|table|divider|html|raw_html|caption)$/i;
 
 /** One fragment of a body split into blocks: its HTML, or an image or heading block rendered. */
 function renderBlock(item: unknown): string {

@@ -334,6 +334,8 @@ describe("extractEmbeddedArticles", () => {
       ...PARAGRAPHS.slice(0, 6).map((p) => ({ type: "paragraph", content: `<p>${p}</p>` })),
       { type: "image", url: "https://cdn.example.com/harbour.jpg" },
       { type: "heading", title: "What happens next" },
+      { type: "heading", title: "Reaction", content: "<h2>Reaction</h2>" },
+      { type: "image", url: "https://cdn.example.com/crowd.jpg", content: '<figure><img src="https://cdn.example.com/crowd.jpg"></figure>' },
       ...PARAGRAPHS.slice(6).map((p) => ({ type: "paragraph", content: `<p>${p}</p>` })),
     ];
     const withBlocks = nextData({ props: { pageProps: { article: { url: pageUrl, body: blocks } } } });
