@@ -181,6 +181,9 @@ function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null
     namesOtherUrl = true;
   }
   if (namesOtherUrl) return false;
+  // A bare slug decides over a title the same way.
+  const slug = (record as Record<string, unknown>).slug;
+  if (id.slug && typeof slug === "string" && slug && !URL_LIKE.test(slug)) return slug.toLowerCase() === id.slug;
   if (namesArticle(record, id)) return true;
   const hasIdentity = Object.entries(record).some(([key, value]) => {
     if (typeof value !== "string" || !IDENTITY_KEY.test(key)) return false;
@@ -219,6 +222,9 @@ function namesArticle(record: object, id: ArticleIdentity): boolean {
   return false;
 }
 
+/** Keys whose string can be the article body; site-wide HTML (privacyPolicyHtml, footerHtml) is not. */
+const BODY_KEY = /^(?:body|content|html|text|rendered|article_?body|body_?html|content_?html|story_?body|full_?text)$/i;
+
 /** Branches of page state that hold other text than the article body. */
 const NON_BODY_KEY = /^(?:comments?|replies|responses|discussion|related\w*|recommend\w*|more\w*|popular\w*|trending\w*|most\w*|next\w*|previous\w*|sidebar|footer|nav\w*|ads?)$/i;
 
@@ -243,18 +249,19 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
   // Each entry carries its nearest enclosing records, nearest first. Only
   // strings and containers are queued, and the budget is spent when queuing,
   // so a huge array cannot allocate a stack entry per element.
-  const stack: Array<[unknown, object[]]> = [[data, []]];
+  // Each entry also carries the key it sits under (array items take their array's key).
+  const stack: Array<[unknown, object[], string]> = [[data, [], ""]];
   let budget = MAX_WALK_NODES;
-  const queue = (value: unknown, records: object[]) => {
+  const queue = (value: unknown, records: object[], key: string) => {
     if (budget > 0 && (typeof value === "string" || (value !== null && typeof value === "object"))) {
       budget--;
-      stack.push([value, records]);
+      stack.push([value, records, key]);
     }
   };
   while (stack.length > 0) {
-    const [node, records] = stack.pop()!;
+    const [node, records, nodeKey] = stack.pop()!;
     if (typeof node === "string") {
-      if (node.length > bestChars && /<p[\s>]/i.test(node) && belongs(records)) {
+      if (node.length > bestChars && BODY_KEY.test(nodeKey) && /<p[\s>]/i.test(node) && belongs(records)) {
         const chars = htmlTextChars(node);
         if (chars > bestChars) {
           best = node;
@@ -264,14 +271,14 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
     } else if (Array.isArray(node)) {
       for (const item of node) {
         if (budget <= 0) break;
-        queue(item, records);
+        queue(item, records, nodeKey);
       }
     } else if (node && typeof node === "object") {
       const inner = [node, ...records].slice(0, 3);
       for (const key in node) {
         if (budget <= 0) break;
         if (NON_BODY_KEY.test(key)) continue;
-        queue((node as Record<string, unknown>)[key], inner);
+        queue((node as Record<string, unknown>)[key], inner, key);
       }
     }
   }

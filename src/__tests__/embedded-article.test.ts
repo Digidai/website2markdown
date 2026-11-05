@@ -239,6 +239,27 @@ describe("extractEmbeddedArticles", () => {
     check(state({ url: "/view?id=AbCd" }, { url: "/view?id=abcd" }), "https://news.example.com/view?id=AbCd");
   });
 
+  it("takes only body fields, and lets a conflicting slug rule out an equal headline", () => {
+    const policy = Array.from({ length: 40 }, (_, i) => `Privacy policy clause ${i + 1} explains cookies.`);
+    const withPolicy = nextData({ props: { pageProps: {
+      url: "https://news.example.com/harbour-vote-delayed",
+      article: { body: paragraphs(PARAGRAPHS) },
+      consent: { privacyPolicyHtml: paragraphs(policy) },
+    } } });
+    const [article] = extractEmbeddedArticles(withPolicy, "Harbour vote", "https://news.example.com/harbour-vote-delayed");
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("Privacy policy");
+
+    const older = Array.from({ length: 40 }, (_, i) => `Yesterday's live paragraph ${i + 1}.`);
+    const bySlug = nextData({ props: { pageProps: {
+      current: { slug: "live-election-updates-nov-5", headline: "Live election updates", body: paragraphs(PARAGRAPHS) },
+      prefetched: { slug: "live-election-updates-nov-4", headline: "Live election updates", body: paragraphs(older) },
+    } } });
+    const [live] = extractEmbeddedArticles(bySlug, "Live election updates", "https://news.example.com/live-election-updates-nov-5");
+    expect(live.html).toContain("Paragraph 12 reports");
+    expect(live.html).not.toContain("Yesterday");
+  });
+
   it("ignores short teasers and unparsable state", () => {
     const html = `<script id="__NEXT_DATA__" type="application/json">{"props":{"teaser":"<p>Short.</p>"}}</script>
       <script>window.__INITIAL_STATE__ = {"a": undefined};</script>`;
