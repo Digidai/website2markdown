@@ -45,6 +45,14 @@ describe("failure reasons for callers", () => {
     expect(status).toBe(415);
     expect(body).toMatchObject({ code: "unsupported_content", cause: "target", retryable: false });
     expect(body.message).toBe("This URL returns application/pdf rather than a web page. Only HTML and plain-text pages can be converted.");
+    expect(String(body.hint)).toContain("https://docparse.genedai.me/");
+  });
+
+  it("points only document files to DocParse", async () => {
+    const { body } = await convert("https://api.example.com/v1/items", () =>
+      new Response("{\"items\":[]}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    expect(body).toMatchObject({ code: "unsupported_content" });
+    expect(String(body.hint)).not.toContain("docparse");
   });
 
   it("does not pass a thrown error's text to the caller", async () => {
