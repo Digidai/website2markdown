@@ -56,6 +56,34 @@ async function readErrorDetail(response: Response): Promise<string> {
 }
 
 /**
+ * Firecrawl still emits <script type="speculationrules"> (Home Depot) as escaped text despite
+ * excludeTags. Drop a leading object only when it has that leak's shape, an escaped rules array
+ * ("prefetch": \[) whose rules carry "where" or "urls", and only up to its own closing brace.
+ */
+function stripLeakedSpeculationRules(markdown: string): string {
+  const start = markdown.search(/\S/);
+  if (start < 0 || !/^\{\s*"(?:prefetch|prerender)":\s*\\\[/.test(markdown.slice(start))) {
+    return markdown;
+  }
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < markdown.length; i++) {
+    const ch = markdown[i];
+    if (ch === "\\") {
+      i++;
+    } else if (ch === '"') {
+      inString = !inString;
+    } else if (!inString && ch === "{") {
+      depth++;
+    } else if (!inString && ch === "}" && --depth === 0) {
+      const block = markdown.slice(start, i + 1);
+      return /"(?:where|urls)":/.test(block) ? markdown.slice(i + 1).trimStart() : markdown;
+    }
+  }
+  return markdown;
+}
+
+/**
  * Fetch a URL's content as Markdown via Firecrawl v2 scrape.
  *
  * When `apiKey` is omitted, this intentionally sends no Authorization header
@@ -88,7 +116,6 @@ export async function fetchViaFirecrawl(
         formats: ["markdown"],
         onlyMainContent: true,
         onlyCleanContent: false,
-        // Inline scripts of any type (Home Depot's speculation rules) otherwise come out as text.
         excludeTags: ["script", "style"],
         removeBase64Images: true,
         blockAds: true,
@@ -122,7 +149,7 @@ export async function fetchViaFirecrawl(
       throw new Error(json.error || "Firecrawl returned success=false");
     }
 
-    const markdown = json.data?.markdown || "";
+    const markdown = stripLeakedSpeculationRules(json.data?.markdown || "");
     if (!markdown.trim()) {
       throw new Error("Firecrawl returned empty markdown");
     }
