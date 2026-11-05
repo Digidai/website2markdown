@@ -2215,8 +2215,6 @@ async function tryStaticFetch(
 
     // 7. 检查是否需要浏览器渲染
     finalHtml = body;
-    let staticFallback: string | null = null;
-    const staticMethod = method;
     if (
       browserAllowed &&
       (forceBrowser || isWechatVerification || needsBrowserRendering(body, resolvedUrl) || detectChallengePage(body))
@@ -2224,17 +2222,13 @@ async function tryStaticFetch(
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {
-        const rendered = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
+        finalHtml = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
           targetUrl,
           env,
           host,
           abortSignal,
           { sessionProfileScope },
         ));
-        // A block page from the browser where the static page was not one (bio-rad,
-        // newark): the static page is the fallback if the rescue below fails too.
-        if (detectChallengePage(rendered) && !detectChallengePage(body)) staticFallback = body;
-        finalHtml = rendered;
         method = "browser+readability+turndown";
         browserRendered = true;
         fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
@@ -2269,10 +2263,6 @@ async function tryStaticFetch(
         method = "proxy+readability+turndown";
         // Context.dev renders in a browser; the proxy fetch does not.
         browserRendered = providerApiKeysAllowed;
-      } else if (staticFallback) {
-        finalHtml = staticFallback;
-        method = staticMethod;
-        browserRendered = false;
       }
     }
   }

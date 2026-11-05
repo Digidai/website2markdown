@@ -97,6 +97,8 @@ describe("detectChallengePage", () => {
       <p>Quote the reference, such as 0.64a7cb17.1793873586.77c3d7df, when you contact support.</p></body></html>`)).toBeNull();
     expect(detectChallengePage(`<html><head><title>Error Page</title></head><body><h1>Error Page</h1>
       <p>The Error Page component shows "Something went wrong" and a retry button.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>How to fix - Error 403</title></head><body><h1>How to fix - Error 403</h1>
+      <p>A store may say "our security service detected activity from your request". Clear cookies and retry.</p></body></html>`)).toBeNull();
     expect(detectChallengePage(`<html><head><title>Release notes</title></head><body><h1>Release notes</h1>
       <p>Version 0.5bc90b17.1793873578.64ebbb98 is out.</p></body></html>`)).toBeNull();
   });

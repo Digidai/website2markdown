@@ -68,10 +68,8 @@ const BLOCK_EVIDENCE =
 const MAX_GENERIC_TEXT_CHARS = 600;
 
 const DENIAL = String.raw`(?:[Aa]ccess [Dd]enied|ACCESS DENIED|[Rr]equest [Bb]locked|[Ee]rror 403|403 [Ee]rror)`;
-/** A site's name before the denial: anything short up to the separator. */
-const SITE_PREFIX = String.raw`[^|\u2013()-]{1,40}`;
-/** A site's name after "Access Denied": one or two capitalised words, so "How to fix it" is not one. */
-const SITE_SUFFIX = String.raw`\p{Lu}[^\s|\u2013()-]*(?: \p{Lu}[^\s|\u2013()-]*)?`;
+/** A site's name beside the denial: one or two capitalised words, so "How to fix" is not one. */
+const SITE_NAME = String.raw`\p{Lu}[^\s|\u2013()-]*(?: \p{Lu}[^\s|\u2013()-]*)?`;
 /**
  * A title or heading that is a denial notice, alone, after the site's name, or
  * with a second denial: "Farnell | 403 Error", "Error 403 - Request Blocked",
@@ -79,7 +77,7 @@ const SITE_SUFFIX = String.raw`\p{Lu}[^\s|\u2013()-]*(?: \p{Lu}[^\s|\u2013()-]*)
  * "Error 403 explained" and "Error 403 - Troubleshooting" are not.
  */
 const DENIAL_HEADING = new RegExp(
-  `^(?:${SITE_PREFIX}\\s[|\u2013-]\\s)?(?:${DENIAL}(?:\\s[|\u2013-]\\s${DENIAL}|\\s\\((?:[Ee]rror )?403\\))?|(?:[Aa]ccess [Dd]enied|ACCESS DENIED)\\s[|\u2013-]\\s${SITE_SUFFIX})$`,
+  `^(?:${SITE_NAME}\\s[|\u2013-]\\s)?(?:${DENIAL}(?:\\s[|\u2013-]\\s${DENIAL}|\\s\\((?:[Ee]rror )?403\\))?|(?:[Aa]ccess [Dd]enied|ACCESS DENIED)\\s[|\u2013-]\\s${SITE_NAME})$`,
   "u",
 );
 /** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
