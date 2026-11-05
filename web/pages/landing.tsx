@@ -820,7 +820,7 @@ function DocsPage({ ctx }: { ctx: Ctx }) {
     ["?token=", t.tokenDesc],
   ];
   const headers: [string, string][] = [
-    ["X-Markdown-Method", "native | readability+turndown | browser+readability+turndown | jina"],
+    ["X-Markdown-Method", "native | readability+turndown | browser+readability+turndown"],
     ["X-Cache-Status", "HIT | MISS"],
     ["X-Source-URL", t.sourceUrlDesc],
   ];

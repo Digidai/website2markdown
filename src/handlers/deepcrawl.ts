@@ -1,5 +1,6 @@
 // 深度爬取处理
 
+import { publicMethod } from "../helpers/format";
 import type { Env } from "../types";
 import {
   CORS_HEADERS,
@@ -592,7 +593,7 @@ export async function executeDeepCrawl(
       html: converted.content,
       markdown,
       title,
-      method: converted.method,
+      method: publicMethod(converted.method),
       contentType: converted.sourceContentType || undefined,
     };
   };

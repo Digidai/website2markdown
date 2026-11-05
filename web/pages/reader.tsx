@@ -11,7 +11,7 @@ export interface ReaderProps {
   host: string;
   sourceUrl: string;
   rawRequestPath: string;
-  /** Server method name ("browser") or the SSE method string ("browser+readability+turndown"). */
+  /** The public method string, as in X-Markdown-Method ("browser+readability+turndown"). */
   method: string;
   cached: boolean;
   tokenCount: string;
@@ -50,11 +50,7 @@ type ChipColor = "accent" | "default" | "success" | "warning" | "danger";
 
 export function methodInfo(method: string): { label: string; color: ChipColor } {
   if (method === "native") return { label: "Native Markdown", color: "success" };
-  if (method === "cloudflare") return { label: "Cloudflare REST", color: "success" };
-  if (method === "proxy" || method.startsWith("proxy")) return { label: "Residential Proxy", color: "accent" };
   if (method.includes("browser")) return { label: "Browser Rendered", color: "accent" };
-  if (method === "jina") return { label: "Jina Reader", color: "warning" };
-  if (method === "firecrawl") return { label: "Firecrawl", color: "warning" };
   return { label: "Readability + Turndown", color: "default" };
 }
 

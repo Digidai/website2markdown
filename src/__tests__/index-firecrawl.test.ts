@@ -73,7 +73,7 @@ describe("Firecrawl integration", () => {
     const body = await res.text();
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Method")).toBe("firecrawl");
+    expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
     expect(body).toContain("# Firecrawl Engine");
     const outboundInit = fetchMock.mock.calls[0][1];
     expect(outboundInit.headers).not.toHaveProperty("Authorization");
@@ -111,8 +111,8 @@ describe("Firecrawl integration", () => {
     const body = await res.text();
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Method")).toBe("firecrawl");
-    expect(res.headers.get("X-Markdown-Fallbacks")).toBe("firecrawl_fallback");
+    expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
     expect(body).toContain("Firecrawl parsed this document");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -156,10 +156,8 @@ describe("Firecrawl integration", () => {
     const body = await res.text();
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Method")).toBe("jina");
-    expect(res.headers.get("X-Markdown-Fallbacks")).toBe(
-      "firecrawl_error_fallthrough,jina_fallback",
-    );
+    expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
     expect(body).toContain("Jina parsed this document");
     expect(fetchMock.mock.calls[2][0]).toBe(
       "https://r.jina.ai/https://example.com/file-jina.pdf",

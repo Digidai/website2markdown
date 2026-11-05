@@ -9,14 +9,8 @@
 
 export type Lang = "en" | "zh";
 export type SitePage = "home" | "examples" | "docs" | "integration" | "pricing";
-export type ReaderMethod =
-  | "native"
-  | "fallback"
-  | "browser"
-  | "proxy"
-  | "jina"
-  | "firecrawl"
-  | "cloudflare";
+/** The public conversion method; never names the channel or vendor that fetched the page. */
+export type ReaderMethod = "native" | "readability+turndown" | "browser+readability+turndown";
 
 export interface WebRenderers {
   landingPageHTML(host: string, lang?: Lang, page?: SitePage): string;

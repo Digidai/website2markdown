@@ -271,7 +271,7 @@ describe("index mocked branch coverage", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect((init.headers as Record<string, string>)["User-Agent"]).toContain("MicroMessenger");
     expect((init.headers as Record<string, string>).Referer).toBe("https://mp.weixin.qq.com/");
-    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("wechat_static_fallback");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
   });
 
   it("tries static WeChat fetch before Browser Use for anonymous users", async () => {
@@ -434,8 +434,7 @@ describe("index mocked branch coverage", () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Recovered article prose.");
-    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("browser_use");
-    expect(res.headers.get("X-Markdown-Fallbacks")).not.toContain("wechat_static_fallback");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
   });
 
   it("lets anonymous browser-only reads fall back to Context.dev within a daily budget", async () => {
@@ -472,7 +471,7 @@ describe("index mocked branch coverage", () => {
     }), createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", AUTH_DB: budgetDb(1) }).env, mockCtx());
     expect(ok.status).toBe(200);
     expect(await ok.text()).toContain("Context article prose.");
-    expect(ok.headers.get("X-Markdown-Fallbacks")).toContain("context_dev");
+    expect(ok.headers.get("X-Markdown-Fallbacks")).toBeNull();
     expect(contextDevCalls()).toBe(1);
 
     // Call 41 of the day is over the anonymous budget: no Context.dev request.
@@ -522,7 +521,7 @@ describe("index mocked branch coverage", () => {
     expect(await res.text()).toContain("Prose recovered through proxy.");
     expect(mocked.browserUse.fetchViaBrowserUse).toHaveBeenCalledOnce();
     expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
-    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("direct_proxy_mobile");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
   });
 
   it("reports a file the site sends after the direct fetch was refused as unsupported, not as a page", async () => {
@@ -701,7 +700,7 @@ describe("index mocked branch coverage", () => {
     const res = await worker.fetch(req, env, mockCtx());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Markdown-Fallbacks")).toContain("proxy_pool_2_mobile");
+    expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
     expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalled();
     expect(mocked.proxy.fetchViaProxy).not.toHaveBeenCalled();
   });
@@ -811,7 +810,7 @@ describe("index mocked branch coverage", () => {
     }), env, mockCtx());
     expect(signed.status).toBe(200);
     expect(contextDevCalls()).toBe(1);
-    expect(signed.headers.get("X-Markdown-Fallbacks")).toContain("context_dev");
+    expect(signed.headers.get("X-Markdown-Fallbacks")).toBeNull();
     const converted = mocked.converter.htmlToMarkdown.mock.calls.map((c: any[]) => String(c[0])).join("\n");
     expect(converted).toContain("CONTEXT-DEV-BODY");
     expect(converted).not.toContain("FORBIDDEN-BLOCK-PAGE");
@@ -842,7 +841,7 @@ describe("index mocked branch coverage", () => {
       headers: { Accept: "text/markdown" },
     }), env, mockCtx());
     expect(rescued.status).toBe(200);
-    expect(rescued.headers.get("X-Markdown-Fallbacks")).toContain("direct_proxy_mobile");
+    expect(rescued.headers.get("X-Markdown-Fallbacks")).toBeNull();
     const converted = mocked.converter.htmlToMarkdown.mock.calls.map((c: any[]) => String(c[0])).join("\n");
     expect(converted).toContain("PROXY-BODY");
 
@@ -1402,7 +1401,7 @@ describe("index mocked branch coverage", () => {
     const okBody = await ok.text();
     expect(okBody, okBody).toContain("Body from the API.");
     expect(ok.status).toBe(200);
-    expect(ok.headers.get("X-Markdown-Fallbacks")).toContain("substack_api");
+    expect(ok.headers.get("X-Markdown-Fallbacks")).toBeNull();
     expect(String(fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/v1/posts/"))?.[0]))
       .toBe("https://www.example-newsletter.com/api/v1/posts/my-post");
 

@@ -64,9 +64,9 @@ export function mediumArticleFromFeed(xml: string, postId: string): string | nul
  */
 const FREEDIUM_ORIGIN = "https://freedium-mirror.cfd";
 
-/** Appended to Markdown read through Freedium, so readers know its source. */
+/** Appended to Markdown read through the mirror; says it is a copy without naming the mirror. */
 export const FREEDIUM_NOTE =
-  "\n\n---\n\n*Read through Freedium (freedium-mirror.cfd), a third-party Medium mirror, because Medium blocked the request.*\n";
+  "\n\n---\n\n*Medium blocked direct access, so this copy was read from a third-party mirror of the post.*\n";
 
 /** The Freedium page for a Medium post, or null for other URLs. */
 export function freediumUrlFor(url: string): string | null {
@@ -105,4 +105,4 @@ export function freediumArticle(html: string): string | null {
 
 /** FREEDIUM_NOTE for HTML output. */
 export const FREEDIUM_NOTE_HTML =
-  "<hr><p><em>Read through Freedium (freedium-mirror.cfd), a third-party Medium mirror, because Medium blocked the request.</em></p>";
+  "<hr><p><em>Medium blocked direct access, so this copy was read from a third-party mirror of the post.</em></p>";

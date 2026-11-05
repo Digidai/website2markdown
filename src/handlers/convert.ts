@@ -592,7 +592,7 @@ async function tryFirecrawlFastPath(
   abortSignal?: AbortSignal,
   providerApiKeysAllowed: boolean = true,
 ): Promise<ConvertResult> {
-  await progress("fetch", "Fetching via Firecrawl");
+  await progress("fetch", "Fetching page");
   const firecrawlResult = await trackProvider(env, "firecrawl", abortSignal, () => fetchViaFirecrawl(
     targetUrl,
     getFirecrawlConfig(env, providerApiKeysAllowed),
@@ -755,7 +755,7 @@ async function tryJinaFastPath(
   progress: (step: string, label: string) => void | Promise<void>,
   abortSignal?: AbortSignal,
 ): Promise<ConvertResult> {
-  await progress("fetch", "Fetching via Jina Reader");
+  await progress("fetch", "Fetching page");
   const jinaResult = await trackProvider(env, "jina", abortSignal, () => fetchViaJina(targetUrl, 15_000, abortSignal));
   const jinaMarkdown = jinaResult.markdown;
   const jinaTitle = jinaResult.title;
@@ -806,7 +806,7 @@ async function tryCfRestApi(
   const cfConfig = getCfRestConfig(env);
   if (!cfConfig) return null;
 
-  await progress("fetch", "Converting via Cloudflare");
+  await progress("fetch", "Converting to Markdown");
   try {
     const cfResult = await trackProvider(env, "cf_markdown", abortSignal, () => fetchViaCfMarkdown(targetUrl, cfConfig, {
       signal: abortSignal,
@@ -891,7 +891,7 @@ async function tryFetchAndParse(
   // Direct fetch 路径 — adapter 完全处理获取逻辑（如基于 API 的站点）
   if (fetchAdapter.fetchDirect) {
     throwIfAborted(abortSignal);
-    await progress("fetch", "Fetching via API");
+    await progress("fetch", "Fetching page");
     try {
       const directHtml = await fetchAdapter.fetchDirect(targetUrl, env);
       if (directHtml) {
@@ -973,7 +973,7 @@ async function tryFetchAndParse(
     const browserUseKey = env.BROWSER_USE_API_KEY;
     if (!finalHtml && browserUseKey) {
       throwIfAborted(abortSignal);
-      await progress("fetch", "Fetching via remote browser");
+      await progress("fetch", "Rendering with browser");
       const buHtml = await trackProvider(env, "browser_use", abortSignal, () => fetchViaBrowserUse(targetUrl, browserUseKey, abortSignal), (html) => Boolean(html));
       if (buHtml) {
         if (targetUrl.includes("mp.weixin.qq.com") && isWechatVerificationHtml(buHtml)) {
@@ -1505,7 +1505,7 @@ async function tryMediumFeed(
 ): Promise<string | null> {
   const target = mediumFeedFor(url);
   if (!target) return null;
-  await progress("fetch", "Reading the Medium feed");
+  await progress("fetch", "Fetching page");
   let xml = "";
   const { signal, cleanup } = createTimeoutSignal(8_000, abortSignal);
   try {
@@ -1543,7 +1543,7 @@ async function tryFreedium(
 ): Promise<string | null> {
   const freediumUrl = freediumUrlFor(url);
   if (!freediumUrl) return null;
-  await progress("fetch", "Reading the post through Freedium");
+  await progress("fetch", "Fetching page");
   const html = await trackProvider(env, "freedium", abortSignal, async () => {
     const { signal, cleanup } = createTimeoutSignal(12_000, abortSignal);
     try {
@@ -1591,7 +1591,7 @@ async function tryContextDev(
     }
   }
   throwIfAborted(abortSignal);
-  await progress?.("fetch", "Fetching via Context.dev");
+  await progress?.("fetch", "Fetching page");
   const usable = (html: string) => html.length > 1000 && !isLikelyChallengeHtml(html);
   try {
     const result = await trackProvider(
@@ -1704,7 +1704,7 @@ async function tryProxyRetry(
 
 
   throwIfAborted(abortSignal);
-  await _progress("fetch", "Retrying via proxy");
+  await _progress("fetch", "Retrying");
   try {
     const headerVariants = [
       {
@@ -1804,7 +1804,7 @@ async function tryDirectProxyFetch(
 
 
   throwIfAborted(abortSignal);
-  await _progress("fetch", "Fetching via residential proxy");
+  await _progress("fetch", "Fetching page");
 
   // Build headers matching what the adapter expects
   const isWechat = targetUrl.includes("mp.weixin.qq.com");

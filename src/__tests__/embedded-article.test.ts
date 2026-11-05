@@ -33,8 +33,15 @@ function stubPages(pages: Record<string, { body: string; type?: string }>) {
 }
 
 async function convert(url: string) {
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
   const res = await worker.fetch(new Request(`https://md.example.com/${url}?raw=true`), createMockEnv().env, mockCtx());
-  return { status: res.status, body: await res.text(), fallbacks: res.headers.get("X-Markdown-Fallbacks") ?? "" };
+  // The path taken is internal: it goes to the log, never to the caller.
+  const completed = log.mock.calls
+    .map(([line]) => { try { return JSON.parse(String(line)) as { event?: string; fallbacks?: string[] }; } catch { return null; } })
+    .find((entry) => entry?.event === "convert.completed");
+  log.mockRestore();
+  expect(res.headers.get("X-Markdown-Fallbacks")).toBeNull();
+  return { status: res.status, body: await res.text(), fallbacks: (completed?.fallbacks ?? []).join(",") };
 }
 
 describe("extractEmbeddedArticles", () => {

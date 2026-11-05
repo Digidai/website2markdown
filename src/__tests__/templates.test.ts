@@ -59,7 +59,7 @@ describe("templates", () => {
       '# title\n\n<script>alert("x")</script>',
       'https://example.com/"x"',
       "123",
-      "fallback",
+      "readability+turndown",
       true,
       'Art "Title"',
       '/https%3A%2F%2Fexample.com%2F%22x%22?raw=true&selector=.main',
