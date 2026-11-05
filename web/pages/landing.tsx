@@ -1073,8 +1073,8 @@ function PricingPage({ ctx }: { ctx: Ctx }) {
       note: isZh ? "按你的用量单独报价" : "Priced for your volume",
       highlight: true,
       features: isZh
-        ? ["每月 50,000 credits 起", "代理出口，打开更多被拦的页面", "更多兜底路径", "no_cache 强制实时抓取"]
-        : ["From 50,000 credits a month", "Proxy egress for pages that block datacenters", "More fallback paths for harder pages", "no_cache for always-fresh fetches"],
+        ? ["每月 50,000 credits 起", "更多抓取路径，打开拦截自动访问的页面", "no_cache 强制实时抓取"]
+        : ["From 50,000 credits a month", "More fetch routes for pages that block automated access", "no_cache for always-fresh fetches"],
     },
     {
       id: "enterprise",
@@ -1093,8 +1093,8 @@ function PricingPage({ ctx }: { ctx: Ctx }) {
         title={isZh ? "先免费用，量大了再谈" : "Start free. Talk to us when you scale."}
         description={
           isZh
-            ? "免费档足够个人和小项目。需要更大额度、代理或定制适配器时，留下联系方式，我们按你的用量报价。"
-            : "The free tier covers personal projects. For more volume, proxies, or custom adapters, leave your details and we will quote for your usage."
+            ? "免费档足够个人和小项目。需要更大额度、更难读取的页面或定制适配器时，留下联系方式，我们按你的用量报价。"
+            : "The free tier covers personal projects. For more volume, harder pages, or custom adapters, leave your details and we will quote for your usage."
         }
       />
       <section className="py-14 sm:py-16">
