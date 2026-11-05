@@ -280,9 +280,13 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
         }
       }
     } else if (Array.isArray(node)) {
-      // A body split into fragments (strings, or records with the HTML) is one candidate, in order.
-      if (named && BODY_KEY.test(nodeKey)) {
-        const joined = node.slice(0, MAX_WALK_NODES).map((item) => {
+      // A body split into fragments (strings, or records with the HTML) is one
+      // candidate, in order. Items that say which article they are make it a
+      // list of articles instead, which is walked item by item below.
+      const fragments = named && BODY_KEY.test(nodeKey) && node.length <= MAX_WALK_NODES &&
+        node.every((item) => typeof item === "string" || (item !== null && typeof item === "object" && !Array.isArray(item) && recordVerdict(item, id) === null));
+      if (fragments) {
+        const joined = node.map((item) => {
           if (typeof item === "string") return item;
           const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
           return str(record.html) || str(record.content) || str(record.text);

@@ -326,6 +326,15 @@ describe("extractEmbeddedArticles", () => {
       expect(article.html).toContain("Paragraph 1 reports");
       expect(article.html).toContain("Paragraph 12 reports");
     }
+    // A list of articles is not one body.
+    const other = Array.from({ length: 40 }, (_, i) => `Other article paragraph ${i + 1}.`);
+    const list = nextData({ props: { pageProps: { url: pageUrl, content: [
+      { url: pageUrl, html: paragraphs(PARAGRAPHS) },
+      { url: "https://news.example.com/other-story", html: paragraphs(other) },
+    ] } } });
+    const [article] = extractEmbeddedArticles(list, "Harbour vote", pageUrl);
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("Other article");
   });
 
   it("ignores short teasers and unparsable state", () => {
