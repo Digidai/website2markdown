@@ -903,7 +903,14 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       const policyError = checkPolicy(policy, { forceBrowser, noCache, engine });
       if (policyError) {
         return withExtraHeaders(
-          errorResponse("Unauthorized", policyError, 401, jsonErrors),
+          errorResponse(
+            "Unauthorized",
+            policyError,
+            401,
+            jsonErrors,
+            // A key would not help when the option needs Pro; say so instead.
+            policyError.includes("Pro API key") ? "plan_required" : "auth_required",
+          ),
           { "X-Request-ID": requestId },
         );
       }

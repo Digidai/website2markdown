@@ -66,4 +66,45 @@ describe("failure reasons for callers", () => {
     expect(video).toMatchObject({ code: "no_content" });
     expect(video.targetStatus).toBeUndefined();
   });
+
+  it("does not replay a negative-cache entry written before reasons were stored", async () => {
+    // Older entries held WeChat's synthesized 410 in targetStatus, indistinguishable from a real one.
+    const { env, mocks } = createMockEnv();
+    mocks.kvGet.mockImplementation(async (key: string) =>
+      key.startsWith("https://md-neg/") ? JSON.stringify({ title: "Gone", message: "old", statusCode: 410, targetStatus: 410 }) : null);
+    const fetchMock = vi.fn(async () => new Response("<html><body><h1>Hi</h1></body></html>", {
+      status: 404, headers: { "Content-Type": "text/html" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await worker.fetch(new Request("https://md.example.com/https://legacy.example.com/post?raw=true", {
+      headers: { Accept: "application/json" },
+    }), env, mockCtx());
+    expect(fetchMock).toHaveBeenCalled();
+    expect(await res.json()).toMatchObject({ code: "target_not_found", target_status: 404 });
+  });
+
+  it("tells a Free key that the option needs Pro, not to create a key", async () => {
+    const db = {
+      prepare: () => {
+        const stmt = {
+          bind: () => stmt,
+          first: async () => ({
+            key_id: "key_free", account_id: "acct_free", revoked_at: null, tier: "free",
+            monthly_credits_used: 0, monthly_credits_reset_at: "2099-01-01T00:00:00.000Z",
+          }),
+          run: async () => ({ success: true }),
+        };
+        return stmt;
+      },
+      batch: async () => [],
+    } as unknown as D1Database;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unused")));
+    const res = await worker.fetch(new Request("https://md.example.com/https://news.example.com/a?raw=true&no_cache=true", {
+      headers: { Accept: "application/json", Authorization: "Bearer mk_free_key" },
+    }), createMockEnv({ AUTH_DB: db }).env, mockCtx());
+    expect(res.status).toBe(401);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body).toMatchObject({ code: "plan_required", cause: "account" });
+    expect(String(body.hint)).not.toMatch(/free API key/i);
+  });
 });

@@ -484,7 +484,9 @@ export async function convertUrl(
 
   if (anonymousCaller && cacheAllowed) {
     const negative = await getNegativeCache(env, targetUrl);
-    if (negative) {
+    // Entries written before reasons were stored cannot tell a status the site
+    // sent from one we synthesized (WeChat's 410), so they count as a miss.
+    if (negative?.code) {
       throw new ConvertError(
         negative.title,
         negative.message,
@@ -494,8 +496,7 @@ export async function convertUrl(
         {
           code: negative.code,
           publicMessage: negative.publicMessage,
-          // Entries written before reasons were stored hold the site's status in targetStatus.
-          originStatus: negative.originStatus ?? (negative.code ? undefined : negative.targetStatus),
+          originStatus: negative.originStatus,
         },
       );
     }
@@ -564,7 +565,8 @@ export async function convertUrl(
           message: error.message,
           statusCode: error.statusCode,
           targetStatus: error.targetStatus,
-          ...(error.reason.code ? { code: error.reason.code } : {}),
+          // Always resolved: an entry without a code is treated as legacy and not replayed.
+          code: error.toPublic().code,
           ...(error.reason.publicMessage ? { publicMessage: error.reason.publicMessage } : {}),
           ...(error.reason.originStatus !== undefined ? { originStatus: error.reason.originStatus } : {}),
         });

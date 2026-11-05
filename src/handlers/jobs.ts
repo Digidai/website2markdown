@@ -29,7 +29,6 @@ import type {
 import { incrementCounter, logMetric } from "../runtime-state";
 import { recordJobCreated, recordJobRun } from "../observability/metrics";
 import { ConvertError } from "../helpers/response";
-import { publicErrorFields } from "../public-error";
 import { sha256Hex, stableStringify } from "../helpers/crypto";
 import { authorizeApiAccess, type ApiAccessContext, sessionProfileScopeForAuth } from "../middleware/api-access";
 import { browserAllowedForRequest, checkPolicy } from "../middleware/tier-gate";
@@ -476,10 +475,10 @@ export async function executeJobRun(
         } catch (error) {
           if (error instanceof ConvertError) {
             const pub = error.toPublic(access ? access.auth.tier === "anonymous" : false);
-            return { success: false, statusCode: error.statusCode, error: pub.message, ...publicErrorFields(pub) };
+            return { success: false, statusCode: error.statusCode, error: pub.message };
           }
           console.error("Job task failed:", errorMessage(error));
-          return { success: false, error: "Failed to process this URL.", code: "internal_error" };
+          return { success: false, error: "Failed to process this URL." };
         }
       }
 
@@ -536,10 +535,10 @@ export async function executeJobRun(
         }
         if (error instanceof ConvertError) {
           const pub = error.toPublic(access ? access.auth.tier === "anonymous" : false);
-          return { success: false, statusCode: error.statusCode, error: pub.message, ...publicErrorFields(pub) };
+          return { success: false, statusCode: error.statusCode, error: pub.message };
         }
         console.error("Job task failed:", errorMessage(error));
-        return { success: false, error: "Failed to process this URL.", code: "internal_error" };
+        return { success: false, error: "Failed to process this URL." };
       }
     },
     {

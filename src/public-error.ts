@@ -16,6 +16,7 @@ export type PublicErrorCode =
   | "invalid_request"
   | "blocked_address"
   | "auth_required"
+  | "plan_required"
   | "quota_exceeded"
   | "rate_limited"
   | "target_not_found"
@@ -84,6 +85,12 @@ const CATALOG: Record<PublicErrorCode, CatalogEntry> = {
     retryable: false,
     message: () => "This request needs an API key.",
     hint: `Create a free API key at ${SIGN_IN_URL} and send it as "Authorization: Bearer <key>".`,
+  },
+  plan_required: {
+    cause: "account",
+    retryable: false,
+    message: () => "This option needs a Pro API key.",
+    hint: "Remove the option and send the request again, or upgrade to Pro at https://mdget.dev/portal/.",
   },
   quota_exceeded: {
     cause: "account",

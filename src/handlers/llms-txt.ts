@@ -77,7 +77,7 @@ A failed conversion returns JSON (send Accept: application/json or text/markdown
   - content_too_large: over 5 MB. Use a more specific URL.
   - no_content: the page has no readable text (empty, app shell, video).
   - invalid_request, blocked_address: fix the request; private addresses are not allowed.
-  - auth_required, quota_exceeded, rate_limited: account limits; see hint and Retry-After.
+  - auth_required, plan_required, quota_exceeded, rate_limited: account limits; see hint and Retry-After.
   - temporary_failure, internal_error: our side failed. Retry; report X-Request-ID if it persists.
 
 ### Health Check (GET)
