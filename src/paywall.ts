@@ -404,13 +404,21 @@ export function extractJsonLdArticle(
   isRequested?: (node: Record<string, unknown>) => boolean | null,
 ): string | null {
   // Find all <script type="application/ld+json"> blocks
-  const regex = /<script\s+type\s*=\s*["']application\/ld\+json["'][^<>]*>([\s\S]*?)<\/script>/gi;
+  // Forward only: each block ends at the next </script>, and once none is left
+  // no later opening can close either, so malformed HTML is read once.
+  const opening = /<script\s+type\s*=\s*["']application\/ld\+json["'][^<>]*>/gi;
+  const closing = /<\/script>/gi;
   let match: RegExpExecArray | null;
   let candidates: Array<{ headline: string; body: string; node: Record<string, unknown> }> = [];
 
-  while ((match = regex.exec(html)) !== null) {
+  while ((match = opening.exec(html)) !== null) {
+    closing.lastIndex = opening.lastIndex;
+    const end = closing.exec(html);
+    if (!end) break;
+    const json = html.slice(opening.lastIndex, end.index);
+    opening.lastIndex = closing.lastIndex;
     try {
-      const data = JSON.parse(match[1]);
+      const data = JSON.parse(json);
       // Handle both single objects and arrays
       const items = Array.isArray(data) ? data : [data];
 

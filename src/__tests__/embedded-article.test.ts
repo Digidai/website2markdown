@@ -232,9 +232,10 @@ describe("extractEmbeddedArticles", () => {
     expect(performance.now() - started).toBeLessThan(1000);
   });
 
-  it("stays linear on many unclosed __NEXT_DATA__ script tags", () => {
+  it("stays linear on many unclosed __NEXT_DATA__ and JSON-LD script tags", () => {
     // One open tag with many id attributes and no ">", and many open tags.
-    for (const html of ['<script' + ' id="__NEXT_DATA__"'.repeat(8_000), '<script id="__NEXT_DATA__" '.repeat(8_000)]) {
+    for (const html of ['<script' + ' id="__NEXT_DATA__"'.repeat(8_000), '<script id="__NEXT_DATA__" '.repeat(8_000),
+      '<script type="application/ld+json">'.repeat(20_000)]) {
       const started = performance.now();
       expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")).toEqual([]);
       expect(performance.now() - started).toBeLessThan(1000);
