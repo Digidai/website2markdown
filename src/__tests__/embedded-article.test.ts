@@ -156,6 +156,19 @@ describe("extractEmbeddedArticles", () => {
     const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/view.aspx?id=1&utm_source=x");
     expect(article.html).toContain("Paragraph 12 reports");
     expect(article.html).not.toContain("Second article");
+    // Nor do repeated parameters in another order, or a "%" encoded once more, name the same article.
+    for (const [mine, theirs, page] of [
+      ["/view?id=1&id=2", "/view?id=2&id=1", "https://news.example.com/view?id=1&id=2"],
+      ["/articles/one%252Ftwo", "/articles/one%2Ftwo", "https://news.example.com/articles/one%252Ftwo"],
+    ]) {
+      const pair = nextData({ props: { pageProps: {
+        current: { url: mine, body: paragraphs(PARAGRAPHS) },
+        prefetched: { url: theirs, body: paragraphs(other) },
+      } } });
+      const found = extractEmbeddedArticles(pair, "Harbour vote", page);
+      expect(found[0].html).toContain("Paragraph 12 reports");
+      expect(found.some((c) => c.html.includes("Second article"))).toBe(false);
+    }
   });
 
   it("does not take a long comment for the article body", () => {
@@ -349,6 +362,16 @@ describe("extractEmbeddedArticles", () => {
     expect(blocksHtml).toContain("Paragraph 12 reports");
     expect(blocksHtml).toContain('<img src="https://cdn.example.com/harbour.jpg"');
     expect(blocksHtml).toContain("<h2>What happens next</h2>");
+    // Plain-text image and heading blocks keep their kind.
+    const textBlocks = [
+      ...PARAGRAPHS.slice(0, 6).map((p) => ({ type: "paragraph", text: p })),
+      { type: "image", url: "https://cdn.example.com/pier.jpg", text: "The pier at dawn" },
+      { type: "heading", text: "Council reaction" },
+      ...PARAGRAPHS.slice(6).map((p) => ({ type: "paragraph", text: p })),
+    ];
+    const textHtml = extractEmbeddedArticles(nextData({ props: { pageProps: { article: { url: pageUrl, body: textBlocks } } } }), "Harbour vote", pageUrl)[0]?.html;
+    expect(textHtml).toContain('<img src="https://cdn.example.com/pier.jpg" alt="The pier at dawn">');
+    expect(textHtml).toContain("<h2>Council reaction</h2>");
     // Nor is a list of articles told apart only by headline.
     const byHeadline = nextData({ props: { pageProps: { article: { url: pageUrl, body: paragraphs(PARAGRAPHS), content: [
       { headline: "Other news of the day", html: paragraphs(Array.from({ length: 40 }, (_, i) => `Headline-only story paragraph ${i + 1} about another town's budget fight.`)) },

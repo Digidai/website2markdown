@@ -131,11 +131,12 @@ function articleUrl(value: string, base: string): string | null {
   try {
     const url = new URL(value, base);
     const params = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name));
-    const query = params.length > 0 ? `?${new URLSearchParams(params.sort()).toString()}` : "";
+    const query = params.length > 0 ? `?${new URLSearchParams(params.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))).toString()}` : "";
     // host keeps a non-default port: news.example.com:8443 is another service.
     const host = url.host.toLowerCase().replace(/^www\./, "");
-    // Decoded per segment, so an encoded "/", "?", or "#" (one%2Ftwo) stays in its segment.
-    const path = url.pathname.split("/").map((segment) => decodeURIComponent(segment).replace(/[/?#]/g, encodeURIComponent)).join("/");
+    // Decoded per segment, so an encoded "/", "?", or "#" (one%2Ftwo) stays in its segment,
+    // and a literal "%" stays encoded (one%252Ftwo is not one%2Ftwo).
+    const path = url.pathname.split("/").map((segment) => decodeURIComponent(segment).replace(/[/?#%]/g, encodeURIComponent)).join("/");
     return `${host}${path.replace(/\/+$/, "")}${query}`;
   } catch {
     return null;
@@ -338,19 +339,20 @@ function renderBlock(item: unknown): string {
   if (typeof item === "string") return /<[a-z][^<>]*>/i.test(item) ? item : `<p>${escapeHtml(item)}</p>`;
   if (!item || typeof item !== "object") return "";
   const block = item as Record<string, unknown>;
-  const html = str(block.html) || str(block.content) || str(block.text);
-  // Plain text becomes a paragraph; HTML stays as it is.
-  if (html) return /<[a-z][^<>]*>/i.test(html) ? html : `<p>${escapeHtml(html)}</p>`;
   const type = str(block.type).toLowerCase();
   const url = str(block.url) || str(block.src);
   if (/image|photo|figure/.test(type) && /^https?:\/\//i.test(url)) {
-    const caption = str(block.caption);
+    // An image block's text is its caption.
+    const caption = str(block.caption) || str(block.text);
     return `<figure><img src="${escapeHtml(url)}" alt="${escapeHtml(stripTags(caption || str(block.alt)))}">` +
       (caption ? `<figcaption>${caption}</figcaption>` : "") + "</figure>";
   }
-  const heading = str(block.title) || str(block.heading);
-  if (/head/.test(type) && heading) return `<h2>${escapeHtml(heading)}</h2>`;
-  return "";
+  const html = str(block.html) || str(block.content) || str(block.text);
+  if (html && /<[a-z][^<>]*>/i.test(html)) return html;
+  // Plain text becomes a heading or a paragraph.
+  const heading = /head|^h[1-6]$/.test(type) ? html || str(block.title) || str(block.heading) : "";
+  if (heading) return `<h2>${escapeHtml(heading)}</h2>`;
+  return html ? `<p>${escapeHtml(html)}</p>` : "";
 }
 
 /** Renders Arc XP ANS content_elements (Washington Post, Globe and Mail, ...). */
