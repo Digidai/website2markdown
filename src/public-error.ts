@@ -208,7 +208,7 @@ export function codeForOriginStatus(status: number): PublicErrorCode {
   if (status === 429) return "target_rate_limited";
   // Cloudflare's origin errors (520-527, 530): the site's server or DNS is down.
   if ((status >= 520 && status <= 527) || status === 530) return "target_unreachable";
-  if (status === 504) return "target_timeout";
+  if (status === 408 || status === 504) return "target_timeout";
   if (status >= 500) return "target_error";
   return "target_rejected";
 }

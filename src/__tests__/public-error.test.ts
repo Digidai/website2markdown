@@ -26,6 +26,7 @@ describe("failure reasons for callers", () => {
     const cases: Array<[number, string, string, boolean]> = [
       [404, "Not Found", "target_not_found", false],
       [410, "Gone", "target_gone", false],
+      [408, "Request Timeout", "target_timeout", true],
       [412, "Precondition Failed", "target_rejected", false],
       [500, "Internal Server Error", "target_error", true],
       [530, "", "target_unreachable", true],
