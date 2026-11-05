@@ -1177,9 +1177,9 @@ async function tryFetchAndParse(
   );
   // A browser's block page the HTML rules missed (its markup varies by session):
   // its Markdown, title and headings still read as one.
-  // Only the page's title counts as its heading: a section "## Access denied" is not the page,
-  // and neither is the part a selector picked.
-  if (!challenge && browserRendered && !selector) challenge = markdownChallenge(markdown, extractedTitle, false);
+  // Only Akamai's denial, whose title and reference number are hard to mistake (Newark's);
+  // only the page's title counts as its heading, and not for the part a selector picked.
+  if (!challenge && browserRendered && !selector && markdownChallenge(markdown, extractedTitle, false) === "akamai") challenge = "akamai";
   // The challenge page's own text; once another source replaces it, the page is rescued.
   const challengeMarkdown = challenge ? markdown : null;
   let output: string;
@@ -1478,7 +1478,8 @@ function markdownChallenge(markdown: string, title: string, withHeadings: boolea
   // Headings apart too, and the text (headings included) without Markdown marks, as the page rules expect.
   // Only heading marks are dropped; a "#" in the text (Akamai's "Reference #18.4f...") stays.
   // An underscore inside a word ("request_id") is the word's, not emphasis.
-  const text = markdown.replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*`>[\]]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, " ").replace(/\s+/g, " ").trim();
+  // Images and link targets are not text a reader sees.
+  const text = markdown.replace(/!\[[^\]\n]*\]\([^)\n]*\)/g, " ").replace(/\]\([^)\n]*\)/g, "]").replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*`>[\]]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, " ").replace(/\s+/g, " ").trim();
   return detectChallengeText(title, headings, text);
 }
 

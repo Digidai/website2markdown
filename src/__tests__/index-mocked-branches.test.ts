@@ -1168,7 +1168,7 @@ describe("index mocked branch coverage", () => {
     ));
     mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><article>doc</article></body></html>");
     mocked.converter.htmlToMarkdown.mockReturnValue({
-      markdown: "# Security check\n\nEach response carries `request_id`: abc123456.",
+      markdown: "# Security check\n\nEach response carries `request_id`: abc123456.\n\n![Please enable JS and disable any ad blocker](https://example.com/shot.png)",
       title: "Security check",
       contentHtml: "",
     });
