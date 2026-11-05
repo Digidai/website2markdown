@@ -247,6 +247,8 @@ describe("extractEmbeddedArticles", () => {
     // Same path on another host.
     check(state({ url: "https://news.example.com/view.html" }, { url: "https://sports.example.org/view.html" }),
       "https://www.news.example.com/view.html");
+    // An encoded "/" is part of a segment.
+    check(state({ url: "/articles/one%2Ftwo" }, { url: "/articles/one/two" }), "https://news.example.com/articles/one%2Ftwo");
     // Case-sensitive article ids.
     check(state({ url: "/view?id=AbCd" }, { url: "/view?id=abcd" }), "https://news.example.com/view?id=AbCd");
   });
@@ -326,6 +328,15 @@ describe("extractEmbeddedArticles", () => {
       expect(article.html).toContain("Paragraph 1 reports");
       expect(article.html).toContain("Paragraph 12 reports");
     }
+    // Image and heading blocks between the paragraphs stay part of the body.
+    const blocks = [
+      ...PARAGRAPHS.slice(0, 6).map((p) => ({ type: "paragraph", content: `<p>${p}</p>` })),
+      { type: "image", url: "https://cdn.example.com/harbour.jpg" },
+      { type: "heading", title: "What happens next" },
+      ...PARAGRAPHS.slice(6).map((p) => ({ type: "paragraph", content: `<p>${p}</p>` })),
+    ];
+    const withBlocks = nextData({ props: { pageProps: { article: { url: pageUrl, body: blocks } } } });
+    expect(extractEmbeddedArticles(withBlocks, "Harbour vote", pageUrl)[0]?.html).toContain("Paragraph 12 reports");
     // A list of articles is not one body.
     const other = Array.from({ length: 40 }, (_, i) => `Other article paragraph ${i + 1}.`);
     const list = nextData({ props: { pageProps: { url: pageUrl, content: [

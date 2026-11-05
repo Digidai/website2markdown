@@ -133,7 +133,9 @@ function articleUrl(value: string, base: string): string | null {
     const params = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name));
     const query = params.length > 0 ? `?${new URLSearchParams(params.sort()).toString()}` : "";
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
-    return `${host}${decodeURIComponent(url.pathname).replace(/\/+$/, "")}${query}`;
+    // Decoded per segment, so an encoded "/" (one%2Ftwo) stays one segment.
+    const path = url.pathname.split("/").map((segment) => decodeURIComponent(segment).replace(/\//g, "%2F")).join("/");
+    return `${host}${path.replace(/\/+$/, "")}${query}`;
   } catch {
     return null;
   }
@@ -280,11 +282,14 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
         }
       }
     } else if (Array.isArray(node)) {
-      // A body split into fragments (strings, or records with the HTML) is one
-      // candidate, in order. Items that say which article they are make it a
-      // list of articles instead, which is walked item by item below.
-      const fragments = named && BODY_KEY.test(nodeKey) && node.length <= MAX_WALK_NODES &&
-        node.every((item) => typeof item === "string" || (item !== null && typeof item === "object" && !Array.isArray(item) && recordVerdict(item, id) === null));
+      // A body split into fragments (strings, or blocks with the HTML, images,
+      // or headings) is one candidate, in order. An item that is an article
+      // itself, with an identity and its own paragraphs, makes it a list of
+      // articles instead, which is walked item by item below.
+      const isArticle = (item: unknown) => item !== null && typeof item === "object" && !Array.isArray(item) &&
+        recordVerdict(item, id) !== null &&
+        Object.entries(item).some(([key, value]) => BODY_KEY.test(key) && typeof value === "string" && /<p[\s>]/i.test(value));
+      const fragments = named && BODY_KEY.test(nodeKey) && node.length <= MAX_WALK_NODES && !node.some(isArticle);
       if (fragments) {
         const joined = node.map((item) => {
           if (typeof item === "string") return item;
