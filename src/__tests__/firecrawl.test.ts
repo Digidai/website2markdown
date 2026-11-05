@@ -64,6 +64,18 @@ describe("fetchViaFirecrawl", () => {
     expect(result.markdown).toBe(body);
   });
 
+  it("stops at the rules' own closing brace when they are on one line", async () => {
+    const leaked = '{"prerender": \\[{"where": {"href\\_matches": "/\\*"}}\\]} ';
+    const body = "# Title\n\nIntro\n\n```json\n{\n \"a\": 1\n}\n```\n\nEnd";
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      Response.json({ success: true, data: { markdown: leaked + body } }),
+    );
+
+    const result = await fetchViaFirecrawl("https://example.com");
+
+    expect(result.markdown).toBe(body);
+  });
+
   it.each([
     '{\n "prefetch": false,\n "name": "Configuration reference"\n}\n\nBody',
     '{\n "prefetch": \\[\\\n "a", "b"\\\n \\]\n}\n\nBody',
