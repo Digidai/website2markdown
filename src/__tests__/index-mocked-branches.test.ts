@@ -779,6 +779,67 @@ describe("index mocked branch coverage", () => {
     expect(mocked.paywall.fetchArchiveToday).toHaveBeenCalled();
   });
 
+  it("retries Context.dev once after a 429 from its concurrency limit", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    let contextDevCalls = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith("https://api.context.dev/")) {
+        contextDevCalls++;
+        if (contextDevCalls === 1) return Response.json({ message: "Too many concurrent requests" }, { status: 429 });
+        return Response.json({ html: { success: true, data: `<html><body><article>CONTEXT-DEV-BODY ${"c".repeat(1600)}</article></body></html>` }, metadata: {} });
+      }
+      return new Response("<html><body>FORBIDDEN-BLOCK-PAGE</body></html>", { status: 403, headers: { "Content-Type": "text/html" } });
+    }));
+
+    const res = await worker.fetch(new Request("https://md.example.com/https://example.com/walled?raw=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    }), createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+    expect(contextDevCalls).toBe(2);
+    expect(mocked.converter.htmlToMarkdown.mock.calls.map((c: any[]) => String(c[0])).join("\n")).toContain("CONTEXT-DEV-BODY");
+  });
+
+  it("skips Context.dev for a host that keeps timing out there, and counts each timeout", async () => {
+    mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+    mocked.converter.htmlToMarkdown.mockReturnValue({ markdown: "", title: "", contentHtml: "" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("https://api.context.dev/")
+      ? Response.json({ html: { success: false, error_code: "REQUEST_TIMEOUT" } })
+      : new Response("<html><body>loading</body></html>", { status: 200, headers: { "Content-Type": "text/html" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const contextDevCalls = () => fetchMock.mock.calls.filter((c) => String(c[0]).startsWith("https://api.context.dev/")).length;
+    // The timeout counter for the host, as rate_limits holds it.
+    const counterDb = (count: number) => {
+      const binds: unknown[][] = [];
+      const db = {
+        binds,
+        prepare: vi.fn((sql: string) => {
+          const stmt = {
+            bind: vi.fn((...args: unknown[]) => { binds.push(args); return stmt; }),
+            first: vi.fn(async () => (/rate_limits/.test(sql) ? { count, expires_at: "2099-01-01T00:00:00.000Z" } : null)),
+            all: vi.fn(async () => ({ results: [] })),
+            run: vi.fn(async () => ({ success: true })),
+          };
+          return stmt;
+        }),
+      };
+      return db;
+    };
+    const request = (path: string) => new Request(`https://md.example.com/https://slow.example.com/${path}?raw=true`, {
+      headers: { Accept: "text/markdown" },
+    });
+
+    const below = counterDb(2);
+    const first = await worker.fetch(request("a"), createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", AUTH_DB: below as unknown as D1Database }).env, mockCtx());
+    expect(first.status).toBe(502);
+    expect(contextDevCalls()).toBe(1);
+    expect(below.binds.some((args) => args[0] === "context-dev-timeout:slow.example.com" && args.length === 3)).toBe(true);
+
+    const over = await worker.fetch(request("b"), createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", AUTH_DB: counterDb(3) as unknown as D1Database }).env, mockCtx());
+    expect(over.status).toBe(502);
+    expect(contextDevCalls()).toBe(1);
+  });
+
   it("rescues a bot-walled page through Context.dev for signed-in requests only", async () => {
     mocked.paywall.getPaywallRule.mockReturnValue(null);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

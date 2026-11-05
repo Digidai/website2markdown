@@ -37,7 +37,7 @@ import {
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
 import { fetchViaContextDev } from "../context-dev";
-import { bumpLimit } from "../middleware/rate-limit-d1";
+import { bumpLimit, peekLimit } from "../middleware/rate-limit-d1";
 import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/wechat";
 import { isFeishuDocumentUrl } from "../browser/adapters/feishu";
 import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
@@ -1503,6 +1503,18 @@ function markdownChallenge(markdown: string, title: string, withHeadings: boolea
  * 25/day keeps a full month (~750) under the free tier's 1,000 credits.
  */
 const CONTEXT_DEV_ANON_DAILY_LIMIT = 25;
+/**
+ * The free tier runs 2 requests at once and answers a third with 429 at once:
+ * wait this long and try once more.
+ */
+const CONTEXT_DEV_RETRY_DELAY_MS = 1_000;
+/**
+ * Context.dev timeouts on one host within the window after which the host
+ * skips Context.dev until the window ends: each timeout costs 30 s and brings
+ * nothing (csdn, some government sites).
+ */
+const CONTEXT_DEV_HOST_TIMEOUT_LIMIT = 3;
+const CONTEXT_DEV_HOST_TIMEOUT_WINDOW_S = 3_600;
 
 /** Origin statuses an anonymous request may retry once through the proxy. */
 const ANON_PROXY_STATUSES = [403, 429];
@@ -1620,6 +1632,13 @@ async function tryContextDev(
   // Context.dev has never returned a WeChat article body, only the
   // verification page or an empty shell, so a call there only spends credits.
   if (targetUrl.includes("mp.weixin.qq.com")) return null;
+  let host = "";
+  try { host = new URL(targetUrl).host; } catch { /* keep "" */ }
+  const timeoutKey = `context-dev-timeout:${host}`;
+  if (host && ((await peekLimit(env, timeoutKey))?.count ?? 0) >= CONTEXT_DEV_HOST_TIMEOUT_LIMIT) {
+    fallbacks.add("context_dev_skipped_slow_host");
+    return null;
+  }
   if (anonymous) {
     // One site-wide daily budget for anonymous callers, so they cannot drain
     // the monthly quota that signed-in requests rely on.
@@ -1636,7 +1655,17 @@ async function tryContextDev(
   try {
     const result = await trackProvider(
       env, "context_dev", abortSignal,
-      () => fetchViaContextDev(targetUrl, apiKey, 30_000, abortSignal),
+      async () => {
+        try {
+          return await fetchViaContextDev(targetUrl, apiKey, 30_000, abortSignal);
+        } catch (error) {
+          if (!errorMessage(error).includes("(429)")) throw error;
+          await new Promise((resolve) => setTimeout(resolve, CONTEXT_DEV_RETRY_DELAY_MS));
+          throwIfAborted(abortSignal);
+          fallbacks.add("context_dev_retry");
+          return await fetchViaContextDev(targetUrl, apiKey, 30_000, abortSignal);
+        }
+      },
       (r) => usable(r.html),
     );
     if (!usable(result.html)) return null;
@@ -1645,6 +1674,9 @@ async function tryContextDev(
   } catch (error) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
     console.error("Context.dev fallback failed:", errorMessage(error));
+    if (host && errorMessage(error).includes("REQUEST_TIMEOUT")) {
+      await bumpLimit(env, timeoutKey, CONTEXT_DEV_HOST_TIMEOUT_LIMIT, CONTEXT_DEV_HOST_TIMEOUT_WINDOW_S);
+    }
     return null;
   }
 }
