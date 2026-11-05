@@ -122,10 +122,11 @@ export async function fetchViaFirecrawl(
     }
 
     // Firecrawl still emits <script type="speculationrules"> (Home Depot) as escaped text despite
-    // excludeTags, so drop a leading speculation-rules JSON object up to its closing-brace line.
+    // excludeTags. Drop a leading object only when it has that leak's shape: an escaped rules array
+    // ("prefetch": \[) whose rules carry "where" or "urls".
     const markdown = (json.data?.markdown || "").replace(
-      /^\s*\{\s*"(?:prefetch|prerender)"[\s\S]*?\n[ \t]*\}[ \t]*(?:\n\s*|$)/,
-      "",
+      /^\s*\{\s*"(?:prefetch|prerender)":\s*\\\[[\s\S]*?\n[ \t]*\}[ \t]*(?:\n\s*|$)/,
+      (block) => (/"(?:where|urls)":/.test(block) ? "" : block),
     );
     if (!markdown.trim()) {
       throw new Error("Firecrawl returned empty markdown");

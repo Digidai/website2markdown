@@ -64,8 +64,10 @@ describe("fetchViaFirecrawl", () => {
     expect(result.markdown).toBe(body);
   });
 
-  it("keeps a page that starts with ordinary JSON", async () => {
-    const markdown = '{\n "name": "prefetch"\n}\n\nBody';
+  it.each([
+    '{\n "prefetch": false,\n "name": "Configuration reference"\n}\n\nBody',
+    '{\n "prefetch": \\[\\\n "a", "b"\\\n \\]\n}\n\nBody',
+  ])("keeps a page that starts with ordinary JSON: %s", async (markdown) => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       Response.json({ success: true, data: { markdown } }),
     );
