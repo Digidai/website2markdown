@@ -249,6 +249,29 @@ describe("POST /api/deepcrawl", () => {
     expect(resumePayload.results?.length).toBeGreaterThan(2);
   });
 
+  it("does not name the fetching service for nodes resumed from an older checkpoint", async () => {
+    stubGraphFetch(graph);
+    const { env, store } = setupInMemoryKv();
+    const checkpoint = { crawl_id: "crawl-legacy", snapshot_interval: 1 };
+    await worker.fetch(deepcrawlRequest({ seed, max_depth: 2, max_pages: 2, checkpoint }, "token"), env, mockCtx());
+
+    // A checkpoint written before methods were mapped holds the internal value.
+    const key = [...store.keys()].find((k) => k.startsWith("deepcrawl:") && k.includes("crawl-legacy"))!;
+    const saved = JSON.parse(store.get(key)!);
+    for (const node of saved.state.results) node.method = "jina";
+    store.set(key, JSON.stringify(saved));
+
+    const res = await worker.fetch(deepcrawlRequest({
+      seed, max_depth: 2, max_pages: 5, checkpoint: { ...checkpoint, resume: true },
+    }, "token"), env, mockCtx());
+    const payload = await res.json() as { results?: Array<{ method?: string }> };
+    expect(res.status).toBe(200);
+    expect(payload.results!.length).toBeGreaterThan(2);
+    for (const node of payload.results!) {
+      expect(["native", "readability+turndown", "browser+readability+turndown", undefined]).toContain(node.method);
+    }
+  });
+
   it("returns 409 when resume request changes checkpointed crawl configuration", async () => {
     stubGraphFetch(graph);
     const { env } = setupInMemoryKv();
