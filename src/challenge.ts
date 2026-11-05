@@ -82,8 +82,8 @@ const DENIAL_HEADING = new RegExp(
 );
 /** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
 const AKAMAI_REFERENCE = /\b\d{1,3}\.[\da-f]{6,8}\.\d{10}\.[\da-f]{6,10}\b/i;
-/** The sentence a denial page tells the visitor they were taken for a bot with (Fisher Scientific, Newark). */
-const DENIAL_EVIDENCE = /\bour security (?:service detected activity from your request|software has identified something in this session)\b/i;
+/** The whole sentence a denial page opens with to say the visitor was taken for a bot (Fisher Scientific). */
+const DENIAL_EVIDENCE = /\bwe could not complete your request because our security service detected activity from your request\b/i;
 /** Denial pages explain how to get unblocked at length; Fisher Scientific's runs to ~1,900 characters. */
 const MAX_DENIAL_TEXT_CHARS = 2500;
 
