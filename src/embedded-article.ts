@@ -163,7 +163,7 @@ const MIN_COMPARABLE_TITLE = 12;
 /** Keys whose value says which article a record is. */
 const IDENTITY_KEY = /^(?:url|canonical_?url|path|slug|permalink|link|headline|title)$/i;
 /** Keys that say which page a record is when they hold a URL (JSON-LD `@id`, `mainEntityOfPage`). */
-const PAGE_REF_KEY = /^(?:@?id|page|mainentityofpage)$/i;
+const PAGE_REF_KEY = /^(?:@?id|mainentityofpage)$/i;
 /** Keys that hold an address, absolute or relative to the page (`other-vote`). */
 const ADDRESS_KEY = /^(?:url|canonical_?url|path|permalink|link)$/i;
 const URL_LIKE = /^(?:https?:)?\/\/|^\//i;
@@ -237,42 +237,32 @@ const NON_BODY_KEY = /^(?:comments?|replies|responses|discussion|related\w*|reco
 
 /**
  * The longest article HTML string (one with paragraphs) in `data` that belongs
- * to the requested article (see `belongs`). That keeps a longer prefetched
- * related article from replacing the requested one.
+ * to the requested article, so a longer prefetched or related article
+ * cannot replace it.
  */
 function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
   let best: string | null = null;
   let bestChars = MIN_TEXT_CHARS - 1;
-  const verdicts = new Map<object, boolean | null>();
-  // A string belongs when one of its enclosing records names the page and
-  // none names another article: a prefetched {url: old, content: {headline:
-  // same}} is ruled out by its URL, a related story under the page by its headline.
-  const belongs = (records: object[]) => {
-    let named = false;
-    for (const record of records) {
-      let verdict = verdicts.get(record);
-      if (verdict === undefined) verdicts.set(record, (verdict = recordNamesArticle(record, id)));
-      if (verdict === false) return false;
-      if (verdict) named = true;
-    }
-    return named;
-  };
-  // Each entry carries its nearest enclosing records, nearest first. Only
-  // strings and containers are queued, and the budget is spent when queuing,
-  // so a huge array cannot allocate a stack entry per element.
-  // Each entry also carries the key it sits under (array items take their array's key).
-  const stack: Array<[unknown, object[], string]> = [[data, [], ""]];
+  // A string belongs when a record enclosing it, at any depth, names the page
+  // and none names another article. A record naming another article prunes
+  // its whole subtree: a prefetched {url: old, content: {data: {headline:
+  // same}}} by its URL, a related story under the page by its headline.
+  // Each entry carries whether an enclosing record named the page, and the key
+  // it sits under (array items take their array's key). Only strings and
+  // containers are queued, and the budget is spent when queuing, so a huge
+  // array cannot allocate a stack entry per element.
+  const stack: Array<[unknown, boolean, string]> = [[data, false, ""]];
   let budget = MAX_WALK_NODES;
-  const queue = (value: unknown, records: object[], key: string) => {
+  const queue = (value: unknown, named: boolean, key: string) => {
     if (budget > 0 && (typeof value === "string" || (value !== null && typeof value === "object"))) {
       budget--;
-      stack.push([value, records, key]);
+      stack.push([value, named, key]);
     }
   };
   while (stack.length > 0) {
-    const [node, records, nodeKey] = stack.pop()!;
+    const [node, named, nodeKey] = stack.pop()!;
     if (typeof node === "string") {
-      if (node.length > bestChars && BODY_KEY.test(nodeKey) && /<p[\s>]/i.test(node) && belongs(records)) {
+      if (named && node.length > bestChars && BODY_KEY.test(nodeKey) && /<p[\s>]/i.test(node)) {
         const chars = htmlTextChars(node);
         if (chars > bestChars) {
           best = node;
@@ -282,14 +272,15 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
     } else if (Array.isArray(node)) {
       for (const item of node) {
         if (budget <= 0) break;
-        queue(item, records, nodeKey);
+        queue(item, named, nodeKey);
       }
     } else if (node && typeof node === "object") {
-      const inner = [node, ...records].slice(0, 3);
+      const verdict = recordNamesArticle(node, id);
+      if (verdict === false) continue;
       for (const key in node) {
         if (budget <= 0) break;
         if (NON_BODY_KEY.test(key)) continue;
-        queue((node as Record<string, unknown>)[key], inner, key);
+        queue((node as Record<string, unknown>)[key], named || verdict === true, key);
       }
     }
   }
@@ -358,7 +349,7 @@ export function extractEmbeddedArticles(rawHtml: string, title: string, pageUrl:
     return recordNamesArticle({
       url: node.url,
       id: node["@id"],
-      page: typeof page === "object" && page ? (page as Record<string, unknown>)["@id"] : page,
+      mainEntityOfPage: typeof page === "object" && page ? (page as Record<string, unknown>)["@id"] : page,
       headline: node.headline,
     }, id);
   });

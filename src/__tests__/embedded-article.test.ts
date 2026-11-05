@@ -284,12 +284,22 @@ describe("extractEmbeddedArticles", () => {
     // A parent's URL decides over its child's headline.
     check(state({ url: "/live/2026-11-05", content: body(PARAGRAPHS) }, { url: "/live/2026-11-04", content: body(older) }),
       "https://news.example.com/live/2026-11-05");
+    // At any depth.
+    check(state({ url: "/live/2026-11-05", content: { data: body(PARAGRAPHS) } }, { url: "/live/2026-11-04", content: { data: { body: { html: paragraphs(older) }, headline: "Live election updates" } } }),
+      "https://news.example.com/live/2026-11-05");
     // A short slug still rules out another one.
     check(state({ slug: "nov-5", ...body(PARAGRAPHS) }, { slug: "nov-4", ...body(older) }), "https://news.example.com/live/nov-5");
     // Relative URLs resolve against the page.
     check(state({ url: "nov-5", ...body(PARAGRAPHS) }, { url: "nov-4", ...body(older) }), "https://news.example.com/live/nov-5");
     // Slugs keep their case.
     check(state({ slug: "AbCdEfGh", ...body(PARAGRAPHS) }, { slug: "abcdefgh", ...body(older) }), "https://news.example.com/view/AbCdEfGh");
+  });
+
+  it("does not read Next.js's route template as another article's address", () => {
+    const html = nextData({ page: "/[section]/[slug]", query: { section: "business", slug: "harbour-vote-delayed" },
+      props: { pageProps: { article: { slug: "harbour-vote-delayed", body: paragraphs(PARAGRAPHS) } } } });
+    expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/business/harbour-vote-delayed")[0]?.html)
+      .toContain("Paragraph 12 reports");
   });
 
   it("ignores short teasers and unparsable state", () => {
