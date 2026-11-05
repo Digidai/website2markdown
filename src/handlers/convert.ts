@@ -49,6 +49,7 @@ import {
   mediumArticleFromFeed,
   mediumFeedFor,
 } from "../medium-feed";
+import { detectChallengePage, detectChallengeText } from "../challenge";
 import {
   applyPaywallHeaders,
   extractJsonLdArticle,
@@ -256,6 +257,7 @@ export function isLikelyChallengeHtml(body: string): boolean {
   const lower = body.toLowerCase();
   return (
     isWechatVerificationHtml(body) ||
+    detectChallengePage(body) !== null ||
     (lower.includes("passport.weibo") ||
       lower.includes("qrcode_login") ||
       lower.includes("login_type")) ||
@@ -1000,6 +1002,11 @@ async function tryFetchAndParse(
     sourceContentType = staticResult.sourceContentType;
   }
 
+  // A challenge page is not the content. Keyed callers still get the
+  // external providers below; if they fail too, the request fails, so the
+  // page is neither cached nor charged.
+  let challenge = detectChallengePage(finalHtml);
+
   // 7. 去除 <script> 和 <style> 标签
   throwIfAborted(abortSignal);
   if (!finalHtml.trim()) {
@@ -1062,6 +1069,7 @@ async function tryFetchAndParse(
             if (!looksPaywalled(ampHtml) && ampHtml.length > finalHtml.length / 2) {
               finalHtml = ampHtml;
               fallbacks.add("amp");
+              challenge = detectChallengePage(ampHtml);
             }
           }
         } finally {
@@ -1084,6 +1092,8 @@ async function tryFetchAndParse(
     conversionUrl,
     selector,
   );
+  // The challenge page's own text; once another source replaces it, the page is rescued.
+  const challengeMarkdown = challenge ? markdown : null;
   let output: string;
 
   // 如果 Readability 产出极少但 JSON-LD 有更多内容，使用 JSON-LD
@@ -1143,19 +1153,24 @@ async function tryFetchAndParse(
   // External provider 回退 — 基本转换产出极少时的最后手段。匿名请求不走这里。
   if (
     providerApiKeysAllowed &&
-    markdown.length < 500 &&
-    !browserRendered &&
-    fallbacks.size === 0 &&
-    finalHtml.length > 2000
+    (markdown === challengeMarkdown ||
+      (markdown.length < 500 && !browserRendered && fallbacks.size === 0 && finalHtml.length > 2000))
   ) {
+    // A challenge page's wording is no content: any provider text beats it,
+    // unless the provider was shown the challenge too.
+    const rescueFloor = markdown === challengeMarkdown ? 0 : markdown.length;
+    // A provider that returns the challenge page failed, for its health stats too.
+    const notChallenge = (result: { markdown: string; title?: string }) =>
+      !(challenge && isChallengeMarkdown(result.markdown, result.title ?? "", challengeMarkdown ?? ""));
+    const rescues = (result: { markdown: string; title?: string }) => result.markdown.length > rescueFloor && notChallenge(result);
     let firecrawlFailed = false;
     try {
       const firecrawlResult = await trackProvider(env, "firecrawl", abortSignal, () => fetchViaFirecrawl(
         conversionUrl,
         getFirecrawlConfig(env, providerApiKeysAllowed),
         abortSignal,
-      ));
-      if (firecrawlResult.markdown.length > markdown.length) {
+      ), notChallenge);
+      if (rescues(firecrawlResult)) {
         markdown = firecrawlResult.markdown;
         extractedTitle = firecrawlResult.title || extractedTitle;
         method = "firecrawl";
@@ -1169,8 +1184,8 @@ async function tryFetchAndParse(
 
     if (method !== "firecrawl") {
       try {
-        const jinaResult = await trackProvider(env, "jina", abortSignal, () => fetchViaJina(conversionUrl, 15_000, abortSignal));
-        if (jinaResult.markdown.length > markdown.length) {
+        const jinaResult = await trackProvider(env, "jina", abortSignal, () => fetchViaJina(conversionUrl, 15_000, abortSignal), notChallenge);
+        if (rescues(jinaResult)) {
           markdown = jinaResult.markdown;
           extractedTitle = jinaResult.title || extractedTitle;
           method = "jina";
@@ -1184,6 +1199,15 @@ async function tryFetchAndParse(
         console.debug("Jina fallback unavailable:", errorMessage(error));
       }
     }
+  }
+
+  if (challenge && markdown === challengeMarkdown) {
+    throw new ConvertError(
+      "Fetch Failed",
+      `The site returned a ${challenge} bot-protection page instead of the content` +
+        (providerApiKeysAllowed ? "." : ANON_SIGN_IN_HINT),
+      502,
+    );
   }
 
   if (targetUrl.includes("mp.weixin.qq.com") && isWechatMarkdownShell(markdown, extractedTitle)) {
@@ -1265,6 +1289,20 @@ async function tryFetchAndParse(
       fallbacks: [...fallbacks],
     },
   };
+}
+
+/** Whether a provider's Markdown is the challenge page again: the same wording, or a block page's. */
+function isChallengeMarkdown(markdown: string, title: string, challengeMarkdown: string): boolean {
+  const words = (md: string) => md.replace(/[^\p{L}\p{N}]+/gu, " ").trim().toLowerCase();
+  // The same wording, or part of it (a provider may drop the title).
+  const got = words(markdown);
+  const challenge = words(challengeMarkdown);
+  if (got && challenge && (challenge.includes(got) || (got.includes(challenge) && got.length < challenge.length * 2))) return true;
+  const headings = [...markdown.matchAll(/^#{1,2}\s+(.+)$/gm)].slice(0, 2).map((m) => m[1].trim());
+  // Headings apart too, and the text (headings included) without Markdown marks, as the page rules expect.
+  // Only heading marks are dropped; a "#" in the text (Akamai's "Reference #18.4f...") stays.
+  const text = markdown.replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*_`>[\]]/g, " ").replace(/\s+/g, " ").trim();
+  return detectChallengeText(title, headings, text) !== null;
 }
 
 // ─── 子函数：浏览器渲染 ──────────────────────────────────────
@@ -1966,7 +2004,10 @@ async function tryStaticFetch(
 
     // 7. 检查是否需要浏览器渲染
     finalHtml = body;
-    if (browserAllowed && (forceBrowser || isWechatVerification || needsBrowserRendering(body, resolvedUrl))) {
+    if (
+      browserAllowed &&
+      (forceBrowser || isWechatVerification || needsBrowserRendering(body, resolvedUrl) || detectChallengePage(body))
+    ) {
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {
@@ -1989,6 +2030,25 @@ async function tryStaticFetch(
           );
         }
         console.error("Browser rendering failed, using static HTML:", e instanceof Error ? e.message : e);
+      }
+    }
+
+    // A bot wall that answered 200 (Imperva often does): retry it the way a
+    // blocked status is retried. A page that stays a challenge fails below.
+    const challenge = isWechat ? null : detectChallengePage(finalHtml);
+    if (challenge) {
+      fallbacks.add(`challenge_${challenge}`);
+      // Context.dev is a browser, charged as one: only within the caller's browser allowance.
+      const rescued = !providerApiKeysAllowed
+        ? await tryAnonymousProxy(resolvedUrl, env, fallbacks, abortSignal, progress)
+        : browserAllowed
+          ? await tryContextDev(resolvedUrl, env, fallbacks, abortSignal, progress)
+          : null;
+      if (rescued) {
+        finalHtml = rescued;
+        method = "proxy+readability+turndown";
+        // Context.dev renders in a browser; the proxy fetch does not.
+        browserRendered = providerApiKeysAllowed;
       }
     }
   }
