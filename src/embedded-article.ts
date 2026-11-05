@@ -171,28 +171,36 @@ const URL_LIKE = /^(?:https?:)?\/\/|^\//i;
 const MIN_NAMING_SLUG = 8;
 
 /**
- * Whether a record names the requested article: true if it names the page,
- * false if it names something else, null if it says nothing about which
- * article it is. A URL decides over a title, so a prefetched article with
- * the same headline ("Live election updates") but another URL is not taken.
+ * What a record says about which article it is: "match" if it names the page;
+ * "other" if its URL or slug names another article; "other_title" if only its
+ * title differs, which a site name on a container also does; null if it does
+ * not say. A URL decides over a title, so a prefetched article with the same
+ * headline ("Live election updates") but another URL is not taken.
  */
+type Verdict = "match" | "other" | "other_title" | null;
+
 function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null {
+  const verdict = recordVerdict(record, id);
+  return verdict === null ? null : verdict === "match";
+}
+
+function recordVerdict(record: object, id: ArticleIdentity): Verdict {
   let namesOtherUrl = false;
   for (const [key, value] of Object.entries(record)) {
     if (typeof value !== "string" || value.length > 2000 || /\s/.test(value)) continue;
     const isAddress = ADDRESS_KEY.test(key) || (PAGE_REF_KEY.test(key) && URL_LIKE.test(value));
     if (!isAddress || !value) continue;
-    if (id.url && articleUrl(value, id.pageUrl) === id.url) return true;
+    if (id.url && articleUrl(value, id.pageUrl) === id.url) return "match";
     namesOtherUrl = true;
   }
-  if (namesOtherUrl) return false;
+  if (namesOtherUrl) return "other";
   // A bare slug decides over a title the same way; a short one can only rule out.
   const slug = (record as Record<string, unknown>).slug;
   if (id.slug && typeof slug === "string" && slug && !URL_LIKE.test(slug)) {
-    if (slug !== id.slug) return false;
-    if (slug.length >= MIN_NAMING_SLUG) return true;
+    if (slug !== id.slug) return "other";
+    if (slug.length >= MIN_NAMING_SLUG) return "match";
   }
-  if (namesArticle(record, id)) return true;
+  if (namesArticle(record, id)) return "match";
   const hasIdentity = Object.entries(record).some(([key, value]) => {
     if (typeof value !== "string" || !IDENTITY_KEY.test(key)) return false;
     if (/^(?:headline|title)$/i.test(key)) {
@@ -203,7 +211,7 @@ function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null
     }
     return true;
   });
-  return hasIdentity ? false : null;
+  return hasIdentity ? "other_title" : null;
 }
 
 /**
@@ -243,14 +251,16 @@ const NON_BODY_KEY = /^(?:comments?|replies|responses|discussion|related\w*|reco
 function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
   let best: string | null = null;
   let bestChars = MIN_TEXT_CHARS - 1;
-  // A string belongs when a record enclosing it, at any depth, names the page
-  // and none names another article. A record naming another article prunes
-  // its whole subtree: a prefetched {url: old, content: {data: {headline:
-  // same}}} by its URL, a related story under the page by its headline.
-  // Each entry carries whether an enclosing record named the page, and the key
-  // it sits under (array items take their array's key). Only strings and
-  // containers are queued, and the budget is spent when queuing, so a huge
-  // array cannot allocate a stack entry per element.
+  // A string belongs when the nearest enclosing record that says which
+  // article it is names the page, and no enclosing record at any depth names
+  // another article by URL or slug: those prune their whole subtree, as a
+  // prefetched {url: old, content: {data: {headline: same}}}. A differing
+  // title (a related story, or a container's site name) only holds until a
+  // record below names the page.
+  // Each entry carries that state ("named" when the nearest saying record
+  // matched) and the key it sits under (array items take their array's key).
+  // Only strings and containers are queued, and the budget is spent when
+  // queuing, so a huge array cannot allocate a stack entry per element.
   const stack: Array<[unknown, boolean, string]> = [[data, false, ""]];
   let budget = MAX_WALK_NODES;
   const queue = (value: unknown, named: boolean, key: string) => {
@@ -275,12 +285,13 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
         queue(item, named, nodeKey);
       }
     } else if (node && typeof node === "object") {
-      const verdict = recordNamesArticle(node, id);
-      if (verdict === false) continue;
+      const verdict = recordVerdict(node, id);
+      if (verdict === "other") continue;
+      const childNamed = verdict === null ? named : verdict === "match";
       for (const key in node) {
         if (budget <= 0) break;
         if (NON_BODY_KEY.test(key)) continue;
-        queue((node as Record<string, unknown>)[key], named || verdict === true, key);
+        queue((node as Record<string, unknown>)[key], childNamed, key);
       }
     }
   }
@@ -365,7 +376,9 @@ export function extractEmbeddedArticles(rawHtml: string, title: string, pageUrl:
   }
 
   const nextStart = nextDataStart(rawHtml);
-  const nextEnd = nextStart >= 0 ? rawHtml.indexOf("</script>", nextStart) : -1;
+  const scriptEnd = /<\/script\s*>/gi;
+  scriptEnd.lastIndex = Math.max(nextStart, 0);
+  const nextEnd = nextStart >= 0 ? scriptEnd.exec(rawHtml)?.index ?? -1 : -1;
   if (nextEnd > nextStart) {
     try {
       const body = longestArticleHtml(JSON.parse(rawHtml.slice(nextStart, nextEnd)), id);

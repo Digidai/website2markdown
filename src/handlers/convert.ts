@@ -1095,13 +1095,13 @@ async function tryFetchAndParse(
   // Pages that hide or hydrate the body with JavaScript often embed all of it
   // as data. A caller's selector targets the page markup, so it skips this.
   if (!selector) {
-    let embedded = longerEmbeddedArticle(
-      markdown, extractEmbeddedArticles(rawHtml, extractedTitle, conversionUrl), conversionUrl,
-    );
-    if (!embedded && (stillLooksPaywalled || looksPaywalled(htmlBeforeCleanup))) {
+    const candidates = extractEmbeddedArticles(rawHtml, extractedTitle, conversionUrl);
+    // An embedded copy may be a preview too, so a paywalled post's REST copy always competes.
+    if (stillLooksPaywalled || looksPaywalled(htmlBeforeCleanup)) {
       const wp = await fetchWpJsonArticle(rawHtml, conversionUrl, host, extractedTitle, abortSignal);
-      if (wp) embedded = longerEmbeddedArticle(markdown, [wp], conversionUrl);
+      if (wp) candidates.push(wp);
     }
+    const embedded = longerEmbeddedArticle(markdown, candidates, conversionUrl);
     if (embedded) {
       markdown = embedded.markdown;
       extractedTitle = embedded.title || extractedTitle;

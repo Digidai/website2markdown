@@ -295,6 +295,19 @@ describe("extractEmbeddedArticles", () => {
     check(state({ slug: "AbCdEfGh", ...body(PARAGRAPHS) }, { slug: "abcdefgh", ...body(older) }), "https://news.example.com/view/AbCdEfGh");
   });
 
+  it("does not let a container's site title hide the article below it", () => {
+    const html = nextData({ props: { pageProps: { title: "Example News Network",
+      article: { url: "https://news.example.com/harbour-vote-delayed", body: paragraphs(PARAGRAPHS) } } } });
+    expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")[0]?.html)
+      .toContain("Paragraph 12 reports");
+  });
+
+  it("finds __NEXT_DATA__ closed by any valid end tag", () => {
+    const html = nextData({ props: { article: { slug: "harbour-vote-delayed", body: paragraphs(PARAGRAPHS) } } })
+      .replace("</script>", "</SCRIPT >");
+    expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")).toHaveLength(1);
+  });
+
   it("does not read Next.js's route template as another article's address", () => {
     const html = nextData({ page: "/[section]/[slug]", query: { section: "business", slug: "harbour-vote-delayed" },
       props: { pageProps: { article: { slug: "harbour-vote-delayed", body: paragraphs(PARAGRAPHS) } } } });
@@ -377,7 +390,11 @@ describe("embedded article fallback in conversion", () => {
     const fetchMock = stubPages({
       [url]: {
         body: htmlPage(
-          `<link rel="alternate" type="application/json" href="${api}">`,
+          `<link rel="alternate" type="application/json" href="${api}">` +
+            // A longer preview in JSON-LD does not stop the full REST copy.
+            `<script type="application/ld+json">${JSON.stringify({
+              "@type": "NewsArticle", url, headline: "Harbour vote", articleBody: PARAGRAPHS.slice(0, 6).join("\n"),
+            })}</script>`,
           `<article><h1>Harbour vote</h1><p>${PARAGRAPHS[0]}</p><div class="paywall">Subscribe to continue reading.</div></article>`,
         ),
       },
