@@ -207,6 +207,38 @@ describe("extractEmbeddedArticles", () => {
     expect(performance.now() - started).toBeLessThan(1000);
   });
 
+  it("stays linear on many unclosed __NEXT_DATA__ script tags", () => {
+    // One open tag with many id attributes and no ">", and many open tags.
+    for (const html of ['<script' + ' id="__NEXT_DATA__"'.repeat(8_000), '<script id="__NEXT_DATA__" '.repeat(8_000)]) {
+      const started = performance.now();
+      expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")).toEqual([]);
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
+  });
+
+  it("decides by URL over headline, and compares host and case", () => {
+    const other = Array.from({ length: 40 }, (_, i) => `Older live blog paragraph ${i + 1}.`);
+    const state = (current: object, prefetched: object) => nextData({ props: { pageProps: {
+      current: { body: paragraphs(PARAGRAPHS), ...current },
+      prefetched: { body: paragraphs(other), ...prefetched },
+    } } });
+    const check = (html: string, pageUrl: string, title = "Harbour vote") => {
+      const [article] = extractEmbeddedArticles(html, title, pageUrl);
+      expect(article.html).toContain("Paragraph 12 reports");
+      expect(article.html).not.toContain("Older live blog");
+    };
+    // Same headline, another URL.
+    check(state(
+      { url: "https://news.example.com/live/2026-11-05", headline: "Live election updates" },
+      { url: "https://news.example.com/live/2026-11-04", headline: "Live election updates" },
+    ), "https://news.example.com/live/2026-11-05", "Live election updates");
+    // Same path on another host.
+    check(state({ url: "https://news.example.com/view.html" }, { url: "https://sports.example.org/view.html" }),
+      "https://www.news.example.com/view.html");
+    // Case-sensitive article ids.
+    check(state({ url: "/view?id=AbCd" }, { url: "/view?id=abcd" }), "https://news.example.com/view?id=AbCd");
+  });
+
   it("ignores short teasers and unparsable state", () => {
     const html = `<script id="__NEXT_DATA__" type="application/json">{"props":{"teaser":"<p>Short.</p>"}}</script>
       <script>window.__INITIAL_STATE__ = {"a": undefined};</script>`;

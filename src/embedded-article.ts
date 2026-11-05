@@ -78,6 +78,27 @@ function readJsonObject(text: string, start: number): unknown {
   return null;
 }
 
+/** Longest opening tag nextDataStart() looks at. */
+const MAX_TAG_CHARS = 1000;
+
+/**
+ * Where the `<script id="__NEXT_DATA__">` body starts, or -1. Each mention is
+ * checked within a bounded window, so repeated unclosed tags stay linear.
+ */
+function nextDataStart(html: string): number {
+  for (let at = html.indexOf("__NEXT_DATA__"); at >= 0; at = html.indexOf("__NEXT_DATA__", at + 1)) {
+    // Search only the window around the mention, in both directions.
+    const windowStart = Math.max(0, at - MAX_TAG_CHARS);
+    const before = html.slice(windowStart, at).lastIndexOf("<");
+    const after = html.slice(at, at + MAX_TAG_CHARS).indexOf(">");
+    if (before < 0 || after < 0) continue;
+    const open = windowStart + before;
+    const close = at + after;
+    if (/^<script\b[^<>]*\bid\s*=\s*["']__NEXT_DATA__["'][^<>]*>$/i.test(html.slice(open, close + 1))) return close + 1;
+  }
+  return -1;
+}
+
 function readAssignedJson(html: string, marker: RegExp): unknown {
   const match = marker.exec(html);
   return match ? readJsonObject(html, match.index + match[0].length) : null;
@@ -85,7 +106,9 @@ function readAssignedJson(html: string, marker: RegExp): unknown {
 
 /** What identifies the requested article among the records in page state. */
 interface ArticleIdentity {
-  path: string;
+  /** The page URL as articleUrl() normalises it. */
+  url: string;
+  pageUrl: string;
   slug: string;
   title: string;
 }
@@ -98,27 +121,38 @@ function normalizeText(s: string): string {
 const TRACKING_PARAM = /^(?:utm_\w+|fbclid|gclid|mc_[ce]id|ref|source|cmpid|smid)$/i;
 
 /**
- * The normalised path of a URL or path string, plus its query without
- * tracking parameters (`/view.aspx?id=1` and `?id=2` are different articles),
- * or null.
+ * A URL or path, resolved against the page, as host (without www.), path,
+ * and query without tracking parameters, or null. Only the host is
+ * lowercased: paths and query values may tell articles apart by case
+ * (`?id=AbCd`), and `/view.aspx?id=1` and `?id=2` are different articles.
  */
-function urlPath(value: string): string | null {
+function articleUrl(value: string, base: string): string | null {
   try {
-    const url = new URL(value, "https://page.invalid");
+    const url = new URL(value, base);
     const params = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name));
     const query = params.length > 0 ? `?${new URLSearchParams(params.sort()).toString()}` : "";
-    return (decodeURIComponent(url.pathname).replace(/\/+$/, "") + query).toLowerCase();
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    return `${host}${decodeURIComponent(url.pathname).replace(/\/+$/, "")}${query}`;
   } catch {
     return null;
   }
 }
 
 function articleIdentity(pageUrl: string, title: string): ArticleIdentity {
-  const path = urlPath(pageUrl) ?? "";
-  const slug = path.includes("?") ? "" : path.split("/").pop() ?? "";
+  let path = "";
+  let hasQuery = false;
+  try {
+    const parsed = new URL(pageUrl);
+    path = decodeURIComponent(parsed.pathname).replace(/\/+$/, "");
+    hasQuery = [...parsed.searchParams.keys()].some((name) => !TRACKING_PARAM.test(name));
+  } catch {
+    /* keep empty */
+  }
+  const slug = hasQuery ? "" : path.split("/").pop() ?? "";
   return {
-    path: path.length > 1 ? path : "",
-    slug: slug.length >= 8 ? slug : "",
+    url: path.length > 1 || hasQuery ? articleUrl(pageUrl, pageUrl) ?? "" : "",
+    pageUrl,
+    slug: slug.length >= 8 ? slug.toLowerCase() : "",
     title: normalizeText(title),
   };
 }
@@ -133,16 +167,23 @@ const PAGE_REF_KEY = /^(?:@?id|page|mainentityofpage)$/i;
 const URL_LIKE = /^(?:https?:)?\/\/|^\//i;
 
 /**
- * Whether a record names the requested article: true if one of its own short
- * string values is the article's URL, path, slug, or headline; false if it has
- * identity keys that name something else; null if it has no identity keys.
+ * Whether a record names the requested article: true if it names the page,
+ * false if it names something else, null if it says nothing about which
+ * article it is. A URL decides over a title, so a prefetched article with
+ * the same headline ("Live election updates") but another URL is not taken.
  */
 function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null {
+  let namesOtherUrl = false;
+  for (const [key, value] of Object.entries(record)) {
+    if (typeof value !== "string" || value.length > 2000 || !URL_LIKE.test(value)) continue;
+    if (!IDENTITY_KEY.test(key) && !PAGE_REF_KEY.test(key)) continue;
+    if (id.url && articleUrl(value, id.pageUrl) === id.url) return true;
+    namesOtherUrl = true;
+  }
+  if (namesOtherUrl) return false;
   if (namesArticle(record, id)) return true;
   const hasIdentity = Object.entries(record).some(([key, value]) => {
-    if (typeof value !== "string") return false;
-    if (PAGE_REF_KEY.test(key)) return URL_LIKE.test(value);
-    if (!IDENTITY_KEY.test(key)) return false;
+    if (typeof value !== "string" || !IDENTITY_KEY.test(key)) return false;
     // Two short titles that differ cannot be told apart from an abbreviation.
     if (/^(?:headline|title)$/i.test(key)) {
       return normalizeText(value).length >= MIN_COMPARABLE_TITLE && id.title.length >= MIN_COMPARABLE_TITLE;
@@ -153,7 +194,7 @@ function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null
 }
 
 /**
- * Whole-value matches only: a URL or path must be the page's whole path, and
+ * Whole-value matches only: a URL or path must be the page's whole URL, and
  * only a bare value is compared with the slug, so `/harbour-vote` claims
  * neither `/harbour-vote-delayed` nor `/2025/sports/harbour-vote`.
  */
@@ -161,7 +202,7 @@ function namesArticle(record: object, id: ArticleIdentity): boolean {
   for (const value of Object.values(record)) {
     if (typeof value !== "string" || value.length > 2000) continue;
     if (URL_LIKE.test(value)) {
-      if (id.path && urlPath(value) === id.path) return true;
+      if (id.url && articleUrl(value, id.pageUrl) === id.url) return true;
     } else if (id.slug && value.toLowerCase() === id.slug) {
       return true;
     }
@@ -314,9 +355,8 @@ export function extractEmbeddedArticles(rawHtml: string, title: string, pageUrl:
     }
   }
 
-  const nextOpen = /<script\b[^<>]*\bid\s*=\s*["']__NEXT_DATA__["'][^<>]*>/i.exec(rawHtml);
-  const nextStart = nextOpen ? nextOpen.index + nextOpen[0].length : -1;
-  const nextEnd = nextOpen ? rawHtml.indexOf("</script>", nextStart) : -1;
+  const nextStart = nextDataStart(rawHtml);
+  const nextEnd = nextStart >= 0 ? rawHtml.indexOf("</script>", nextStart) : -1;
   if (nextEnd > nextStart) {
     try {
       const body = longestArticleHtml(JSON.parse(rawHtml.slice(nextStart, nextEnd)), id);
