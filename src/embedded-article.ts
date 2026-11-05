@@ -157,7 +157,7 @@ function articleIdentity(pageUrl: string, title: string): ArticleIdentity {
   };
 }
 
-/** Titles shorter than this are compared only for equality, and never rule a record out. */
+/** Titles shorter than this rule a record out only when they cannot abbreviate the page title. */
 const MIN_COMPARABLE_TITLE = 12;
 
 /** Keys whose value says which article a record is. */
@@ -187,9 +187,11 @@ function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null
   if (namesArticle(record, id)) return true;
   const hasIdentity = Object.entries(record).some(([key, value]) => {
     if (typeof value !== "string" || !IDENTITY_KEY.test(key)) return false;
-    // Two short titles that differ cannot be told apart from an abbreviation.
     if (/^(?:headline|title)$/i.test(key)) {
-      return normalizeText(value).length >= MIN_COMPARABLE_TITLE && id.title.length >= MIN_COMPARABLE_TITLE;
+      if (!id.title) return false;
+      const text = normalizeText(value);
+      // A short title the page title starts with may abbreviate it ("AI" for "AI news"); any other names another article.
+      return text.length >= MIN_COMPARABLE_TITLE || !id.title.startsWith(text);
     }
     return true;
   });
@@ -212,11 +214,8 @@ function namesArticle(record: object, id: ArticleIdentity): boolean {
     if (id.title) {
       // The page title may add a site name after a separator ("Headline | Site").
       const text = normalizeText(value);
-      if (text === id.title && text.length >= 3) return true;
-      if (
-        text.length >= MIN_COMPARABLE_TITLE &&
-        id.title.startsWith(text) && /^\s*[|\-–—:·•]/.test(id.title.slice(text.length))
-      ) return true;
+      if (text.length >= 3 && (text === id.title ||
+        (id.title.startsWith(text) && /^\s*[|\-–—:·•_]/.test(id.title.slice(text.length))))) return true;
     }
   }
   return false;

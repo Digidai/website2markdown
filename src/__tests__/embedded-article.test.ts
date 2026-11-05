@@ -186,6 +186,18 @@ describe("extractEmbeddedArticles", () => {
     expect(extractEmbeddedArticles(equal, "AI news", pageUrl)[0]?.html).toContain("Paragraph 12 reports");
     const nested = nextData({ props: { pageProps: { story: { url: pageUrl, content: { headline: "AI", body: paragraphs(PARAGRAPHS) } } } } });
     expect(extractEmbeddedArticles(nested, "AI news", pageUrl)[0]?.html).toContain("Paragraph 12 reports");
+    // A different short headline under the same page record is another article.
+    const other = Array.from({ length: 40 }, (_, i) => `Port news paragraph ${i + 1}.`);
+    const siblings = nextData({ props: { pageProps: { slug: "ai-news-roundup", items: [
+      { headline: "AI news", body: paragraphs(PARAGRAPHS) },
+      { headline: "Port news", body: paragraphs(other) },
+    ] } } });
+    const [article] = extractEmbeddedArticles(siblings, "AI news", pageUrl);
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("Port news paragraph");
+    // A short Chinese headline matches a page title that adds the site name.
+    const zh = nextData({ props: { pageProps: { story: { headline: "港口投票推迟", body: paragraphs(PARAGRAPHS) } } } });
+    expect(extractEmbeddedArticles(zh, "港口投票推迟 | 示例新闻", "https://news.example.com/a/123")[0]?.html).toContain("Paragraph 12 reports");
   });
 
   it("drops a lone JSON-LD article that names another page", () => {
