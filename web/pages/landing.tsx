@@ -815,7 +815,6 @@ function DocsPage({ ctx }: { ctx: Ctx }) {
     ["?format=", `${t.formatDesc} (markdown | html | text | json)`],
     ["?selector=.css", t.selectorDesc],
     ["?force_browser=true", t.forceBrowserDesc],
-    ["?engine=jina|firecrawl|cf", t.engineDesc],
     ["?no_cache=true", t.noCacheDesc],
     ["?token=", t.tokenDesc],
   ];
@@ -1074,8 +1073,8 @@ function PricingPage({ ctx }: { ctx: Ctx }) {
       note: isZh ? "按你的用量单独报价" : "Priced for your volume",
       highlight: true,
       features: isZh
-        ? ["每月 50,000 credits 起", "代理出口，打开更多被拦的页面", "指定引擎（Firecrawl、Jina 等）", "no_cache 强制实时抓取"]
-        : ["From 50,000 credits a month", "Proxy egress for pages that block datacenters", "Choose the engine (Firecrawl, Jina, ...)", "no_cache for always-fresh fetches"],
+        ? ["每月 50,000 credits 起", "代理出口，打开更多被拦的页面", "更多兜底路径", "no_cache 强制实时抓取"]
+        : ["From 50,000 credits a month", "Proxy egress for pages that block datacenters", "More fallback paths for harder pages", "no_cache for always-fresh fetches"],
     },
     {
       id: "enterprise",

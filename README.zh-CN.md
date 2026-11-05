@@ -58,8 +58,7 @@ Fetch target with Accept: text/markdown
 | **Native** | 目标站点支持 Markdown for Agents | 通过 `Accept: text/markdown` 在 Cloudflare 边缘协商原生 Markdown | `native` |
 | **Fallback** | 普通 HTML 页面 | Readability 提取正文 → Turndown 转 Markdown | `readability+turndown` |
 | **Browser** | 反爬或重 JS 页面 | 无头浏览器渲染后再走 Readability + Turndown | `browser+readability+turndown` |
-| **Firecrawl** | 持有 API key，并显式指定 `engine=firecrawl`、遇到非文本文档或本地提取过薄 | 通过 Firecrawl v2 scrape 转换。匿名请求不会进入这条路径 | `readability+turndown` |
-| **Jina** | 持有 API key，并显式指定 `engine=jina`，或作为已登录请求的最后兜底 | 通过 Jina Reader API 转换，同时保留相同的输出格式接口 | `readability+turndown` |
+| **扩展兜底** | 持有 API key，且上面的路径内容过少或页面拦截直接访问 | 换用其他抓取路径，再走同样的提取。匿名请求不会进入这条路径 | `readability+turndown` |
 
 ## API 使用
 
@@ -89,11 +88,11 @@ curl https://mdget.dev/https://example.com/page \
 在 **[mdget.dev/portal/](https://mdget.dev/portal/)** 用邮箱注册领取
 API key。无需密码，登录链接会发到你的邮箱。
 
-| 套餐 | 月额度 | 浏览器渲染 | 引擎 |
+| 套餐 | 月额度 | 浏览器渲染 | 管线 |
 |------|--------|------------|------|
 | **匿名**（无 key） | — | 无 | 只有缓存、直接抓取和 Readability。每个 IP 每分钟 10 次、每天 100 次 |
-| **Free** | 1,000 credits | 有。一次真实渲染计 3 credits | `engine=jina` 和 `engine=firecrawl`。`engine=cf`、proxy、`no_cache` 需要 Pro |
-| **Pro** | 50,000 credits | 有。一次真实渲染计 3 credits | 全部引擎，以及 `no_cache` 和 `force_browser` |
+| **Free** | 1,000 credits | 有。一次真实渲染计 3 credits | 完整管线，包括扩展兜底。`no_cache` 需要 Pro |
+| **Pro** | 50,000 credits | 有。一次真实渲染计 3 credits | 完整管线和更多兜底路径，以及 `no_cache` 和 `force_browser` |
 
 转换、stream，以及 batch 里的每个 URL 计 1 credit。这些接口上一次成功的真实浏览器渲染计 3 credits。缓存命中保持该接口原价，即使缓存内容当初来自浏览器。失败不计费；正文非空白字符不足 100 个的结果（不计标题和链接、图片地址，例如只有标题、没有正文）也不计费。
 
@@ -178,30 +177,6 @@ curl "https://mdget.dev/https://example.com?selector=%23main-content&raw=true"
 curl "https://mdget.dev/https://example.com/js-heavy-page?raw=true&force_browser=true"
 ```
 
-### Jina Reader 引擎
-
-持有 API key 时，可用 `engine=jina` 通过 [r.jina.ai](https://r.jina.ai) 转换，跳过内置流程。Free 和 Pro 都可以选择它。匿名请求会被拒绝。`engine=cf` 仍然需要 Pro。
-
-```bash
-curl "https://mdget.dev/https://example.com?raw=true&engine=jina" \
-  -H "Authorization: Bearer mk_..."
-```
-
-> 持有 API key 时，如果 Readability 提取内容极少且没有走浏览器，Jina 仍会作为最后兜底。匿名请求只使用缓存、直接抓取和 Readability。
-
-### Firecrawl
-
-持有 API key 时，可用 `engine=firecrawl` 通过 Firecrawl v2 scrape 转换。如果未配置
-`FIRECRAWL_API_KEY`，Worker 不会发送 `Authorization` header，上游接受时可以使用它自己的免费层。
-匿名请求不能选择这个引擎，Worker 也不会为匿名请求调用 Firecrawl 或 Jina。
-
-```bash
-curl "https://mdget.dev/https://example.com?raw=true&engine=firecrawl" \
-  -H "Authorization: Bearer mk_..."
-```
-
-> 持有 API key 时，本地提取过薄，或目标是 PDF 这类非文本 URL，会先尝试 Firecrawl，再尝试 Jina。`engine=cf`、proxy 和 `no_cache` 仍然需要 Pro。
-
 ### 缓存控制
 
 结果会缓存到 KV。若需跳过缓存：
@@ -232,7 +207,7 @@ curl -X POST https://mdget.dev/api/batch \
 
 `urls` 支持：
 - 字符串项：`"https://example.com/a"`（默认 markdown）
-- 对象项：`{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean, "engine?": "jina" }`
+- 对象项：`{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean }`
 
 ### 结构化提取 API
 
@@ -404,10 +379,8 @@ print(data["title"], data["method"])
 | `/<url>?format=text` | GET | 返回纯文本（无格式） |
 | `/<url>?selector=.class` | GET | 提取指定 CSS 选择器 |
 | `/<url>?force_browser=true` | GET | 强制浏览器渲染。需要 API key。真实渲染成功计 3 credits |
-| `/<url>?engine=jina` | GET | 使用 Jina Reader API。需要 API key |
-| `/<url>?engine=firecrawl` | GET | 通过 Firecrawl scrape 转换。需要 API key |
 | `/<url>?no_cache=true` | GET | 跳过 KV 缓存 |
-| `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`），支持 `selector` / `force_browser` / `no_cache` / `engine` / `token` |
+| `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`），支持 `selector` / `force_browser` / `no_cache` / `token` |
 | `/api/batch` | POST | 批量转换（最多 10 条） |
 | `/api/extract` | POST | 结构化提取 API（`css` / `xpath` / `regex`） |
 | `/api/jobs` | POST | 创建排队的 crawl/extract 任务记录 |
@@ -428,7 +401,7 @@ fallback 到 legacy 的 `API_TOKEN` / `PUBLIC_API_TOKEN` 单 token 模式。
 
 | 路由组 | 匿名 | Free (`mk_…`) | Pro (`mk_…`) |
 |---|---|---|---|
-| `GET /<url>` | ✅ 缓存、直接抓取、Readability | ✅ 完整管线 + `engine=jina/firecrawl`；真实浏览器成功计 3 credits | ✅ + `engine=cf`、`no_cache`、`force_browser` |
+| `GET /<url>` | ✅ 缓存、直接抓取、Readability | ✅ 完整管线；真实浏览器成功计 3 credits | ✅ + 更多兜底路径、`no_cache`、`force_browser` |
 | `GET /api/stream` | ✅ 缓存、直接抓取、Readability | ✅ 与转换相同 | ✅ + 参数 |
 | `POST /api/batch` | ❌ 401 | ✅ | ✅ |
 | `POST /api/extract` | ❌ 401 | ✅ | ✅ |

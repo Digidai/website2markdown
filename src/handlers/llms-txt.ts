@@ -31,7 +31,7 @@ Preferred agent request:
   curl -H "Accept: text/markdown" ${baseUrl}/https://example.com
 - Returns: Markdown content. Browsers that accept HTML get a reading page.
 - The reading page is noindex. The canonical URL is the source.
-- Params: ?format=markdown|html|text|json, ?selector=<css>, ?force_browser=true, ?engine=jina|firecrawl|cf, ?no_cache=true, ?raw=true
+- Params: ?format=markdown|html|text|json, ?selector=<css>, ?force_browser=true, ?no_cache=true, ?raw=true
 
 ### Streaming (GET)
 GET ${baseUrl}/api/stream?url=<encoded-url>
@@ -104,9 +104,9 @@ Request an API key at ${baseUrl}/portal/. Authenticate with:
   Authorization: Bearer mk_...
 
 Tiers:
-- anonymous (no key): cache, direct fetch, and Readability. No browser, no Firecrawl, no Jina.
-- free (1,000 credits/month): full pipeline, including jina and firecrawl. A live browser render costs 3 credits. engine=cf, proxy, and no_cache require Pro.
-- pro (50,000 credits/month): full pipeline plus engine=cf, proxy, no_cache, and force_browser.
+- anonymous (no key): cache, direct fetch, and Readability. No browser and no extended fallbacks.
+- free (1,000 credits/month): full pipeline, including extended fallbacks. A live browser render costs 3 credits. no_cache requires Pro.
+- pro (50,000 credits/month): full pipeline plus more fallback paths, no_cache, and force_browser.
 
 Credits: convert, stream, and batch are 1, or 3 when a live browser render succeeds. Cache hits stay at the route cost. Failures are not charged. Extract is priced at 3 and deepcrawl at 2 for the quota check; those routes do not write the monthly ledger.
 
