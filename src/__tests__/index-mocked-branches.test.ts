@@ -525,6 +525,36 @@ describe("index mocked branch coverage", () => {
     expect(res.headers.get("X-Markdown-Fallbacks")).toContain("direct_proxy_mobile");
   });
 
+  it("reports a file the site sends after the direct fetch was refused as unsupported, not as a page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("forbidden", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.proxy.parseProxyUrl.mockReturnValue({
+      host: "proxy.example.com", port: 8080, username: "u", password: "p",
+    });
+    mocked.proxy.fetchViaProxyPool.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/pdf; qs=0.001" },
+      body: `%PDF-1.4 ${"\u0000".repeat(1200)}`,
+      proxyIndex: 0,
+      proxy: { host: "proxy.example.com", port: 8080, username: "u", password: "p" },
+      variant: "mobile",
+      attempts: 1,
+      errors: [],
+    });
+
+    const res = await worker.fetch(new Request("https://md.example.com/https://example.com/files/report.pdf?raw=true", {
+      headers: { Accept: "application/json" },
+    }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+
+    expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    expect(res.status).toBe(415);
+    const payload = await res.json() as Record<string, unknown>;
+    expect(payload).toMatchObject({ code: "unsupported_content", cause: "target", retryable: false });
+    expect(String(payload.message)).toContain("application/pdf");
+    expect(JSON.stringify(payload)).not.toMatch(/proxy/i);
+  });
+
   it("retries through proxy and succeeds after PROXY_RETRY signal", async () => {
     mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
     mocked.browser.fetchWithBrowser.mockRejectedValueOnce(
