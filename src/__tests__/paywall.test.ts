@@ -135,6 +135,47 @@ describe("applyPaywallHeaders", () => {
     expect(headers["X-Forwarded-For"]).toBeUndefined();
   });
 
+  it("sends Forbes the Googlebot UA with the Google referer and IP", () => {
+    const headers: Record<string, string> = { "User-Agent": "original/1.0" };
+    applyPaywallHeaders("https://www.forbes.com/sites/someone/2026/11/04/story/", headers);
+    expect(headers["User-Agent"]).toContain("Googlebot");
+    expect(headers["Referer"]).toBe("https://www.google.com/");
+    expect(headers["X-Forwarded-For"]).toBe("66.249.66.1");
+  });
+
+  it("keeps the caller's UA for The Atlantic and the FT, which block Googlebot", () => {
+    for (const url of ["https://www.theatlantic.com/ideas/archive/2026/11/x/1/", "https://www.ft.com/content/abc"]) {
+      const headers: Record<string, string> = { "User-Agent": "original/1.0" };
+      applyPaywallHeaders(url, headers);
+      expect(headers["User-Agent"]).toBe("original/1.0");
+      expect(headers["Referer"]).toBe("https://www.google.com/");
+    }
+  });
+
+  it("sends Haaretz its Android app's UA and headers, on .com and .co.il", () => {
+    for (const url of ["https://www.haaretz.com/us-news/2026-11-05/ty-article/.premium/x/000001a1", "https://www.haaretz.co.il/news/politi/2026-11-05/ty-article/x"]) {
+      const headers: Record<string, string> = { "User-Agent": "original/1.0" };
+      applyPaywallHeaders(url, headers);
+      expect(headers["User-Agent"]).toMatch(/haaretz\/[\d.]+$/);
+      expect(headers).toMatchObject({ ismobileapp: "true", platform: "app", renderingkind: "opened" });
+      expect(headers["X-Forwarded-For"]).toBeUndefined();
+    }
+  });
+
+  it("accepts a runtime rule's UA and string headers only", () => {
+    setPaywallRulesFromJson(JSON.stringify([
+      { domains: ["app.example"], userAgent: "ExampleApp/2.0", headers: { "x-app": "1", "x-bad": 5, accept: "application/json" } },
+    ]));
+    const headers: Record<string, string> = { "User-Agent": "original/1.0", Accept: "text/html" };
+    applyPaywallHeaders("https://news.app.example/story", headers);
+    // As fetch would send them: one value per header, whatever the capitalisation.
+    const sent = new Headers(headers);
+    expect(sent.get("user-agent")).toBe("ExampleApp/2.0");
+    expect(sent.get("accept")).toBe("application/json");
+    expect(sent.get("x-app")).toBe("1");
+    expect(sent.has("x-bad")).toBe(false);
+  });
+
   it("does nothing for non-paywalled sites", () => {
     const headers: Record<string, string> = { "User-Agent": "original/1.0" };
     applyPaywallHeaders("https://example.com/page", headers);
