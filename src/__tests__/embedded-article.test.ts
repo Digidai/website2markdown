@@ -92,7 +92,7 @@ describe("extractEmbeddedArticles", () => {
         pageProps: {
           slug: "harbour-vote-delayed",
           article: { headline: "Council delays the harbour vote", body: paragraphs(PARAGRAPHS) },
-          relatedArticles: [{ headline: "A different town votes", body: paragraphs(related) }],
+          stories: [{ headline: "A different town votes", body: paragraphs(related) }],
         },
       },
     });
@@ -109,7 +109,7 @@ describe("extractEmbeddedArticles", () => {
       props: {
         pageProps: {
           article: { url: "https://news.example.com/harbour-vote", body: paragraphs(PARAGRAPHS) },
-          next: { url: "https://news.example.com/harbour-vote-delayed", body: paragraphs(longer) },
+          prefetched: { url: "https://news.example.com/harbour-vote-delayed", body: paragraphs(longer) },
         },
       },
     });
@@ -141,6 +141,51 @@ describe("extractEmbeddedArticles", () => {
     const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/2026/world/index.html");
     expect(article.html).toContain("Paragraph 12 reports");
     expect(article.html).not.toContain("last season");
+  });
+
+  it("tells articles apart by query parameters that choose them", () => {
+    const other = Array.from({ length: 40 }, (_, i) => `Second article paragraph ${i + 1}.`);
+    const html = nextData({
+      props: {
+        pageProps: {
+          current: { url: "/view.aspx?id=1", body: paragraphs(PARAGRAPHS) },
+          prefetched: { url: "/view.aspx?id=2", body: paragraphs(other) },
+        },
+      },
+    });
+    const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/view.aspx?id=1&utm_source=x");
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("Second article");
+  });
+
+  it("does not take a long comment for the article body", () => {
+    const comment = Array.from({ length: 40 }, (_, i) => `Reader comment line ${i + 1} disagrees loudly.`);
+    const html = nextData({
+      props: { pageProps: { article: {
+        url: "https://news.example.com/harbour-vote-delayed",
+        body: paragraphs(PARAGRAPHS),
+        comments: [{ body: paragraphs(comment) }],
+      } } },
+    });
+    const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed");
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("Reader comment");
+  });
+
+  it("drops a JSON-LD article whose @id or mainEntityOfPage names another page", () => {
+    const ld = (node: object) => `<script type="application/ld+json">${JSON.stringify({ "@type": "NewsArticle", articleBody: PARAGRAPHS.join("\n"), ...node })}</script>`;
+    const pageUrl = "https://news.example.com/harbour-vote";
+    expect(extractEmbeddedArticles(ld({ "@id": "https://news.example.com/other" }), "Harbour vote", pageUrl)).toEqual([]);
+    expect(extractEmbeddedArticles(ld({ mainEntityOfPage: { "@id": "https://news.example.com/other" } }), "Harbour vote", pageUrl)).toEqual([]);
+    expect(extractEmbeddedArticles(ld({ mainEntityOfPage: { "@id": pageUrl } }), "Harbour vote", pageUrl)).toHaveLength(1);
+  });
+
+  it("matches an equal short headline and lets a short one defer to the record above", () => {
+    const pageUrl = "https://news.example.com/2026/11/05/ai-news-roundup";
+    const equal = nextData({ props: { pageProps: { story: { headline: "AI news", body: paragraphs(PARAGRAPHS) } } } });
+    expect(extractEmbeddedArticles(equal, "AI news", pageUrl)[0]?.html).toContain("Paragraph 12 reports");
+    const nested = nextData({ props: { pageProps: { story: { url: pageUrl, content: { headline: "AI", body: paragraphs(PARAGRAPHS) } } } } });
+    expect(extractEmbeddedArticles(nested, "AI news", pageUrl)[0]?.html).toContain("Paragraph 12 reports");
   });
 
   it("drops a lone JSON-LD article that names another page", () => {

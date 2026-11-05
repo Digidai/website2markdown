@@ -94,10 +94,20 @@ function normalizeText(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-/** The normalised path of a URL or path string, or null. */
+/** Query parameters that track a visit rather than choose an article. */
+const TRACKING_PARAM = /^(?:utm_\w+|fbclid|gclid|mc_[ce]id|ref|source|cmpid|smid)$/i;
+
+/**
+ * The normalised path of a URL or path string, plus its query without
+ * tracking parameters (`/view.aspx?id=1` and `?id=2` are different articles),
+ * or null.
+ */
 function urlPath(value: string): string | null {
   try {
-    return decodeURIComponent(new URL(value, "https://page.invalid").pathname).replace(/\/+$/, "").toLowerCase();
+    const url = new URL(value, "https://page.invalid");
+    const params = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name));
+    const query = params.length > 0 ? `?${new URLSearchParams(params.sort()).toString()}` : "";
+    return (decodeURIComponent(url.pathname).replace(/\/+$/, "") + query).toLowerCase();
   } catch {
     return null;
   }
@@ -105,17 +115,22 @@ function urlPath(value: string): string | null {
 
 function articleIdentity(pageUrl: string, title: string): ArticleIdentity {
   const path = urlPath(pageUrl) ?? "";
-  const slug = path.split("/").pop() ?? "";
-  const normalizedTitle = normalizeText(title);
+  const slug = path.includes("?") ? "" : path.split("/").pop() ?? "";
   return {
     path: path.length > 1 ? path : "",
     slug: slug.length >= 8 ? slug : "",
-    title: normalizedTitle.length >= 12 ? normalizedTitle : "",
+    title: normalizeText(title),
   };
 }
 
+/** Titles shorter than this are compared only for equality, and never rule a record out. */
+const MIN_COMPARABLE_TITLE = 12;
+
 /** Keys whose value says which article a record is. */
 const IDENTITY_KEY = /^(?:url|canonical_?url|path|slug|permalink|link|headline|title)$/i;
+/** Keys that say which page a record is when they hold a URL (JSON-LD `@id`, `mainEntityOfPage`). */
+const PAGE_REF_KEY = /^(?:@?id|page|mainentityofpage)$/i;
+const URL_LIKE = /^(?:https?:)?\/\/|^\//i;
 
 /**
  * Whether a record names the requested article: true if one of its own short
@@ -124,7 +139,16 @@ const IDENTITY_KEY = /^(?:url|canonical_?url|path|slug|permalink|link|headline|t
  */
 function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null {
   if (namesArticle(record, id)) return true;
-  const hasIdentity = Object.entries(record).some(([key, value]) => typeof value === "string" && IDENTITY_KEY.test(key));
+  const hasIdentity = Object.entries(record).some(([key, value]) => {
+    if (typeof value !== "string") return false;
+    if (PAGE_REF_KEY.test(key)) return URL_LIKE.test(value);
+    if (!IDENTITY_KEY.test(key)) return false;
+    // Two short titles that differ cannot be told apart from an abbreviation.
+    if (/^(?:headline|title)$/i.test(key)) {
+      return normalizeText(value).length >= MIN_COMPARABLE_TITLE && id.title.length >= MIN_COMPARABLE_TITLE;
+    }
+    return true;
+  });
   return hasIdentity ? false : null;
 }
 
@@ -136,7 +160,7 @@ function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null
 function namesArticle(record: object, id: ArticleIdentity): boolean {
   for (const value of Object.values(record)) {
     if (typeof value !== "string" || value.length > 2000) continue;
-    if (/^(?:https?:)?\/\/|^\//i.test(value)) {
+    if (URL_LIKE.test(value)) {
       if (id.path && urlPath(value) === id.path) return true;
     } else if (id.slug && value.toLowerCase() === id.slug) {
       return true;
@@ -144,14 +168,18 @@ function namesArticle(record: object, id: ArticleIdentity): boolean {
     if (id.title) {
       // The page title may add a site name after a separator ("Headline | Site").
       const text = normalizeText(value);
+      if (text === id.title && text.length >= 3) return true;
       if (
-        text.length >= 12 &&
-        (text === id.title || (id.title.startsWith(text) && /^\s*[|\-–—:·•]/.test(id.title.slice(text.length))))
+        text.length >= MIN_COMPARABLE_TITLE &&
+        id.title.startsWith(text) && /^\s*[|\-–—:·•]/.test(id.title.slice(text.length))
       ) return true;
     }
   }
   return false;
 }
+
+/** Branches of page state that hold other text than the article body. */
+const NON_BODY_KEY = /^(?:comments?|replies|responses|discussion|related\w*|recommend\w*|more\w*|popular\w*|trending\w*|most\w*|next\w*|previous\w*|sidebar|footer|nav\w*|ads?)$/i;
 
 /**
  * The longest article HTML string (one with paragraphs) in `data` that belongs
@@ -201,6 +229,7 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
       const inner = [node, ...records].slice(0, 3);
       for (const key in node) {
         if (budget <= 0) break;
+        if (NON_BODY_KEY.test(key)) continue;
         queue((node as Record<string, unknown>)[key], inner);
       }
     }
