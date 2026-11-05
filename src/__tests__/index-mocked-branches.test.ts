@@ -1123,6 +1123,103 @@ describe("index mocked branch coverage", () => {
     expect(payload.code).toBe("target_blocked");
   });
 
+  it("fails as blocked when a browser block page is recognised only in its Markdown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><div class=\"error\">rendered by script</div></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Farnell | 403 Error\n\n## Access Denied (Error 403)\n\nPlease quote the following incident number:\n\n**0.5bc90b17.1793873578.64ebbb98**",
+      title: "Farnell | 403 Error",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/search?force_browser=true", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(502);
+    expect((await res.json() as { code?: string }).code).toBe("target_blocked");
+  });
+
+  it("keeps a rendered page whose section, not its title, is about access denial", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><article>guide</article></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# API authentication guide\n\n## Access denied\n\nThe API answers 403 with a body such as Request ID: abc123456.",
+      title: "API authentication guide",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/docs?raw=true&force_browser=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+  });
+
+  it("keeps a rendered page whose code identifiers only look like block wording", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><article>doc</article></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Security check\n\nEach response carries `request_id`: abc123456.\n\n![Please enable JS and disable any ad blocker](https://example.com/shot.png)",
+      title: "Security check",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/docs?raw=true&force_browser=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+  });
+
+  it("keeps a rendered help article that quotes Akamai's denial", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><article>help</article></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Troubleshooting Akamai errors\n\nThe page says You don't have permission to access this server. Reference #18.4f2a3b17.1793840000.1a2b3c4d",
+      title: "Troubleshooting Akamai errors",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/help?raw=true&force_browser=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+  });
+
+  it("does not take a provider's cut-down copy of the block page as a rescue", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("https://r.jina.ai/")
+      ? Response.json({ code: 200, data: { title: "Access Denied - Macy's", content: "# Access Denied - Macy's\n\nAccess Denied - Macy's" } })
+      : new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } })));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Access Denied - Macy's\n\nYou don't have access to this page\n\nReference: 0.64a7cb17.1793873586.77c3d7df",
+      title: "Access Denied - Macy's",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/shop?force_browser=true", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(502);
+    expect((await res.json() as { code?: string }).code).toBe("target_blocked");
+  });
+
   it("proxies wechat markdown image urls when output format is markdown", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("<html><body><div id='js_content'><img data-src='https://mmbiz.qpic.cn/mmbiz_png/a1/640'></div></body></html>", {

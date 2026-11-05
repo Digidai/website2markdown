@@ -50,7 +50,7 @@ import {
   mediumArticleFromFeed,
   mediumFeedFor,
 } from "../medium-feed";
-import { detectChallengePage, detectChallengeText } from "../challenge";
+import { detectChallengePage, detectChallengeText, isDenialHeading, type ChallengeVendor } from "../challenge";
 import {
   extractEmbeddedArticles,
   findWpJsonUrl,
@@ -1175,6 +1175,11 @@ async function tryFetchAndParse(
     conversionUrl,
     selector,
   );
+  // A browser's block page the HTML rules missed (its markup varies by session):
+  // its Markdown, title and headings still read as one.
+  // Only Akamai's denial, whose title and reference number are hard to mistake (Newark's);
+  // only the page's title counts as its heading, and not for the part a selector picked.
+  if (!challenge && browserRendered && !selector && isDenialHeading(extractedTitle) && markdownChallenge(markdown, extractedTitle, false) === "akamai") challenge = "akamai";
   // The challenge page's own text; once another source replaces it, the page is rescued.
   const challengeMarkdown = challenge ? markdown : null;
   let output: string;
@@ -1450,15 +1455,34 @@ async function fetchWpJsonArticle(
 /** Whether a provider's Markdown is the challenge page again: the same wording, or a block page's. */
 function isChallengeMarkdown(markdown: string, title: string, challengeMarkdown: string): boolean {
   const words = (md: string) => md.replace(/[^\p{L}\p{N}]+/gu, " ").trim().toLowerCase();
-  // The same wording, or part of it (a provider may drop the title).
+  // The same wording, or part of it, perhaps repeated (a provider may drop the
+  // text and repeat the title: "Access Denied - Macy's Access Denied - Macy's").
   const got = words(markdown);
   const challenge = words(challengeMarkdown);
-  if (got && challenge && (challenge.includes(got) || (got.includes(challenge) && got.length < challenge.length * 2))) return true;
-  const headings = [...markdown.matchAll(/^#{1,2}\s+(.+)$/gm)].slice(0, 2).map((m) => m[1].trim());
+  if (got && challenge && (challenge.includes(repeatedUnit(got)) || (got.includes(challenge) && got.length < challenge.length * 2))) return true;
+  return markdownChallenge(markdown, title, true) !== null;
+}
+
+/** The shortest run of words that `text` repeats whole ("a b a b" gives "a b"), or `text`. */
+function repeatedUnit(text: string): string {
+  const words = text.split(" ");
+  for (let size = 1; size <= words.length / 2; size++) {
+    if (words.length % size === 0 && words.every((word, i) => word === words[i % size])) return words.slice(0, size).join(" ");
+  }
+  return text;
+}
+
+/** The vendor whose block page this Markdown reads as, by the page rules on its title, first headings if `withHeadings`, and text. */
+function markdownChallenge(markdown: string, title: string, withHeadings: boolean): ChallengeVendor | null {
+  // A block page is a few lines (the page rules stop at 2,500 characters of text); a long page is not one.
+  if (markdown.length > 10_000) return null;
+  const headings = withHeadings ? [...markdown.matchAll(/^#{1,2}\s+(.+)$/gm)].slice(0, 2).map((m) => m[1].trim()) : [];
   // Headings apart too, and the text (headings included) without Markdown marks, as the page rules expect.
   // Only heading marks are dropped; a "#" in the text (Akamai's "Reference #18.4f...") stays.
-  const text = markdown.replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*_`>[\]]/g, " ").replace(/\s+/g, " ").trim();
-  return detectChallengeText(title, headings, text) !== null;
+  // An underscore inside a word ("request_id") is the word's, not emphasis.
+  // Images and link targets are not text a reader sees.
+  const text = markdown.replace(/!\[[^\]\n]{0,500}\]\([^)\n]{0,2000}\)/g, " ").replace(/\]\([^)\n]{0,2000}\)/g, "]").replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*`>[\]]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, " ").replace(/\s+/g, " ").trim();
+  return detectChallengeText(title, headings, text);
 }
 
 // ─── 子函数：浏览器渲染 ──────────────────────────────────────
