@@ -76,7 +76,8 @@ export class ConvertError extends Error {
 
   toPublic(anonymous = false): PublicError {
     return publicError(this.reason.code, this.statusCode, {
-      originStatus: this.reason.originStatus ?? this.targetStatus,
+      // targetStatus can be a synthetic status kept for the negative cache; only originStatus is the site's.
+      originStatus: this.reason.originStatus,
       publicMessage: this.reason.publicMessage,
       anonymous,
     });
@@ -112,7 +113,7 @@ export function errorResponse(
     );
   }
   return new Response(
-    errorPageHTML(title, `${pub.message} ${pub.hint}`, status),
+    errorPageHTML(title, pub.message, status, pub.hint),
     {
       status,
       headers: {

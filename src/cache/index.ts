@@ -46,6 +46,8 @@ export interface NegativeCacheEntry {
   /** The public reason, so a replay tells the caller the same thing. */
   code?: PublicErrorCode;
   publicMessage?: string;
+  /** The site's own HTTP status, when it answered with one. */
+  originStatus?: number;
 }
 
 const negativeHot = new Map<string, { value: NegativeCacheEntry; expiresAt: number }>();
@@ -412,6 +414,7 @@ function parseNegativeEntry(raw: string): NegativeCacheEntry | null {
       targetStatus: parsed.targetStatus,
       ...(isPublicErrorCode(parsed.code) ? { code: parsed.code } : {}),
       ...(typeof parsed.publicMessage === "string" ? { publicMessage: parsed.publicMessage.slice(0, 400) } : {}),
+      ...(typeof parsed.originStatus === "number" ? { originStatus: parsed.originStatus } : {}),
     };
   } catch {
     return null;

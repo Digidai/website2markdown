@@ -491,7 +491,12 @@ export async function convertUrl(
         negative.statusCode,
         negative.targetStatus,
         true,
-        { code: negative.code, publicMessage: negative.publicMessage },
+        {
+          code: negative.code,
+          publicMessage: negative.publicMessage,
+          // Entries written before reasons were stored hold the site's status in targetStatus.
+          originStatus: negative.originStatus ?? (negative.code ? undefined : negative.targetStatus),
+        },
       );
     }
   }
@@ -561,6 +566,7 @@ export async function convertUrl(
           targetStatus: error.targetStatus,
           ...(error.reason.code ? { code: error.reason.code } : {}),
           ...(error.reason.publicMessage ? { publicMessage: error.reason.publicMessage } : {}),
+          ...(error.reason.originStatus !== undefined ? { originStatus: error.reason.originStatus } : {}),
         });
       } catch {
         // A cache write must not replace the origin error.

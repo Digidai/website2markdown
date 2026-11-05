@@ -5,6 +5,7 @@ vi.mock("cloudflare:sockets", () => ({
 }));
 
 import worker from "../index";
+import { wechatUnavailableError } from "../handlers/convert";
 import { createMockEnv, mockCtx } from "./test-helpers";
 
 afterEach(() => {
@@ -54,5 +55,15 @@ describe("failure reasons for callers", () => {
     const text = await res.text();
     expect(text).not.toMatch(/vendor|tunnel|407/);
     expect(JSON.parse(text)).toMatchObject({ code: "target_unreadable", retryable: true });
+  });
+
+  it("does not report a status the site never sent", () => {
+    // WeChat answers 200 for deleted and video posts; the 410 only sizes the negative cache.
+    const deleted = wechatUnavailableError('<div class="weui-msg__title">该内容已被发布者删除</div>')!.toPublic();
+    expect(deleted).toMatchObject({ code: "target_gone", cause: "target" });
+    expect(deleted.targetStatus).toBeUndefined();
+    const video = wechatUnavailableError("var item_show_type = '5';")!.toPublic();
+    expect(video).toMatchObject({ code: "no_content" });
+    expect(video.targetStatus).toBeUndefined();
   });
 });

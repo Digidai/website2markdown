@@ -64,7 +64,7 @@ A failed conversion returns JSON (send Accept: application/json or text/markdown
 - cause: target (the link or the site), request (fix the request), account (key, quota, rate), service (our side; retry).
 - retryable: whether the same request can succeed later. When false, change the URL instead of retrying.
 - hint: what to try next. target_status: the site's own HTTP status, when it answered.
-- Batch and job results carry the same code, cause, retryable, and hint on each failed item; extract results carry them under error, with the code in error.reason.
+- Each failed batch result carries the same code, cause, retryable, and hint; extract results carry them under error, with the code in error.reason. Streaming sends them in its fail event.
 - Codes:
   - target_not_found, target_gone: the page does not exist. Check the URL; do not retry.
   - target_forbidden: the site refused access (login, subscription, or no automated access).

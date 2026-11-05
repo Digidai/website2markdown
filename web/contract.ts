@@ -37,7 +37,7 @@ export interface WebRenderers {
     articleTitle?: string,
     rawRequestPath?: string,
   ): string;
-  errorPageHTML(title: string, message: string, statusCode?: number): string;
+  errorPageHTML(title: string, message: string, statusCode?: number, hint?: string): string;
   adminPageHTML(state: AdminState): string;
 }
 
