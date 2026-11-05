@@ -129,15 +129,15 @@ function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null
 }
 
 /**
- * Whole-value matches only: `/harbour-vote` must not claim the record of a
- * prefetched `/harbour-vote-delayed`.
+ * Whole-value matches only: a URL or path must be the page's whole path, and
+ * only a bare value is compared with the slug, so `/harbour-vote` claims
+ * neither `/harbour-vote-delayed` nor `/2025/sports/harbour-vote`.
  */
 function namesArticle(record: object, id: ArticleIdentity): boolean {
   for (const value of Object.values(record)) {
     if (typeof value !== "string" || value.length > 2000) continue;
     if (/^(?:https?:)?\/\/|^\//i.test(value)) {
-      const path = urlPath(value);
-      if (path && ((id.path && path === id.path) || (id.slug && path.split("/").pop() === id.slug))) return true;
+      if (id.path && urlPath(value) === id.path) return true;
     } else if (id.slug && value.toLowerCase() === id.slug) {
       return true;
     }
@@ -267,7 +267,7 @@ export function extractEmbeddedArticles(rawHtml: string, title: string, pageUrl:
 
   const jsonLd = extractJsonLdArticle(rawHtml, (node) => {
     const page = node.mainEntityOfPage;
-    return namesArticle({
+    return recordNamesArticle({
       url: node.url,
       id: node["@id"],
       page: typeof page === "object" && page ? (page as Record<string, unknown>)["@id"] : page,
@@ -317,9 +317,12 @@ export function findWpJsonUrl(rawHtml: string, pageUrl: string): string | null {
     if (!/\brel\s*=\s*["']?alternate\b/i.test(tag)) continue;
     if (!/\btype\s*=\s*["']application\/json["']/i.test(tag)) continue;
     const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1]?.replace(/&amp;/g, "&");
-    if (!href || !/(?:\/wp-json\/|rest_route=\/)wp\/v2\/[a-z_-]+\/\d+/i.test(href)) continue;
+    if (!href) continue;
     try {
       const url = new URL(href, page);
+      // The route is in the path, or URL-decoded in ?rest_route=.
+      const route = url.searchParams.get("rest_route") ?? decodeURIComponent(url.pathname);
+      if (!/(?:^|\/wp-json)\/wp\/v2\/[a-z_-]+\/\d+\/?$/i.test(route)) continue;
       const bare = (host: string) => host.replace(/^www\./, "");
       if (url.protocol === "https:" && bare(url.hostname) === bare(page.hostname)) return url.toString();
     } catch {

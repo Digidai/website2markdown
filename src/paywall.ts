@@ -342,13 +342,14 @@ const ARTICLE_TYPES = new Set([
  * Extract article content from JSON-LD structured data.
  * Returns minimal HTML suitable for Readability, or null.
  *
- * When the page holds several article bodies, `isRequested` (if given) keeps
- * only the nodes that are the requested article, so a longer related article
- * cannot win.
+ * `isRequested` (if given) says whether a node is the requested article: true,
+ * false for a node that names another article, or null when the node does
+ * not say. Nodes for other articles are dropped, and when some nodes are the
+ * requested article only those count, so a longer related article cannot win.
  */
 export function extractJsonLdArticle(
   html: string,
-  isRequested?: (node: Record<string, unknown>) => boolean,
+  isRequested?: (node: Record<string, unknown>) => boolean | null,
 ): string | null {
   // Find all <script type="application/ld+json"> blocks
   const regex = /<script\s+type\s*=\s*["']application\/ld\+json["'][^<>]*>([\s\S]*?)<\/script>/gi;
@@ -386,8 +387,12 @@ export function extractJsonLdArticle(
     }
   }
 
-  if (candidates.length > 1 && isRequested) {
-    candidates = candidates.filter((candidate) => isRequested(candidate.node));
+  if (isRequested) {
+    const judged = candidates
+      .map((candidate) => ({ candidate, verdict: isRequested(candidate.node) }))
+      .filter(({ verdict }) => verdict !== false);
+    const named = judged.filter(({ verdict }) => verdict === true);
+    candidates = (named.length > 0 ? named : judged).map(({ candidate }) => candidate);
   }
   if (candidates.length === 0) return null;
 

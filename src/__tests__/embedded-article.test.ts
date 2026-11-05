@@ -128,6 +128,28 @@ describe("extractEmbeddedArticles", () => {
     expect(article.html).toContain("<title>Harbour vote</title>");
   });
 
+  it("matches a URL by its whole path, not its last segment", () => {
+    const other = Array.from({ length: 40 }, (_, i) => `Sports paragraph ${i + 1} from last season.`);
+    const html = nextData({
+      props: {
+        pageProps: {
+          story: { url: "https://news.example.com/2026/world/index.html", body: paragraphs(PARAGRAPHS) },
+          prefetched: { url: "https://news.example.com/2025/sports/index.html", body: paragraphs(other) },
+        },
+      },
+    });
+    const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/2026/world/index.html");
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("last season");
+  });
+
+  it("drops a lone JSON-LD article that names another page", () => {
+    const html = `<script type="application/ld+json">${JSON.stringify({
+      "@type": "NewsArticle", url: "https://news.example.com/other", headline: "Other story", articleBody: PARAGRAPHS.join("\n"),
+    })}</script>`;
+    expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote")).toEqual([]);
+  });
+
   it("ignores page state that does not name the requested article", () => {
     const html = nextData({ props: { pageProps: { story: { url: "https://news.example.com/other-story", body: paragraphs(PARAGRAPHS) } } } });
     expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")).toEqual([]);
@@ -156,6 +178,8 @@ describe("WordPress REST", () => {
       .toBe("https://example.org/wp-json/wp/v2/posts/123");
     expect(findWpJsonUrl(link("/?rest_route=/wp/v2/posts/9&amp;x=1"), page))
       .toBe("https://www.example.org/?rest_route=/wp/v2/posts/9&x=1");
+    expect(findWpJsonUrl(link("/?rest_route=%2Fwp%2Fv2%2Fposts%2F42"), page))
+      .toBe("https://www.example.org/?rest_route=%2Fwp%2Fv2%2Fposts%2F42");
     expect(findWpJsonUrl(link("https://evil.example.net/wp-json/wp/v2/posts/123"), page)).toBeNull();
     expect(findWpJsonUrl(link("https://example.org/wp-json/wp/v2/categories"), page)).toBeNull();
   });

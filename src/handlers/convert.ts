@@ -1040,12 +1040,14 @@ async function tryFetchAndParse(
   }
 
   // 8.5. Paywall 绕过：移除 paywall 元素并提取 JSON-LD 回退
-  // Judged before cleanup, which also removes subscription prompts inside .paywall.
-  const pageLooksPaywalled = looksPaywalled(finalHtml);
+  // Cleanup also removes subscription prompts inside .paywall; the REST
+  // fallback below judges the page as it was before.
+  const htmlBeforeCleanup = finalHtml;
   finalHtml = removePaywallElements(finalHtml, getPaywallRule(resolvedUrl));
 
   // 8.6. 如果内容看起来被 paywall 挡住，尝试 AMP 版本
-  if (pageLooksPaywalled && getPaywallRule(resolvedUrl)) {
+  const htmlLooksPaywalled = looksPaywalled(finalHtml);
+  if (htmlLooksPaywalled && getPaywallRule(resolvedUrl)) {
     paywallDetected = true;
     const ampUrl = extractAmpLink(finalHtml);
     if (ampUrl) {
@@ -1096,7 +1098,7 @@ async function tryFetchAndParse(
     let embedded = longerEmbeddedArticle(
       markdown, extractEmbeddedArticles(rawHtml, extractedTitle, conversionUrl), conversionUrl,
     );
-    if (!embedded && (pageLooksPaywalled || stillLooksPaywalled)) {
+    if (!embedded && (stillLooksPaywalled || looksPaywalled(htmlBeforeCleanup))) {
       const wp = await fetchWpJsonArticle(rawHtml, conversionUrl, host, extractedTitle, abortSignal);
       if (wp) embedded = longerEmbeddedArticle(markdown, [wp], conversionUrl);
     }
