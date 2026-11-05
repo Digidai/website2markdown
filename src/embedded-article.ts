@@ -133,8 +133,8 @@ function articleUrl(value: string, base: string): string | null {
     const params = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name));
     const query = params.length > 0 ? `?${new URLSearchParams(params.sort()).toString()}` : "";
     const host = url.hostname.toLowerCase().replace(/^www\./, "");
-    // Decoded per segment, so an encoded "/" (one%2Ftwo) stays one segment.
-    const path = url.pathname.split("/").map((segment) => decodeURIComponent(segment).replace(/\//g, "%2F")).join("/");
+    // Decoded per segment, so an encoded "/", "?", or "#" (one%2Ftwo) stays in its segment.
+    const path = url.pathname.split("/").map((segment) => decodeURIComponent(segment).replace(/[/?#]/g, encodeURIComponent)).join("/");
     return `${host}${path.replace(/\/+$/, "")}${query}`;
   } catch {
     return null;
@@ -288,14 +288,10 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
       // articles instead, which is walked item by item below.
       const isArticle = (item: unknown) => item !== null && typeof item === "object" && !Array.isArray(item) &&
         recordVerdict(item, id) !== null &&
-        Object.entries(item).some(([key, value]) => BODY_KEY.test(key) && typeof value === "string" && /<p[\s>]/i.test(value));
+        Object.entries(item).some(([key, value]) => BODY_KEY.test(key) && typeof value === "string" && value.trim() !== "");
       const fragments = named && BODY_KEY.test(nodeKey) && node.length <= MAX_WALK_NODES && !node.some(isArticle);
       if (fragments) {
-        const joined = node.map((item) => {
-          if (typeof item === "string") return item;
-          const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-          return str(record.html) || str(record.content) || str(record.text);
-        }).join("\n");
+        const joined = node.map(renderBlock).join("\n");
         if (joined.length > bestChars && /<p[\s>]/i.test(joined)) {
           const chars = htmlTextChars(joined);
           if (chars > bestChars) {
@@ -324,6 +320,25 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
 
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+/** One fragment of a body split into blocks: its HTML, or an image or heading block rendered. */
+function renderBlock(item: unknown): string {
+  if (typeof item === "string") return item;
+  if (!item || typeof item !== "object") return "";
+  const block = item as Record<string, unknown>;
+  const html = str(block.html) || str(block.content) || str(block.text);
+  if (html) return html;
+  const type = str(block.type).toLowerCase();
+  const url = str(block.url) || str(block.src);
+  if (/image|photo|figure/.test(type) && /^https?:\/\//i.test(url)) {
+    const caption = str(block.caption);
+    return `<figure><img src="${escapeHtml(url)}" alt="${escapeHtml(stripTags(caption || str(block.alt)))}">` +
+      (caption ? `<figcaption>${caption}</figcaption>` : "") + "</figure>";
+  }
+  const heading = str(block.title) || str(block.heading);
+  if (/head/.test(type) && heading) return `<h2>${escapeHtml(heading)}</h2>`;
+  return "";
 }
 
 /** Renders Arc XP ANS content_elements (Washington Post, Globe and Mail, ...). */
