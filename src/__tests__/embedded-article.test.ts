@@ -250,6 +250,8 @@ describe("extractEmbeddedArticles", () => {
     // An encoded "/" is part of a segment.
     check(state({ url: "/articles/one%2Ftwo" }, { url: "/articles/one/two" }), "https://news.example.com/articles/one%2Ftwo");
     check(state({ url: "/articles/one%3Fid=foo" }, { url: "/articles/one?id=foo" }), "https://news.example.com/articles/one%3Fid=foo");
+    // Another port is another service.
+    check(state({ url: "https://news.example.com/a-story" }, { url: "https://news.example.com:8443/a-story" }), "https://news.example.com/a-story");
     // Case-sensitive article ids.
     check(state({ url: "/view?id=AbCd" }, { url: "/view?id=abcd" }), "https://news.example.com/view?id=AbCd");
   });
@@ -294,6 +296,9 @@ describe("extractEmbeddedArticles", () => {
     check(state({ slug: "nov-5", ...body(PARAGRAPHS) }, { slug: "nov-4", ...body(older) }), "https://news.example.com/live/nov-5");
     // Relative URLs resolve against the page.
     check(state({ url: "nov-5", ...body(PARAGRAPHS) }, { url: "nov-4", ...body(older) }), "https://news.example.com/live/nov-5");
+    // An equal short slug under a matching URL keeps the match.
+    const shortSlug = nextData({ props: { pageProps: { story: { url: "/news/12345", data: { slug: "12345", body: paragraphs(PARAGRAPHS) } } } } });
+    expect(extractEmbeddedArticles(shortSlug, "Live election updates", "https://news.example.com/news/12345")[0]?.html).toContain("Paragraph 12 reports");
     // Slugs keep their case.
     check(state({ slug: "AbCdEfGh", ...body(PARAGRAPHS) }, { slug: "abcdefgh", ...body(older) }), "https://news.example.com/view/AbCdEfGh");
   });
@@ -343,6 +348,13 @@ describe("extractEmbeddedArticles", () => {
     expect(blocksHtml).toContain("Paragraph 12 reports");
     expect(blocksHtml).toContain('<img src="https://cdn.example.com/harbour.jpg"');
     expect(blocksHtml).toContain("<h2>What happens next</h2>");
+    // Nor is a list of articles told apart only by headline.
+    const byHeadline = nextData({ props: { pageProps: { article: { url: pageUrl, body: paragraphs(PARAGRAPHS), content: [
+      { headline: "Other news of the day", html: paragraphs(Array.from({ length: 40 }, (_, i) => `Headline-only story paragraph ${i + 1} about another town's budget fight.`)) },
+    ] } } } });
+    const [own] = extractEmbeddedArticles(byHeadline, "Harbour vote", pageUrl);
+    expect(own.html).toContain("Paragraph 12 reports");
+    expect(own.html).not.toContain("Headline-only story");
     // A list of articles is not one body.
     const other = Array.from({ length: 40 }, (_, i) => `Other article paragraph ${i + 1}.`);
     const list = nextData({ props: { pageProps: { url: pageUrl, content: [

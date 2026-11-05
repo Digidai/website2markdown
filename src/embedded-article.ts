@@ -132,7 +132,8 @@ function articleUrl(value: string, base: string): string | null {
     const url = new URL(value, base);
     const params = [...url.searchParams].filter(([name]) => !TRACKING_PARAM.test(name));
     const query = params.length > 0 ? `?${new URLSearchParams(params.sort()).toString()}` : "";
-    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    // host keeps a non-default port: news.example.com:8443 is another service.
+    const host = url.host.toLowerCase().replace(/^www\./, "");
     // Decoded per segment, so an encoded "/", "?", or "#" (one%2Ftwo) stays in its segment.
     const path = url.pathname.split("/").map((segment) => decodeURIComponent(segment).replace(/[/?#]/g, encodeURIComponent)).join("/");
     return `${host}${path.replace(/\/+$/, "")}${query}`;
@@ -204,7 +205,8 @@ function recordVerdict(record: object, id: ArticleIdentity): Verdict {
   }
   if (namesArticle(record, id)) return "match";
   const hasIdentity = Object.entries(record).some(([key, value]) => {
-    if (typeof value !== "string" || !IDENTITY_KEY.test(key)) return false;
+    // Slugs were decided above; an equal short one says nothing either way.
+    if (typeof value !== "string" || !IDENTITY_KEY.test(key) || /^slug$/i.test(key)) return false;
     if (/^(?:headline|title)$/i.test(key)) {
       if (!id.title) return false;
       const text = normalizeText(value);
@@ -290,8 +292,7 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
         if (item === null || typeof item !== "object" || Array.isArray(item)) return false;
         // A typed block (paragraph, heading, image, ...) is part of a body, whatever its title or url.
         if (BLOCK_TYPE.test(str((item as Record<string, unknown>).type))) return false;
-        const verdict = recordVerdict(item, id);
-        return (verdict === "match" || verdict === "other") &&
+        return recordVerdict(item, id) !== null &&
           Object.entries(item).some(([key, value]) => BODY_KEY.test(key) && typeof value === "string" && value.trim() !== "");
       };
       const fragments = named && BODY_KEY.test(nodeKey) && node.length <= MAX_WALK_NODES && !node.some(isArticle);
