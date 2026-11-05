@@ -1179,7 +1179,11 @@ async function tryFetchAndParse(
   // its Markdown, title and headings still read as one.
   // Only Akamai's denial, whose title and reference number are hard to mistake (Newark's);
   // only the page's title counts as its heading, and not for the part a selector picked.
-  if (!challenge && browserRendered && !selector && isDenialHeading(extractedTitle) && markdownChallenge(markdown, extractedTitle, false) === "akamai") challenge = "akamai";
+  if (!challenge && browserRendered && !selector && isDenialHeading(extractedTitle)) {
+    if (markdownChallenge(markdown, extractedTitle, false) === "akamai") challenge = "akamai";
+    // Or the denial title and nothing else, as Macy's sometimes renders it.
+    else if (markdown.length < 500 && repeatedUnit(markdownWords(markdown)) === markdownWords(extractedTitle)) challenge = "generic";
+  }
   // The challenge page's own text; once another source replaces it, the page is rescued.
   const challengeMarkdown = challenge ? markdown : null;
   let output: string;
@@ -1452,9 +1456,14 @@ async function fetchWpJsonArticle(
   }
 }
 
+/** Markdown's letters and digits as lowercase words separated by single spaces. */
+function markdownWords(md: string): string {
+  return md.replace(/[^\p{L}\p{N}]+/gu, " ").trim().toLowerCase();
+}
+
 /** Whether a provider's Markdown is the challenge page again: the same wording, or a block page's. */
 function isChallengeMarkdown(markdown: string, title: string, challengeMarkdown: string): boolean {
-  const words = (md: string) => md.replace(/[^\p{L}\p{N}]+/gu, " ").trim().toLowerCase();
+  const words = markdownWords;
   // The same wording, or part of it, perhaps repeated (a provider may drop the
   // text and repeat the title: "Access Denied - Macy's Access Denied - Macy's").
   const got = words(markdown);
