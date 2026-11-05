@@ -383,9 +383,10 @@ export function extractJsonLdArticle(html: string): string | null {
   // Pick the candidate with the longest body
   const best = candidates.reduce((a, b) => (a.body.length >= b.body.length ? a : b));
 
-  // Convert plain text body to paragraphed HTML
+  // Convert plain text body to paragraphed HTML. Sites such as Wired separate
+  // paragraphs with a single newline.
   const paragraphs = best.body
-    .split(/\n\n+/)
+    .split(/\n+/)
     .map((p) => p.trim())
     .filter((p) => p.length > 0)
     .map((p) => `<p>${escapeForHtml(p)}</p>`)

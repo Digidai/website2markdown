@@ -43,8 +43,13 @@ import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
 import { substackAdapter } from "../browser/adapters/substack";
 import { mediumArticleFromFeed, mediumFeedFor } from "../medium-feed";
 import {
+  extractEmbeddedArticles,
+  findWpJsonUrl,
+  wpJsonArticle,
+  type EmbeddedArticle,
+} from "../embedded-article";
+import {
   applyPaywallHeaders,
-  extractJsonLdArticle,
   removePaywallElements,
   looksPaywalled,
   getPaywallRule,
@@ -1018,6 +1023,8 @@ async function tryFetchAndParse(
     );
   }
 
+  // Embedded article data (JSON-LD, __NEXT_DATA__, ...) lives in scripts.
+  const rawHtml = finalHtml;
   finalHtml = finalHtml
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
@@ -1066,8 +1073,6 @@ async function tryFetchAndParse(
     }
   }
 
-  const jsonLdHtml = extractJsonLdArticle(finalHtml);
-
   // 9. 转换
   throwIfAborted(abortSignal);
   await progress("convert", "Converting to Markdown");
@@ -1084,13 +1089,19 @@ async function tryFetchAndParse(
   if (stillLooksPaywalled) {
     paywallDetected = true;
   }
-  if (jsonLdHtml && markdown.length < 500 && stillLooksPaywalled) {
-    const jsonLdResult = htmlToMarkdown(jsonLdHtml, conversionUrl, selector);
-    if (jsonLdResult.markdown.length > markdown.length) {
-      markdown = jsonLdResult.markdown;
-      extractedTitle = jsonLdResult.title || extractedTitle;
-      contentHtml = jsonLdResult.contentHtml;
-      fallbacks.add("jsonld");
+  // Pages that hide or hydrate the body with JavaScript often embed all of it
+  // as data. A caller's selector targets the page markup, so it skips this.
+  if (!selector) {
+    let embedded = longerEmbeddedArticle(markdown, extractEmbeddedArticles(rawHtml, extractedTitle), conversionUrl);
+    if (!embedded && stillLooksPaywalled) {
+      const wp = await fetchWpJsonArticle(rawHtml, conversionUrl, host, extractedTitle, abortSignal);
+      if (wp) embedded = longerEmbeddedArticle(markdown, [wp], conversionUrl);
+    }
+    if (embedded) {
+      markdown = embedded.markdown;
+      extractedTitle = embedded.title || extractedTitle;
+      contentHtml = embedded.contentHtml;
+      fallbacks.add(embedded.source);
     }
   }
 
@@ -1251,6 +1262,60 @@ async function tryFetchAndParse(
       fallbacks: [...fallbacks],
     },
   };
+}
+
+// ─── 子函数：嵌入正文 ────────────────────────────────────────
+
+/**
+ * The embedded article whose Markdown body is clearly longer than the normal
+ * conversion's, or null. The margin keeps a full Readability result (with its
+ * images and structure) over a plain-text copy of similar length.
+ */
+function longerEmbeddedArticle(
+  markdown: string,
+  candidates: EmbeddedArticle[],
+  url: string,
+): { source: string; markdown: string; title: string; contentHtml: string } | null {
+  const current = markdownBodyChars(markdown, Infinity);
+  let best: { source: string; markdown: string; title: string; contentHtml: string } | null = null;
+  let bestChars = Math.max(current * 1.5, current + 300);
+  for (const candidate of candidates) {
+    const result = htmlToMarkdown(candidate.html, url);
+    const chars = markdownBodyChars(result.markdown, Infinity);
+    if (chars > bestChars) {
+      best = { source: candidate.source, ...result };
+      bestChars = chars;
+    }
+  }
+  return best;
+}
+
+/** Reads a paywalled WordPress post from the REST API the page links to. */
+async function fetchWpJsonArticle(
+  rawHtml: string,
+  pageUrl: string,
+  host: string,
+  title: string,
+  abortSignal?: AbortSignal,
+): Promise<EmbeddedArticle | null> {
+  const apiUrl = findWpJsonUrl(rawHtml, pageUrl);
+  if (!apiUrl) return null;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "User-Agent": `${host}/1.0 (Markdown Converter)`,
+  };
+  applyPaywallHeaders(pageUrl, headers);
+  const { signal, cleanup } = createTimeoutSignal(8_000, abortSignal);
+  try {
+    const { response } = await fetchWithSafeRedirects(apiUrl, { headers, signal });
+    if (!response.ok) return null;
+    return wpJsonArticle(await response.json(), title);
+  } catch (error) {
+    console.debug("WordPress REST fallback unavailable:", errorMessage(error));
+    return null;
+  } finally {
+    cleanup();
+  }
 }
 
 // ─── 子函数：浏览器渲染 ──────────────────────────────────────
