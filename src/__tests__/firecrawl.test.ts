@@ -31,6 +31,7 @@ describe("fetchViaFirecrawl", () => {
     expect(JSON.parse(init.body)).toMatchObject({
       url: "https://example.com",
       formats: ["markdown"],
+      excludeTags: ["script", "style"],
       origin: "md-genedai@1.0.0",
     });
   });
