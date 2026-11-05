@@ -1123,6 +1123,46 @@ describe("index mocked branch coverage", () => {
     expect(payload.code).toBe("target_blocked");
   });
 
+  it("fails as blocked when a browser block page is recognised only in its Markdown", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><div class=\"error\">rendered by script</div></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Farnell | 403 Error\n\n## Access Denied (Error 403)\n\nPlease quote the following incident number:\n\n**0.5bc90b17.1793873578.64ebbb98**",
+      title: "Farnell | 403 Error",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/search?force_browser=true", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(502);
+    expect((await res.json() as { code?: string }).code).toBe("target_blocked");
+  });
+
+  it("does not take a provider's cut-down copy of the block page as a rescue", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("https://r.jina.ai/")
+      ? Response.json({ code: 200, data: { title: "Access Denied - Macy's", content: "# Access Denied - Macy's\n\nAccess Denied - Macy's" } })
+      : new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } })));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Access Denied - Macy's\n\nYou don't have access to this page\n\nReference: 0.64a7cb17.1793873586.77c3d7df",
+      title: "Access Denied - Macy's",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/shop?force_browser=true", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(502);
+    expect((await res.json() as { code?: string }).code).toBe("target_blocked");
+  });
+
   it("proxies wechat markdown image urls when output format is markdown", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("<html><body><div id='js_content'><img data-src='https://mmbiz.qpic.cn/mmbiz_png/a1/640'></div></body></html>", {
