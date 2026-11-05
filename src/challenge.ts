@@ -67,6 +67,26 @@ const BLOCK_EVIDENCE =
 /** A block notice is a few lines; an article with that heading is longer. */
 const MAX_GENERIC_TEXT_CHARS = 600;
 
+/**
+ * A title or heading that announces a denial ("Access Denied - Macy's",
+ * "Error 403 - Request Blocked", "Farnell | 403 Error") or Home Depot's bare
+ * "Error Page", which its browser visitors get instead of Akamai's denial.
+ */
+const DENIAL_HEADING = /\b(?:access denied|request blocked|error 403|403 error)\b|^error page$/i;
+/** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
+const AKAMAI_REFERENCE = /\b\d{1,3}\.[\da-f]{6,8}\.\d{10}\.[\da-f]{6,10}\b/i;
+/** Wording a denial page adds to its heading. */
+const DENIAL_EVIDENCE = /\b(?:resemble an automated bot|security (?:service|software) (?:detected|has identified)|something went wrong)\b/i;
+/** Denial pages explain how to get unblocked at length; Fisher Scientific's runs to ~1,900 characters. */
+const MAX_DENIAL_TEXT_CHARS = 2500;
+
+/** A denial page: its heading names the denial, and its text has Akamai's reference or a block reason. */
+function denialRule(headings: string[], text: string): ChallengeVendor | null {
+  if (text.replace(/\s/g, "").length > MAX_DENIAL_TEXT_CHARS || !headings.some((heading) => DENIAL_HEADING.test(heading))) return null;
+  if (AKAMAI_REFERENCE.test(text)) return "akamai";
+  return DENIAL_EVIDENCE.test(text) || BLOCK_EVIDENCE.test(text) ? "generic" : null;
+}
+
 interface PageParts {
   /** Script code with string literals blanked, lowercased. */
   code: string;
@@ -282,7 +302,7 @@ function pageParts(html: string): PageParts {
 export function detectChallengePage(html: string): ChallengeVendor | null {
   const { code, sources, pxCaptcha, hasImage, text, title, headings } = pageParts(html);
   const textChars = text.replace(/\s/g, "").length;
-  if (textChars > MAX_CHALLENGE_TEXT_CHARS) return null;
+  if (textChars > MAX_CHALLENGE_TEXT_CHARS) return denialRule(headings, text);
 
   for (const [vendor, markers] of VENDOR_SCRIPTS) {
     if (markers.globals.some((assignment) => assignment.test(code)) || markers.sources.some((src) => sources.includes(src))) return vendor;
@@ -298,7 +318,7 @@ export function detectChallengePage(html: string): ChallengeVendor | null {
  * service extracted (Firecrawl, Jina): `title`, the page's headings, and its text.
  */
 export function detectChallengeText(title: string, headings: string[], text: string): ChallengeVendor | null {
-  if (text.replace(/\s/g, "").length > MAX_CHALLENGE_TEXT_CHARS) return null;
+  if (text.replace(/\s/g, "").length > MAX_CHALLENGE_TEXT_CHARS) return denialRule([title, ...headings].filter(Boolean), text);
   return textRules(title, [title, ...headings].filter(Boolean), text, "");
 }
 
@@ -316,5 +336,5 @@ function textRules(title: string, headings: string[], text: string, sources: str
     headings.some((heading) => BLOCK_HEADING.test(heading)) &&
     BLOCK_EVIDENCE.test(text)
   ) return "generic";
-  return null;
+  return denialRule(headings, text);
 }

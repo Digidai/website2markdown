@@ -1638,6 +1638,14 @@ async function tryBrowserRendering(
       { sessionProfileScope },
     ));
     fallbacks.add("always_browser");
+    // A block page from the browser gets the same rescue as a failed render;
+    // one that stays a block page fails in convertUrl.
+    const challenge = detectChallengePage(html);
+    if (challenge && providerApiKeysAllowed) {
+      fallbacks.add(`challenge_${challenge}`);
+      const rescued = await tryContextDev(targetUrl, env, fallbacks, abortSignal, _progress);
+      if (rescued) return { html: rescued, rendered: true };
+    }
     return { html, rendered: true };
   } catch (error) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
@@ -2040,6 +2048,17 @@ async function tryStaticFetch(
       method = "browser+readability+turndown";
       browserRendered = true;
       fallbacks.add("browser_after_static_failure");
+      // The browser can be denied too (Akamai answers it with its block page):
+      // try Context.dev as when rendering fails. A page that stays a denial fails in convertUrl.
+      const challenge = detectChallengePage(finalHtml);
+      if (challenge && providerApiKeysAllowed) {
+        fallbacks.add(`challenge_${challenge}`);
+        const rescued = await tryContextDev(targetUrl, env, fallbacks, abortSignal, progress);
+        if (rescued) {
+          finalHtml = rescued;
+          method = "proxy+readability+turndown";
+        }
+      }
     } catch (error) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
       console.error("Browser fallback failed:", errorMessage(error));
@@ -2203,16 +2222,23 @@ async function tryStaticFetch(
       throwIfAborted(abortSignal);
       await progress("browser", "Rendering with browser");
       try {
-        finalHtml = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
+        const rendered = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
           targetUrl,
           env,
           host,
           abortSignal,
           { sessionProfileScope },
         ));
-        method = "browser+readability+turndown";
-        browserRendered = true;
-        fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
+        // A forced render that got a block page while the static page was content
+        // (bio-rad, newark): keep the static page.
+        if (!detectChallengePage(rendered) || detectChallengePage(body)) {
+          finalHtml = rendered;
+          method = "browser+readability+turndown";
+          browserRendered = true;
+          fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
+        } else {
+          fallbacks.add("browser_blocked_static_kept");
+        }
       } catch (e) {
         if (isWechatVerification) {
           throw new ConvertError(
