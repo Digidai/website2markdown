@@ -41,7 +41,14 @@ import { hasWechatArticleBody, isWechatPageChrome } from "../browser/adapters/we
 import { isFeishuDocumentUrl } from "../browser/adapters/feishu";
 import { fetchFeishuSsr } from "../browser/adapters/feishu-ssr";
 import { substackAdapter } from "../browser/adapters/substack";
-import { mediumArticleFromFeed, mediumFeedFor } from "../medium-feed";
+import {
+  FREEDIUM_NOTE,
+  FREEDIUM_NOTE_HTML,
+  freediumArticle,
+  freediumUrlFor,
+  mediumArticleFromFeed,
+  mediumFeedFor,
+} from "../medium-feed";
 import {
   extractEmbeddedArticles,
   findWpJsonUrl,
@@ -1210,6 +1217,13 @@ async function tryFetchAndParse(
     throw new ConvertError("Fetch Failed", GOV_EMPTY_SHELL_MESSAGE, 502);
   }
 
+  // Billed on the article alone, before the Freedium note.
+  const bodyChars = markdownBodyChars(markdown);
+  const viaFreedium = fallbacks.has("freedium") && Boolean(markdown.trim());
+  if (viaFreedium) {
+    markdown += FREEDIUM_NOTE;
+  }
+
   if (!markdown.trim()) {
     throw new ConvertError(
       "No Content",
@@ -1222,7 +1236,7 @@ async function tryFetchAndParse(
     case "html":
       output = method === "jina" || method === "firecrawl"
         ? formatOutput(markdown, "html", conversionUrl, extractedTitle, method)
-        : contentHtml;
+        : viaFreedium ? contentHtml + FREEDIUM_NOTE_HTML : contentHtml;
       break;
     case "text":
       output = formatOutput(markdown, "text", conversionUrl, extractedTitle, method);
@@ -1249,7 +1263,7 @@ async function tryFetchAndParse(
     throwIfAborted(abortSignal);
     await setCache(
       env, targetUrl, format,
-      { content: output, method, title: extractedTitle, sourceContentType, bodyChars: markdownBodyChars(markdown) },
+      { content: output, method, title: extractedTitle, sourceContentType, bodyChars },
       selector, undefined, engine,
     );
   }
@@ -1259,7 +1273,7 @@ async function tryFetchAndParse(
     title: extractedTitle,
     method,
     tokenCount: "",
-    bodyChars: markdownBodyChars(markdown),
+    bodyChars,
     sourceContentType,
     cached: false,
     diagnostics: {
@@ -1401,6 +1415,38 @@ async function tryMediumFeed(
   }
   const html = mediumArticleFromFeed(xml, target.postId);
   if (html) fallbacks.add("medium_feed");
+  return html;
+}
+
+/**
+ * Reads a blocked Medium post, member-only ones included, through Freedium.
+ * Used after the feed, since Freedium is a third party; the Wayback Machine,
+ * tried after it, has only the preview of member-only posts.
+ */
+async function tryFreedium(
+  url: string,
+  env: Env,
+  fallbacks: Set<string>,
+  abortSignal: AbortSignal | undefined,
+  progress: (step: string, label: string) => void | Promise<void>,
+): Promise<string | null> {
+  const freediumUrl = freediumUrlFor(url);
+  if (!freediumUrl) return null;
+  await progress("fetch", "Reading the post through Freedium");
+  const html = await trackProvider(env, "freedium", abortSignal, async () => {
+    const { signal, cleanup } = createTimeoutSignal(12_000, abortSignal);
+    try {
+      const resp = await fetch(freediumUrl, { headers: { "User-Agent": DESKTOP_UA, Accept: "text/html" }, signal });
+      if (!resp.ok) return null;
+      return freediumArticle(await readTextWithLimit(resp, MAX_RESPONSE_BYTES, "Freedium page too large", signal));
+    } catch {
+      if (abortSignal?.aborted) throw new RequestAbortedError();
+      return null;
+    } finally {
+      cleanup();
+    }
+  }, (result) => Boolean(result));
+  if (html) fallbacks.add("freedium");
   return html;
 }
 
@@ -1785,7 +1831,8 @@ async function tryStaticFetch(
   // Medium challenges every page; its RSS feed still has recent free posts.
   // Before the paywall archives, which cost ~10s and fail for Medium.
   if (staticFailed && !forceBrowser && !finalHtml && BLOCKED_STATUSES.includes(response.status)) {
-    const mediumHtml = await tryMediumFeed(resolvedUrl, env, fallbacks, abortSignal, progress, providerApiKeysAllowed);
+    const mediumHtml = await tryMediumFeed(resolvedUrl, env, fallbacks, abortSignal, progress, providerApiKeysAllowed)
+      ?? await tryFreedium(resolvedUrl, env, fallbacks, abortSignal, progress);
     if (mediumHtml) finalHtml = mediumHtml;
   }
 

@@ -56,3 +56,53 @@ export function mediumArticleFromFeed(xml: string, postId: string): string | nul
   }
   return null;
 }
+
+/**
+ * Freedium (freedium-mirror.cfd) is a third-party Medium mirror that also
+ * serves member-only posts, which the feed has only as a snippet. It answers
+ * Cloudflare egress; freedium.cfd itself does not.
+ */
+const FREEDIUM_ORIGIN = "https://freedium-mirror.cfd";
+
+/** Appended to Markdown read through Freedium, so readers know its source. */
+export const FREEDIUM_NOTE =
+  "\n\n---\n\n*Read through Freedium (freedium-mirror.cfd), a third-party Medium mirror, because Medium blocked the request.*\n";
+
+/** The Freedium page for a Medium post, or null for other URLs. */
+export function freediumUrlFor(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host !== "medium.com" && !host.endsWith(".medium.com")) return null;
+  if (!/[0-9a-f]{8,12}$/.test(parsed.pathname.replace(/\/+$/, ""))) return null; // not a post
+  return `${FREEDIUM_ORIGIN}/${parsed.origin}${parsed.pathname}`;
+}
+
+/**
+ * Freedium's page for a post, with its " - Freedium" title suffix removed, or
+ * null for its error page ("Freedium - Freedium", "UPSTREAM BLOCKED"), which it
+ * also serves with status 200.
+ */
+export function freediumArticle(html: string): string | null {
+  const title = /<title>([^<]*)<\/title>/i.exec(html)?.[1]?.trim() ?? "";
+  const headline = title.replace(/\s+-\s+Freedium$/, "");
+  if (headline === title || !headline || headline === "Freedium") return null;
+  if (!/<main\b/i.test(html) || html.includes("UPSTREAM BLOCKED")) return null;
+  return html
+    .replace(/<title>[^<]*<\/title>/i, () => `<title>${headline}</title>`)
+    // Code comes twice, in light and dark containers whose "hidden" classes
+    // Readability drops: keep the light copy, unwrapped.
+    .replace(/<div class="hidden dark:block">\s*<pre\b[\s\S]*?<\/pre>\s*<\/div>/g, "")
+    .replace(/<div class="dark:hidden">/g, "<div>")
+    // Its images are proxied as /img/medium/<width>/<id>; Medium's CDN serves the same ids.
+    .replace(/(\s(?:src|data-zoom-src)=")\/img\/medium\/(\d+)\//g, "$1https://miro.medium.com/v2/resize:fit:$2/")
+    .replace(/(\s(?:src|href)=")\/(?!\/)/g, `$1${FREEDIUM_ORIGIN}/`);
+}
+
+/** FREEDIUM_NOTE for HTML output. */
+export const FREEDIUM_NOTE_HTML =
+  "<hr><p><em>Read through Freedium (freedium-mirror.cfd), a third-party Medium mirror, because Medium blocked the request.</em></p>";

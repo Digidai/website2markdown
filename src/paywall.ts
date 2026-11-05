@@ -18,6 +18,10 @@
 export interface PaywallRule {
   domains: string[];
   googlebot?: boolean;
+  /** A site-specific User-Agent, such as the publisher's own app. Overrides googlebot. */
+  userAgent?: string;
+  /** Extra request headers the site's app sends. */
+  headers?: Record<string, string>;
   referer?: string;
   removeSelectors?: string[];
   jsonLd?: boolean;
@@ -40,6 +44,10 @@ const GOOGLEBOT_UA =
 
 const GOOGLE_REFERER = "https://www.google.com/";
 const FACEBOOK_REFERER = "https://www.facebook.com/";
+
+/** Haaretz serves its Android app the whole article. */
+const HAARETZ_APP_UA =
+  "Mozilla/5.0 (Linux; Android 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 haaretz/5.0.49";
 
 // ─── Paywall script domains (for Puppeteer blocking) ────────
 
@@ -70,8 +78,11 @@ export function isPaywallScript(url: string): boolean {
 
 // ─── Known paywalled sites ──────────────────────────────────
 
+// Recipes were checked from Cloudflare's egress (where the Worker fetches),
+// not from a home connection: a Worker request carries a Cf-Worker header,
+// and Cloudflare appends its own IP to X-Forwarded-For.
 const DEFAULT_PAYWALL_RULES: PaywallRule[] = [
-  // US News
+  // US News. NYT and WaPo answer Googlebot with the full page and block other agents.
   {
     domains: ["nytimes.com", "newyorker.com", "washingtonpost.com", "latimes.com", "chicagotribune.com", "sfchronicle.com"],
     googlebot: true,
@@ -87,8 +98,9 @@ const DEFAULT_PAYWALL_RULES: PaywallRule[] = [
     jsonLd: true,
     xForwardedFor: true,
   },
+  // Forbes' DataDome lets Googlebot through only with the Google referer and IP.
   {
-    domains: ["bloomberg.com", "ft.com", "economist.com", "hbr.org", "seekingalpha.com"],
+    domains: ["bloomberg.com", "economist.com", "hbr.org", "seekingalpha.com", "forbes.com"],
     googlebot: true,
     referer: GOOGLE_REFERER,
     jsonLd: true,
@@ -96,8 +108,15 @@ const DEFAULT_PAYWALL_RULES: PaywallRule[] = [
   },
   // Tech / Science
   {
-    domains: ["wired.com", "theatlantic.com", "technologyreview.com", "scientificamerican.com"],
+    domains: ["wired.com", "technologyreview.com", "scientificamerican.com"],
     googlebot: true,
+    referer: GOOGLE_REFERER,
+    jsonLd: true,
+  },
+  // The Atlantic blocks a Googlebot UA ("Your access has been blocked"), and
+  // the FT answers it 403 where other agents get the page or its barrier.
+  {
+    domains: ["theatlantic.com", "ft.com"],
     referer: GOOGLE_REFERER,
     jsonLd: true,
   },
@@ -112,6 +131,14 @@ const DEFAULT_PAYWALL_RULES: PaywallRule[] = [
     domains: ["telegraph.co.uk", "thetimes.co.uk", "lemonde.fr", "spiegel.de"],
     googlebot: true,
     referer: GOOGLE_REFERER,
+    jsonLd: true,
+  },
+  // Haaretz' app headers return the whole article (10.7k vs 4.4k characters);
+  // a Googlebot UA gets 403.
+  {
+    domains: ["haaretz.com", "haaretz.co.il", "themarker.com"],
+    userAgent: HAARETZ_APP_UA,
+    headers: { ismobileapp: "true", platform: "app", renderingkind: "opened" },
     jsonLd: true,
   },
   // Chinese
@@ -153,9 +180,17 @@ function normalizePaywallRule(rule: Partial<PaywallRule>): PaywallRule | null {
     : [];
   if (domains.length === 0) return null;
 
+  const headers = rule.headers && typeof rule.headers === "object" && !Array.isArray(rule.headers)
+    ? Object.fromEntries(
+      Object.entries(rule.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    )
+    : undefined;
+
   return {
     domains,
     googlebot: !!rule.googlebot,
+    userAgent: typeof rule.userAgent === "string" && rule.userAgent.length > 0 ? rule.userAgent : undefined,
+    headers,
     referer: typeof rule.referer === "string" && rule.referer.length > 0
       ? rule.referer
       : undefined,
@@ -287,7 +322,7 @@ function extractDomain(hostname: string): string {
   if (parts.length <= 2) return hostname;
   // Handle two-part TLDs like .co.uk
   const last2 = parts.slice(-2).join(".");
-  if (["co.uk", "com.au", "co.jp", "co.kr", "com.br", "com.cn"].includes(last2)) {
+  if (["co.uk", "com.au", "co.jp", "co.kr", "com.br", "com.cn", "co.il"].includes(last2)) {
     return parts.slice(-3).join(".");
   }
   return parts.slice(-2).join(".");
@@ -304,7 +339,19 @@ export function getPaywallRule(url: string): PaywallRule | null {
   }
 }
 
-/** Apply Googlebot UA, Referer, and X-Forwarded-For headers for known paywalled sites. */
+/**
+ * Sets a header in a plain record, replacing it under any capitalisation:
+ * fetch would otherwise join "user-agent" and "User-Agent" into one value.
+ */
+function setHeader(headers: Record<string, string>, name: string, value: string): void {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lower) delete headers[key];
+  }
+  headers[name] = value;
+}
+
+/** Apply a known paywalled site's User-Agent, app headers, Referer, and X-Forwarded-For. */
 export function applyPaywallHeaders(
   url: string,
   headers: Record<string, string>,
@@ -312,14 +359,19 @@ export function applyPaywallHeaders(
   const rule = getPaywallRule(url);
   if (!rule) return;
 
-  if (rule.googlebot) {
-    headers["User-Agent"] = GOOGLEBOT_UA;
+  if (rule.userAgent) {
+    setHeader(headers, "User-Agent", rule.userAgent);
+  } else if (rule.googlebot) {
+    setHeader(headers, "User-Agent", GOOGLEBOT_UA);
   }
   if (rule.referer) {
-    headers["Referer"] = rule.referer;
+    setHeader(headers, "Referer", rule.referer);
   }
   if (rule.xForwardedFor) {
-    headers["X-Forwarded-For"] = "66.249.66.1";
+    setHeader(headers, "X-Forwarded-For", "66.249.66.1");
+  }
+  for (const [name, value] of Object.entries(rule.headers ?? {})) {
+    setHeader(headers, name, value);
   }
 }
 
