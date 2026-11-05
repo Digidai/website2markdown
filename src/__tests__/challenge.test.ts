@@ -83,6 +83,14 @@ describe("detectChallengePage", () => {
       <p>A 403 means the server understood the request and refuses it.</p></body></html>`)).toBeNull();
     expect(detectChallengePage(`<html><head><title>Access denied: why stores block bots</title></head><body><h1>Access denied</h1>
       ${"<p>Retailers resemble an automated bot farm in their own scraping. ".repeat(80)}</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>How to fix Error 403</title></head><body><h1>How to fix Error 403</h1>
+      <p>Causes include wrong permissions and protection against automated requests. Reference #18.4f2a3b17 explains more.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>How to fix Error 403</title></head><body><h1>How to fix Error 403</h1>
+      <p>The site's security service detected a bot? Clear cookies.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error 403 explained</title></head><body><h1>Error 403 explained</h1>
+      <p>If the security service detected automated requests, clear your cookies. Our security service detected nothing here.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error 403 - How to fix it</title></head><body><h1>Fixing 403s</h1>
+      <p>If the site's security service detected automated requests, clear your cookies and retry.</p></body></html>`)).toBeNull();
     expect(detectChallengePage(`<html><head><title>Release notes</title></head><body><h1>Release notes</h1>
       <p>Version 0.5bc90b17.1793873578.64ebbb98 is out.</p></body></html>`)).toBeNull();
   });

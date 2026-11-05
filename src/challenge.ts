@@ -67,24 +67,35 @@ const BLOCK_EVIDENCE =
 /** A block notice is a few lines; an article with that heading is longer. */
 const MAX_GENERIC_TEXT_CHARS = 600;
 
+const DENIAL = String.raw`(?:access denied|request blocked|error 403|403 error)`;
+const SITE_NAME = String.raw`[^|\u2013()-]{1,40}`;
 /**
- * A title or heading that announces a denial ("Access Denied - Macy's",
- * "Error 403 - Request Blocked", "Farnell | 403 Error") or Home Depot's bare
- * "Error Page", which its browser visitors get instead of Akamai's denial.
+ * A title or heading that is a denial notice, alone or with the site's name or
+ * a second denial: "Access Denied - Macy's", "Error 403 - Request Blocked",
+ * "Farnell | 403 Error", "Access Denied (Error 403)". "Error 403 explained" is not.
  */
-const DENIAL_HEADING = /\b(?:access denied|request blocked|error 403|403 error)\b|^error page$/i;
+const DENIAL_HEADING = new RegExp(
+  `^(?:${SITE_NAME}\\s[|\u2013-]\\s)?${DENIAL}(?:\\s[|\u2013-]\\s(?:${DENIAL}|${SITE_NAME})|\\s\\((?:error )?403\\))?$`,
+  "i",
+);
 /** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
 const AKAMAI_REFERENCE = /\b\d{1,3}\.[\da-f]{6,8}\.\d{10}\.[\da-f]{6,10}\b/i;
-/** Wording a denial page adds to its heading. */
-const DENIAL_EVIDENCE = /\b(?:resemble an automated bot|security (?:service|software) (?:detected|has identified)|something went wrong)\b/i;
+/** How a denial page tells the visitor they were taken for a bot; an article about one says "the site's". */
+const DENIAL_EVIDENCE = /\bour security (?:service|software) (?:detected|has identified)\b/i;
 /** Denial pages explain how to get unblocked at length; Fisher Scientific's runs to ~1,900 characters. */
 const MAX_DENIAL_TEXT_CHARS = 2500;
 
-/** A denial page: its heading names the denial, and its text has Akamai's reference or a block reason. */
+/**
+ * A denial page: its heading announces the denial, and its text has Akamai's
+ * reference or says the visitor looked like a bot. Also Home Depot's bare
+ * "Error Page", which its browser visitors get instead of Akamai's denial.
+ */
 function denialRule(headings: string[], text: string): ChallengeVendor | null {
-  if (text.replace(/\s/g, "").length > MAX_DENIAL_TEXT_CHARS || !headings.some((heading) => DENIAL_HEADING.test(heading))) return null;
+  const textChars = text.replace(/\s/g, "").length;
+  if (textChars <= MAX_GENERIC_TEXT_CHARS && headings.some((heading) => /^error page$/i.test(heading)) && /\bsomething went wrong\b/i.test(text)) return "generic";
+  if (textChars > MAX_DENIAL_TEXT_CHARS || !headings.some((heading) => DENIAL_HEADING.test(heading))) return null;
   if (AKAMAI_REFERENCE.test(text)) return "akamai";
-  return DENIAL_EVIDENCE.test(text) || BLOCK_EVIDENCE.test(text) ? "generic" : null;
+  return DENIAL_EVIDENCE.test(text) ? "generic" : null;
 }
 
 interface PageParts {

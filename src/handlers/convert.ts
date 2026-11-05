@@ -2230,14 +2230,17 @@ async function tryStaticFetch(
           { sessionProfileScope },
         ));
         // A forced render that got a block page while the static page was content
-        // (bio-rad, newark): keep the static page.
-        if (!detectChallengePage(rendered) || detectChallengePage(body)) {
+        // (bio-rad, newark): keep the static page. A static shell ("Loading products...")
+        // takes the rendered block page on to the rescue below.
+        const staticHasText = body
+          .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, "")
+          .replace(/<[^>]*>/g, "")
+          .replace(/\s/g, "").length >= 500;
+        if (!detectChallengePage(rendered) || detectChallengePage(body) || !staticHasText) {
           finalHtml = rendered;
           method = "browser+readability+turndown";
           browserRendered = true;
           fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
-        } else {
-          fallbacks.add("browser_blocked_static_kept");
         }
       } catch (e) {
         if (isWechatVerification) {

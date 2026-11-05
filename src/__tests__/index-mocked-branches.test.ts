@@ -1108,6 +1108,23 @@ describe("index mocked branch coverage", () => {
     expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
   });
 
+  it("does not keep a static shell when a forced browser render gets a block page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(`<html><head><title>Shop</title></head><body><div id="app">Loading products...</div><script>${"x".repeat(3000)}</script></body></html>`, {
+        status: 200, headers: { "Content-Type": "text/html; charset=utf-8" },
+      }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
+
+    const req = new Request("https://md.example.com/https://example.com/shop?force_browser=true", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(502);
+    expect((await res.json() as { code?: string }).code).toBe("target_blocked");
+  });
+
   it("fails as blocked when the browser gets a block page after a blocked static fetch", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
