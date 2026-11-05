@@ -1474,12 +1474,14 @@ function repeatedUnit(text: string): string {
 
 /** The vendor whose block page this Markdown reads as, by the page rules on its title, first headings if `withHeadings`, and text. */
 function markdownChallenge(markdown: string, title: string, withHeadings: boolean): ChallengeVendor | null {
+  // A block page is a few lines (the page rules stop at 2,500 characters of text); a long page is not one.
+  if (markdown.length > 10_000) return null;
   const headings = withHeadings ? [...markdown.matchAll(/^#{1,2}\s+(.+)$/gm)].slice(0, 2).map((m) => m[1].trim()) : [];
   // Headings apart too, and the text (headings included) without Markdown marks, as the page rules expect.
   // Only heading marks are dropped; a "#" in the text (Akamai's "Reference #18.4f...") stays.
   // An underscore inside a word ("request_id") is the word's, not emphasis.
   // Images and link targets are not text a reader sees.
-  const text = markdown.replace(/!\[[^\]\n]*\]\([^)\n]*\)/g, " ").replace(/\]\([^)\n]*\)/g, "]").replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*`>[\]]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, " ").replace(/\s+/g, " ").trim();
+  const text = markdown.replace(/!\[[^\]\n]{0,500}\]\([^)\n]{0,2000}\)/g, " ").replace(/\]\([^)\n]{0,2000}\)/g, "]").replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*`>[\]]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, " ").replace(/\s+/g, " ").trim();
   return detectChallengeText(title, headings, text);
 }
 
