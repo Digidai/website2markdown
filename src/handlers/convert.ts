@@ -2233,11 +2233,12 @@ async function tryStaticFetch(
         // (bio-rad, newark): keep the static page. A static shell ("Loading products...")
         // takes the rendered block page on to the rescue below.
         const keepStatic = Boolean(detectChallengePage(rendered)) && !detectChallengePage(body) &&
-          htmlToMarkdown(
-            // Cleaned as convertUrl cleans it, so script code is not counted as text.
+          markdownBodyChars(htmlToMarkdown(
+            // Cleaned and selected as convertUrl does, so script code and the rest of the page do not count.
             body.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ""),
             resolvedUrl,
-          ).markdown.replace(/\s/g, "").length >= 500;
+            selector,
+          ).markdown, 500) >= 500;
         if (!keepStatic) {
           finalHtml = rendered;
           method = "browser+readability+turndown";
