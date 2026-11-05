@@ -393,16 +393,32 @@ const ARTICLE_TYPES = new Set([
 /**
  * Extract article content from JSON-LD structured data.
  * Returns minimal HTML suitable for Readability, or null.
+ *
+ * `isRequested` (if given) says whether a node is the requested article: true,
+ * false for a node that names another article, or null when the node does
+ * not say. Nodes for other articles are dropped, and when some nodes are the
+ * requested article only those count, so a longer related article cannot win.
  */
-export function extractJsonLdArticle(html: string): string | null {
+export function extractJsonLdArticle(
+  html: string,
+  isRequested?: (node: Record<string, unknown>) => boolean | null,
+): string | null {
   // Find all <script type="application/ld+json"> blocks
-  const regex = /<script\s+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  // Forward only: each block ends at the next </script>, and once none is left
+  // no later opening can close either, so malformed HTML is read once.
+  const opening = /<script\s+type\s*=\s*["']application\/ld\+json["'][^<>]*>/gi;
+  const closing = /<\/script>/gi;
   let match: RegExpExecArray | null;
-  const candidates: Array<{ headline: string; body: string }> = [];
+  let candidates: Array<{ headline: string; body: string; node: Record<string, unknown> }> = [];
 
-  while ((match = regex.exec(html)) !== null) {
+  while ((match = opening.exec(html)) !== null) {
+    closing.lastIndex = opening.lastIndex;
+    const end = closing.exec(html);
+    if (!end) break;
+    const json = html.slice(opening.lastIndex, end.index);
+    opening.lastIndex = closing.lastIndex;
     try {
-      const data = JSON.parse(match[1]);
+      const data = JSON.parse(json);
       // Handle both single objects and arrays
       const items = Array.isArray(data) ? data : [data];
 
@@ -420,6 +436,7 @@ export function extractJsonLdArticle(html: string): string | null {
               candidates.push({
                 headline: (node.headline || "").trim(),
                 body,
+                node,
               });
             }
           }
@@ -430,14 +447,22 @@ export function extractJsonLdArticle(html: string): string | null {
     }
   }
 
+  if (isRequested) {
+    const judged = candidates
+      .map((candidate) => ({ candidate, verdict: isRequested(candidate.node) }))
+      .filter(({ verdict }) => verdict !== false);
+    const named = judged.filter(({ verdict }) => verdict === true);
+    candidates = (named.length > 0 ? named : judged).map(({ candidate }) => candidate);
+  }
   if (candidates.length === 0) return null;
 
   // Pick the candidate with the longest body
   const best = candidates.reduce((a, b) => (a.body.length >= b.body.length ? a : b));
 
-  // Convert plain text body to paragraphed HTML
+  // Convert plain text body to paragraphed HTML. Sites such as Wired separate
+  // paragraphs with a single newline.
   const paragraphs = best.body
-    .split(/\n\n+/)
+    .split(/\n+/)
     .map((p) => p.trim())
     .filter((p) => p.length > 0)
     .map((p) => `<p>${escapeForHtml(p)}</p>`)

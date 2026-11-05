@@ -408,6 +408,15 @@ describe("extractJsonLdArticle", () => {
     expect(result).toContain("Lorem ipsum");
   });
 
+  it("treats single newlines in articleBody as paragraph breaks", () => {
+    const first = "First paragraph of the story. ".repeat(5).trim();
+    const second = "Second paragraph of the story. ".repeat(5).trim();
+    const html = `<script type="application/ld+json">${JSON.stringify({
+      "@type": "NewsArticle", headline: "Lines", articleBody: `${first}\n${second}`,
+    })}</script>`;
+    expect(extractJsonLdArticle(html)).toContain(`<p>${first}</p>\n<p>${second}</p>`);
+  });
+
   it("extracts from BlogPosting type", () => {
     const body = "A ".repeat(200);
     const html = `<html><head>

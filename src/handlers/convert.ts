@@ -51,8 +51,13 @@ import {
 } from "../medium-feed";
 import { detectChallengePage, detectChallengeText } from "../challenge";
 import {
+  extractEmbeddedArticles,
+  findWpJsonUrl,
+  wpJsonArticle,
+  type EmbeddedArticle,
+} from "../embedded-article";
+import {
   applyPaywallHeaders,
-  extractJsonLdArticle,
   removePaywallElements,
   looksPaywalled,
   getPaywallRule,
@@ -1032,6 +1037,8 @@ async function tryFetchAndParse(
     );
   }
 
+  // Embedded article data (JSON-LD, __NEXT_DATA__, ...) lives in scripts.
+  const rawHtml = finalHtml;
   finalHtml = finalHtml
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
@@ -1047,6 +1054,9 @@ async function tryFetchAndParse(
   }
 
   // 8.5. Paywall 绕过：移除 paywall 元素并提取 JSON-LD 回退
+  // Cleanup also removes subscription prompts inside .paywall; the REST
+  // fallback below judges the page as it was before.
+  const htmlBeforeCleanup = finalHtml;
   finalHtml = removePaywallElements(finalHtml, getPaywallRule(resolvedUrl));
 
   // 8.6. 如果内容看起来被 paywall 挡住，尝试 AMP 版本
@@ -1081,8 +1091,6 @@ async function tryFetchAndParse(
     }
   }
 
-  const jsonLdHtml = extractJsonLdArticle(finalHtml);
-
   // 9. 转换
   throwIfAborted(abortSignal);
   await progress("convert", "Converting to Markdown");
@@ -1101,18 +1109,28 @@ async function tryFetchAndParse(
   if (stillLooksPaywalled) {
     paywallDetected = true;
   }
-  if (jsonLdHtml && markdown.length < 500 && stillLooksPaywalled) {
-    const jsonLdResult = htmlToMarkdown(jsonLdHtml, conversionUrl, selector);
-    if (jsonLdResult.markdown.length > markdown.length) {
-      markdown = jsonLdResult.markdown;
-      extractedTitle = jsonLdResult.title || extractedTitle;
-      contentHtml = jsonLdResult.contentHtml;
-      fallbacks.add("jsonld");
+  // An embedded copy may itself be a preview, so a short page keeps its archive fallback below.
+  const shortBeforeEmbedded = markdown.length < 500;
+  // Pages that hide or hydrate the body with JavaScript often embed all of it
+  // as data. A caller's selector targets the page markup, so it skips this.
+  if (!selector) {
+    const candidates = extractEmbeddedArticles(rawHtml, extractedTitle, conversionUrl);
+    // An embedded copy may be a preview too, so a paywalled post's REST copy always competes.
+    if (stillLooksPaywalled || looksPaywalled(htmlBeforeCleanup)) {
+      const wp = await fetchWpJsonArticle(rawHtml, conversionUrl, host, extractedTitle, abortSignal);
+      if (wp) candidates.push(wp);
+    }
+    const embedded = longerEmbeddedArticle(markdown, candidates, conversionUrl);
+    if (embedded) {
+      markdown = embedded.markdown;
+      extractedTitle = embedded.title || extractedTitle;
+      contentHtml = embedded.contentHtml;
+      fallbacks.add(embedded.source);
     }
   }
 
   // 如果 JSON-LD 后仍然被 paywall 挡住，尝试存档源
-  if (markdown.length < 500 && stillLooksPaywalled && getPaywallRule(conversionUrl)) {
+  if ((markdown.length < 500 || shortBeforeEmbedded) && stillLooksPaywalled && getPaywallRule(conversionUrl)) {
     const waybackHtml = await trackProvider(env, "wayback", abortSignal, () => fetchWaybackSnapshot(conversionUrl, abortSignal), (html) => Boolean(html));
     if (waybackHtml) {
       const wbResult = htmlToMarkdown(
@@ -1130,7 +1148,7 @@ async function tryFetchAndParse(
       console.debug("Wayback fallback unavailable", { stage: "post_convert" });
     }
 
-    if (markdown.length < 500) {
+    if (markdown.length < 500 || (shortBeforeEmbedded && !fallbacks.has("wayback_post_convert"))) {
       const archiveHtml = await trackProvider(env, "archive_today", abortSignal, () => fetchArchiveToday(conversionUrl, abortSignal), (html) => Boolean(html));
       if (archiveHtml) {
         const arResult = htmlToMarkdown(
@@ -1289,6 +1307,61 @@ async function tryFetchAndParse(
       fallbacks: [...fallbacks],
     },
   };
+}
+
+// ─── 子函数：嵌入正文 ────────────────────────────────────────
+
+/**
+ * The embedded article whose Markdown body is clearly longer than the normal
+ * conversion's, or null. The margin keeps a full Readability result (with its
+ * images and structure) over a plain-text copy of similar length.
+ */
+function longerEmbeddedArticle(
+  markdown: string,
+  candidates: EmbeddedArticle[],
+  url: string,
+): { source: string; markdown: string; title: string; contentHtml: string } | null {
+  const current = markdownBodyChars(markdown, Infinity);
+  let best: { source: string; markdown: string; title: string; contentHtml: string } | null = null;
+  let bestChars = Math.max(current * 1.5, current + 300);
+  for (const candidate of candidates) {
+    const result = htmlToMarkdown(candidate.html, url);
+    const chars = markdownBodyChars(result.markdown, Infinity);
+    if (chars > bestChars) {
+      best = { source: candidate.source, ...result };
+      bestChars = chars;
+    }
+  }
+  return best;
+}
+
+/** Reads a paywalled WordPress post from the REST API the page links to. */
+async function fetchWpJsonArticle(
+  rawHtml: string,
+  pageUrl: string,
+  host: string,
+  title: string,
+  abortSignal?: AbortSignal,
+): Promise<EmbeddedArticle | null> {
+  const apiUrl = findWpJsonUrl(rawHtml, pageUrl);
+  if (!apiUrl) return null;
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    "User-Agent": `${host}/1.0 (Markdown Converter)`,
+  };
+  applyPaywallHeaders(pageUrl, headers);
+  const { signal, cleanup } = createTimeoutSignal(8_000, abortSignal);
+  try {
+    const { response } = await fetchWithSafeRedirects(apiUrl, { headers, signal });
+    if (!response.ok) return null;
+    const body = await readTextWithLimit(response, MAX_RESPONSE_BYTES, "WordPress REST response too large", signal);
+    return wpJsonArticle(JSON.parse(body), title);
+  } catch (error) {
+    console.debug("WordPress REST fallback unavailable:", errorMessage(error));
+    return null;
+  } finally {
+    cleanup();
+  }
 }
 
 /** Whether a provider's Markdown is the challenge page again: the same wording, or a block page's. */
