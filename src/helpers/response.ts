@@ -4,6 +4,7 @@ import type { ConvertMethod, OutputFormat } from "../types";
 import { CORS_HEADERS } from "../config";
 import { buildRawRequestPath } from "../security";
 import { errorPageHTML, renderedPageHTML } from "@web/server";
+import { publicError, publicErrorFields, type PublicError, type PublicErrorCode } from "../public-error";
 
 // Every HTML page is server-rendered React plus the same-origin HeroUI bundle
 // at /_app/* (web-dist). The only inline script is the theme boot in <head>.
@@ -46,6 +47,19 @@ export function withExtraHeaders(
   });
 }
 
+/** How a failure is shown to callers; see public-error.ts. */
+export interface ConvertErrorPublic {
+  code?: PublicErrorCode;
+  /** The target's HTTP status, for the caller and to pick a code. */
+  originStatus?: number;
+  /** A caller-safe sentence instead of the catalog's. */
+  publicMessage?: string;
+}
+
+/**
+ * A conversion failure. `message` is internal: it can name providers, proxies,
+ * or fallbacks, so it goes to logs only. Callers see `toPublic()`.
+ */
 export class ConvertError extends Error {
   constructor(
     public readonly title: string,
@@ -55,8 +69,17 @@ export class ConvertError extends Error {
     public readonly targetStatus?: number,
     /** True when replayed from the negative cache instead of a fresh origin fetch. */
     public readonly fromCache = false,
+    public readonly reason: ConvertErrorPublic = {},
   ) {
     super(message);
+  }
+
+  toPublic(anonymous = false): PublicError {
+    return publicError(this.reason.code, this.statusCode, {
+      originStatus: this.reason.originStatus ?? this.targetStatus,
+      publicMessage: this.reason.publicMessage,
+      anonymous,
+    });
   }
 }
 
@@ -78,15 +101,18 @@ export function errorResponse(
   message: string,
   status: number,
   asJson: boolean,
+  /** The failure's code, cause, and hint; derived from `status` when omitted. */
+  reason?: PublicError | PublicErrorCode,
 ): Response {
+  const pub = typeof reason === "object" ? reason : { ...publicError(reason, status), message };
   if (asJson) {
     return Response.json(
-      { error: title, message, status },
+      { error: title, message: pub.message, status, ...publicErrorFields(pub) },
       { status, headers: CORS_HEADERS },
     );
   }
   return new Response(
-    errorPageHTML(title, message, status),
+    errorPageHTML(title, `${pub.message} ${pub.hint}`, status),
     {
       status,
       headers: {
@@ -97,6 +123,11 @@ export function errorResponse(
       },
     },
   );
+}
+
+/** The response for a failed conversion: only its public form reaches the caller. */
+export function convertErrorResponse(error: ConvertError, asJson: boolean, anonymous = false): Response {
+  return errorResponse(error.title, "", error.statusCode, asJson, error.toPublic(anonymous));
 }
 
 export interface ConvertDiagnostics {

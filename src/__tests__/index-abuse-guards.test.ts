@@ -41,11 +41,11 @@ describe("anonymous origin failure cache", () => {
     vi.stubGlobal("fetch", fetchMock);
     const { env } = createMockEnv();
     const first = await convert(`https://md.example.com/${target}?raw=true`, env);
-    const firstBody = await first.json() as { message?: string };
+    const firstBody = await first.json() as { message?: string; code?: string; target_status?: number };
 
     expect(first.status).toBe(502);
     expect(first.headers.get("Cache-Control")).toBe("private, no-store");
-    expect(firstBody.message).toContain("Status: 404");
+    expect(firstBody).toMatchObject({ code: "target_not_found", target_status: 404 });
     const afterFirst = fetchMock.mock.calls.length;
     expect(afterFirst).toBeGreaterThan(0);
 
@@ -194,10 +194,13 @@ describe("anonymous search-page gate", () => {
     );
     const jsonBody = await json.json() as { error?: string; message?: string };
     expect(json.status).toBe(401);
-    expect(jsonBody).toEqual({
+    expect(jsonBody).toMatchObject({
       error: "Unauthorized",
       message: SEARCH_PAGE_API_KEY_MESSAGE,
       status: 401,
+      code: "auth_required",
+      cause: "account",
+      retryable: false,
     });
     expect(json.headers.get("Cache-Control")).toBe("private, no-store");
     expect(jsonBody.message).not.toBe("engine selection requires an API key.");
@@ -321,7 +324,7 @@ describe("anonymous search-page gate", () => {
     expect(first.headers.get("Content-Type")).toContain("text/event-stream");
     expect(first.headers.get("Cache-Control")).toBe("private, no-store");
     expect(firstBody).toContain("event: fail");
-    expect(firstBody).toContain("Status: 404");
+    expect(firstBody).toContain('"code":"target_not_found"');
     const afterFirst = fetchMock.mock.calls.length;
     expect(afterFirst).toBeGreaterThan(0);
 

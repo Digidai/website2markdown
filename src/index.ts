@@ -66,6 +66,7 @@ import {
   ConvertError,
   wantsJsonError,
   errorResponse,
+  convertErrorResponse,
   buildResponse,
   withExtraHeaders,
 } from "./helpers/response";
@@ -910,7 +911,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
       const browserGate = browserAllowedForRequest(policy, forceBrowser);
       if (browserGate.error) {
         return withExtraHeaders(
-          errorResponse("Quota Exceeded", browserGate.error, 429, jsonErrors),
+          errorResponse("Quota Exceeded", browserGate.error, 429, jsonErrors, "quota_exceeded"),
           { "X-Request-ID": requestId },
         );
       }
@@ -1129,8 +1130,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
             "Quota Exceeded",
             `Monthly quota of ${auth.quotaLimit} credits exhausted. Upgrade your plan at /portal/.`,
             429,
-            jsonErrors,
-          ),
+            jsonErrors, "quota_exceeded"),
           { "X-Request-ID": requestId },
         );
       }
@@ -1243,7 +1243,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
           errorHeaders["Cache-Control"] = PRIVATE_ERROR_CACHE_CONTROL;
         }
         return withExtraHeaders(
-          errorResponse(err.title, err.message, err.statusCode, jsonErrors),
+          convertErrorResponse(err, jsonErrors, eventAuth?.tier === "anonymous"),
           errorHeaders,
         );
       }
@@ -1280,6 +1280,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
           "Failed to process the URL. Please try again later.",
           500,
           jsonErrors,
+          "internal_error",
         ),
         { ...debugTraceHeaders(eventDebugTrace), "X-Request-ID": requestId },
       );

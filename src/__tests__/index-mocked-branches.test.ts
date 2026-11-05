@@ -219,7 +219,9 @@ describe("index mocked branch coverage", () => {
 
     expect(res.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
-    expect(payload.message).toContain("configure PROXY_URL");
+    // Our proxy setup is ours to know; the caller hears that the site blocks automated access.
+    expect(JSON.stringify(payload)).not.toMatch(/proxy/i);
+    expect(payload).toMatchObject({ code: "target_blocked" });
   });
 
   it("does not cache empty output when anonymous always-browser fallbacks return no content", async () => {
@@ -238,7 +240,8 @@ describe("index mocked branch coverage", () => {
 
     expect(res.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
-    expect(payload.message).toContain("requires browser or proxy access");
+    expect(JSON.stringify(payload)).not.toMatch(/proxy|fallback|render/i);
+    expect(payload).toMatchObject({ code: "target_unreadable", retryable: true });
     expect(mocked.cache.setCache).not.toHaveBeenCalled();
   });
 
@@ -619,7 +622,8 @@ describe("index mocked branch coverage", () => {
 
     expect(res.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
-    expect(payload.message).toContain("Proxy access failed");
+    expect(JSON.stringify(payload)).not.toMatch(/proxy/i);
+    expect(payload).toMatchObject({ code: "target_unreadable" });
   });
 
   it("uses proxy pool rotation path when PROXY_POOL is configured", async () => {
@@ -818,8 +822,8 @@ describe("index mocked branch coverage", () => {
     }), env, mockCtx());
     const payload = await failed.json() as { message?: string };
     expect(failed.status).toBe(502);
-    expect(payload.message).toContain("Status: 403 Forbidden");
-    expect(payload.message).toContain("Sign in for free at https://mdget.dev/portal/");
+    expect(payload).toMatchObject({ code: "target_forbidden", target_status: 403 });
+    expect((payload as { hint?: string }).hint).toContain("https://mdget.dev/portal/");
   });
 
   it("does not retry an anonymous 404 through the proxy or suggest signing in", async () => {
@@ -864,7 +868,7 @@ describe("index mocked branch coverage", () => {
       }), createMockEnv().env, mockCtx());
       await vi.advanceTimersByTimeAsync(31_000);
       const otherPayload = await (await other).json() as { message?: string };
-      expect(otherPayload.message).toContain("timed out after 30 seconds");
+      expect(otherPayload).toMatchObject({ code: "target_timeout", retryable: true });
     } finally {
       vi.useRealTimers();
     }
@@ -917,7 +921,7 @@ describe("index mocked branch coverage", () => {
 
     expect(res.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
-    expect(payload.message).toContain("Status: 403 Forbidden");
+    expect(payload).toMatchObject({ code: "target_forbidden", target_status: 403 });
   });
 
   it("prefers JSON-LD content when markdown is short and paywalled", async () => {
@@ -1098,7 +1102,9 @@ describe("index mocked branch coverage", () => {
 
     expect(failedRes.status).toBe(502);
     expect(failedPayload.error).toBe("Fetch Failed");
-    expect(failedPayload.message).toContain("boom");
+    // A thrown error's own text is internal.
+    expect(JSON.stringify(failedPayload)).not.toContain("boom");
+    expect(failedPayload).toMatchObject({ code: "target_unreadable" });
   });
 
   it("applies runtime body-size check in batch even when Content-Length is small", async () => {
@@ -1145,7 +1151,8 @@ describe("index mocked branch coverage", () => {
     };
 
     expect(res.status).toBe(200);
-    expect(payload.results?.[0].error).toContain("Only HTML and text pages");
+    expect(payload.results?.[0]).toMatchObject({ code: "unsupported_content", cause: "target", retryable: false });
+    expect(payload.results?.[0].error).toContain("Only HTML and plain-text pages");
   });
 
   it("returns generic error when unexpected exception happens inside batch item", async () => {

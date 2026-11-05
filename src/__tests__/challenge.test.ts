@@ -176,10 +176,11 @@ describe("challenge pages in conversion", () => {
     }), env, mockCtx());
 
     const first = await request();
-    const payload = await first.json() as { error?: string; message?: string };
+    const payload = await first.json() as { error?: string; message?: string; code?: string; cause?: string };
     expect(first.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
-    expect(payload.message).toContain("imperva bot-protection page");
+    expect(payload).toMatchObject({ code: "target_blocked", cause: "target" });
+    expect(payload.message).toContain("refuses automated access");
 
     // Nothing was cached: the next request goes back to the origin.
     const callsAfterFirst = fetchMock.mock.calls.length;

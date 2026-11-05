@@ -507,10 +507,19 @@ export async function handleExtract(
           success: false,
           strategy: item.strategy,
           source: sourceUrl ? { url: sourceUrl } : undefined,
-          error: {
-            code: "UPSTREAM_FETCH_FAILED",
-            message: error.message,
-          },
+          // code keeps this endpoint's contract; reason is the shared public code.
+          error: (() => {
+            const pub = error.toPublic(access.auth.tier === "anonymous");
+            return {
+              code: "UPSTREAM_FETCH_FAILED",
+              message: pub.message,
+              reason: pub.code,
+              cause: pub.cause,
+              retryable: pub.retryable,
+              hint: pub.hint,
+              ...(pub.targetStatus !== undefined ? { target_status: pub.targetStatus } : {}),
+            };
+          })(),
         };
       }
       return {
