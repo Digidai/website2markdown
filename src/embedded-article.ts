@@ -224,8 +224,10 @@ function recordVerdict(record: object, id: ArticleIdentity): Verdict {
  * neither `/harbour-vote-delayed` nor `/2025/sports/harbour-vote`.
  */
 function namesArticle(record: object, id: ArticleIdentity): boolean {
-  for (const value of Object.values(record)) {
+  // Only fields that say which article a record is; a description that repeats the title does not.
+  for (const [key, value] of Object.entries(record)) {
     if (typeof value !== "string" || value.length > 2000) continue;
+    if (!IDENTITY_KEY.test(key) && !ADDRESS_KEY.test(key) && !PAGE_REF_KEY.test(key)) continue;
     if (URL_LIKE.test(value)) {
       if (id.url && articleUrl(value, id.pageUrl) === id.url) return true;
     } else if (id.slug.length >= MIN_NAMING_SLUG && value === id.slug) {
@@ -333,11 +335,12 @@ const BLOCK_TYPE = /^(?:p|paragraph|text|heading|header|subhead\w*|h[1-6]|image|
 
 /** One fragment of a body split into blocks: its HTML, or an image or heading block rendered. */
 function renderBlock(item: unknown): string {
-  if (typeof item === "string") return item;
+  if (typeof item === "string") return /<[a-z][^<>]*>/i.test(item) ? item : `<p>${escapeHtml(item)}</p>`;
   if (!item || typeof item !== "object") return "";
   const block = item as Record<string, unknown>;
   const html = str(block.html) || str(block.content) || str(block.text);
-  if (html) return html;
+  // Plain text becomes a paragraph; HTML stays as it is.
+  if (html) return /<[a-z][^<>]*>/i.test(html) ? html : `<p>${escapeHtml(html)}</p>`;
   const type = str(block.type).toLowerCase();
   const url = str(block.url) || str(block.src);
   if (/image|photo|figure/.test(type) && /^https?:\/\//i.test(url)) {

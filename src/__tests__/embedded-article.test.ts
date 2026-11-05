@@ -328,6 +328,7 @@ describe("extractEmbeddedArticles", () => {
     for (const body of [
       PARAGRAPHS.map((p) => `<p>${p}</p>`),
       PARAGRAPHS.map((p) => ({ type: "paragraph", content: `<p>${p}</p>` })),
+      PARAGRAPHS.map((p) => ({ type: "paragraph", text: p })),
     ]) {
       const html = nextData({ props: { pageProps: { article: { url: pageUrl, body } } } });
       const [article] = extractEmbeddedArticles(html, "Harbour vote", pageUrl);
@@ -364,6 +365,16 @@ describe("extractEmbeddedArticles", () => {
     const [article] = extractEmbeddedArticles(list, "Harbour vote", pageUrl);
     expect(article.html).toContain("Paragraph 12 reports");
     expect(article.html).not.toContain("Other article");
+  });
+
+  it("does not let a description that repeats the page title claim another article", () => {
+    const pageUrl = "https://news.example.com/harbour-vote-delayed";
+    const described = nextData({ props: { pageProps: { article: { title: "Harbour vote", body: paragraphs(PARAGRAPHS) }, stories: [
+      { title: "Another town's budget fight", description: "Harbour vote", body: paragraphs(Array.from({ length: 60 }, (_, i) => `Budget fight paragraph ${i + 1} from another town entirely.`)) },
+    ] } } });
+    const found = extractEmbeddedArticles(described, "Harbour vote", pageUrl);
+    expect(found[0].html).toContain("Paragraph 12 reports");
+    expect(found.some((c) => c.html.includes("Budget fight"))).toBe(false);
   });
 
   it("ignores short teasers and unparsable state", () => {
