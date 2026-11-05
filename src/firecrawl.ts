@@ -88,6 +88,8 @@ export async function fetchViaFirecrawl(
         formats: ["markdown"],
         onlyMainContent: true,
         onlyCleanContent: false,
+        // Inline scripts of any type (Home Depot's speculation rules) otherwise come out as text.
+        excludeTags: ["script", "style"],
         removeBase64Images: true,
         blockAds: true,
         timeout: timeoutMs,
