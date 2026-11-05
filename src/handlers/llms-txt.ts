@@ -57,6 +57,29 @@ POST ${baseUrl}/api/jobs
 - Body: { "tasks": [{ "url": "..." }] }
 - Returns: Job ID for polling results
 
+### Errors
+A failed conversion returns JSON (send Accept: application/json or text/markdown):
+  { "error": "Fetch Failed", "message": "...", "status": 502, "code": "target_not_found",
+    "cause": "target", "retryable": false, "hint": "...", "target_status": 404 }
+- cause: target (the link or the site), request (fix the request), account (key, quota, rate), service (our side; retry).
+- retryable: whether the same request can succeed later. When false, change the URL instead of retrying.
+- hint: what to try next. target_status: the site's own HTTP status, when it answered.
+- Each failed batch result carries the same code, cause, retryable, and hint; extract results carry them under error, with the code in error.reason. Streaming sends them in its fail event.
+- Codes:
+  - target_not_found, target_gone: the page does not exist. Check the URL; do not retry.
+  - target_forbidden: the site refused access (login, subscription, or no automated access).
+  - target_blocked: the site refuses automated access. Retry later or use another source.
+  - target_rate_limited: the site limits how often it can be read. Wait, then retry.
+  - target_rejected: the site rejected this URL. Check its path and query parameters.
+  - target_error, target_unreachable, target_timeout: the site is failing, down, or slow. Retry later.
+  - target_unreadable: the page could not be read. Check it opens in a browser; retry later.
+  - unsupported_content: not a web page (PDF, image, feed, API). Pass the page's URL.
+  - content_too_large: over 5 MB. Use a more specific URL.
+  - no_content: the page has no readable text (empty, app shell, video).
+  - invalid_request, blocked_address: fix the request; private addresses are not allowed.
+  - auth_required, plan_required, quota_exceeded, rate_limited: account limits; see hint and Retry-After.
+  - temporary_failure, internal_error: our side failed. Retry; report X-Request-ID if it persists.
+
 ### Health Check (GET)
 GET ${baseUrl}/api/health
 - Returns: Service status and metrics

@@ -232,7 +232,8 @@ describe("index route edge coverage", () => {
 
     expect(res.status).toBe(502);
     expect(payload.error).toBe("Fetch Failed");
-    expect(payload.message).toContain("Static fetch returned 500 and browser rendering also failed");
+    expect(JSON.stringify(payload)).not.toMatch(/proxy|fallback|render|static fetch/i);
+    expect(payload).toMatchObject({ code: "target_error", target_status: 500, cause: "target" });
   });
 
   it("renders og image default title block when title is missing", async () => {

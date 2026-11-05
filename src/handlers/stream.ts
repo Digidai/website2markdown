@@ -5,6 +5,7 @@ import { CORS_HEADERS, MAX_SELECTOR_LENGTH } from "../config";
 import { isSafeUrl, isValidUrl, buildRawRequestPath } from "../security";
 import { incrementCounter, logMetric } from "../runtime-state";
 import { ConvertError } from "../helpers/response";
+import { publicErrorFields } from "../public-error";
 import { PRIVATE_ERROR_CACHE_CONTROL } from "../policy/anonymous-guards";
 import { errorMessage } from "../utils";
 import {
@@ -275,7 +276,8 @@ export function handleStream(
           noCache,
           debugTrace: observability.debugTrace,
         }));
-        await send("fail", { title: err.title, message: err.message, status: err.statusCode });
+        const pub = err.toPublic(observability.anonymousCaller === true);
+        await send("fail", { title: err.title, message: pub.message, status: err.statusCode, ...publicErrorFields(pub) });
       } else {
         console.error("Stream conversion error:", sanitizeErrorMessage(err));
         incrementCounter("conversionFailures");

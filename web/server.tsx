@@ -231,14 +231,14 @@ export const renderedPageHTML: WebRenderers["renderedPageHTML"] = (
   });
 };
 
-export const errorPageHTML: WebRenderers["errorPageHTML"] = (title, message, statusCode) =>
+export const errorPageHTML: WebRenderers["errorPageHTML"] = (title, message, statusCode, hint) =>
   documentHTML({
     lang: "en",
     head: `<title>Error — ${esc(title)}</title>
 <meta name="robots" content="noindex, nofollow">
 <meta property="og:title" content="Error — ${esc(title)}">
 <meta property="og:type" content="website">`,
-    state: { view: "error", props: { title, message, status: statusCode } },
+    state: { view: "error", props: { title, message, status: statusCode, ...(hint ? { hint } : {}) } },
   });
 
 export const adminPageHTML: WebRenderers["adminPageHTML"] = (state) => {

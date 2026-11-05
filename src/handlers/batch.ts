@@ -10,6 +10,7 @@ import {
 import { isSafeUrl, isValidUrl } from "../security";
 import { incrementCounter, logMetric } from "../runtime-state";
 import { ConvertError } from "../helpers/response";
+import { publicErrorFields } from "../public-error";
 import { authorizeApiAccess, sessionProfileScopeForAuth } from "../middleware/api-access";
 import { browserAllowedForRequest, chargedCreditCost, checkPolicy } from "../middleware/tier-gate";
 import { recordUsage } from "./usage";
@@ -267,7 +268,8 @@ export async function handleBatch(
       } catch (e) {
         if (e instanceof ConvertError) {
           incrementCounter("conversionFailures");
-          return { url: item.url, format: item.format, error: e.message };
+          const pub = e.toPublic(access.auth.tier === "anonymous");
+          return { url: item.url, format: item.format, error: pub.message, ...publicErrorFields(pub) };
         }
         incrementCounter("conversionFailures");
         console.error("Batch item failed:", {

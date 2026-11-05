@@ -68,7 +68,7 @@ import {
 } from "../paywall";
 import { recordConversionLatency } from "../observability/metrics";
 import { errorMessage } from "../utils";
-import { ConvertError, type ConvertDiagnostics } from "../helpers/response";
+import { ConvertError, type ConvertDiagnostics, type ConvertErrorPublic } from "../helpers/response";
 import {
   GOV_EMPTY_SHELL_MESSAGE,
   isGovEmptyShell,
@@ -206,6 +206,9 @@ export function asFetchConvertError(error: unknown): ConvertError {
       "Blocked",
       "Redirect target points to an internal or private address.",
       403,
+      undefined,
+      false,
+      { code: "blocked_address" },
     );
   }
   if (isTimeoutLikeError(error)) {
@@ -213,12 +216,19 @@ export function asFetchConvertError(error: unknown): ConvertError {
       "Fetch Timeout",
       `Fetching the target URL timed out after ${Math.round(BROWSER_TIMEOUT / 1000)} seconds.`,
       504,
+      undefined,
+      false,
+      { code: "target_timeout" },
     );
   }
+  // The thrown message is internal (it can name a provider); callers get target_unreadable.
   return new ConvertError(
     "Fetch Failed",
     message || "Failed to fetch the target URL.",
     502,
+    undefined,
+    false,
+    { code: "target_unreadable" },
   );
 }
 
@@ -233,6 +243,25 @@ const MAINLAND_FETCH_TIMEOUT = 10_000;
 const MAINLAND_ONLY_HOSTS = new Set(["www.tsrcw.com", "tsrcw.com"]);
 export const MAINLAND_TIMEOUT_MESSAGE =
   "The site did not answer within 10 seconds. Many sites hosted in mainland China, especially government and university sites, refuse connections from outside China, and this service fetches from outside China.";
+
+/** Caller-facing reasons that several failure sites share. */
+const WECHAT_VERIFICATION: ConvertErrorPublic = {
+  code: "target_blocked",
+  publicMessage: "WeChat returned an environment verification page instead of the article content.",
+};
+const WECHAT_SHELL: ConvertErrorPublic = {
+  code: "no_content",
+  publicMessage: "WeChat returned only page controls or a title, without article content.",
+};
+
+/** The site's content type is the site's own fact, so the caller may see it. */
+function unsupportedContent(contentType: string): ConvertErrorPublic {
+  const type = contentType.split(";")[0].trim().toLowerCase().replace(/[^\w.+\/-]/g, "").slice(0, 80);
+  return {
+    code: "unsupported_content",
+    publicMessage: `This URL returns ${type || "content"} rather than a web page. Only HTML and plain-text pages can be converted.`,
+  };
+}
 
 export function isLikelyMainlandOnlyHost(raw: string): boolean {
   let host = "";
@@ -255,6 +284,8 @@ function originStatusError(response: Response): ConvertError {
     `Could not fetch the target URL. Status: ${response.status} ${response.statusText}`,
     502,
     targetStatus,
+    false,
+    { originStatus: response.status },
   );
 }
 
@@ -301,6 +332,8 @@ export function wechatUnavailableError(html: string): ConvertError | null {
       "This WeChat article was deleted or blocked by WeChat and cannot be viewed.",
       410,
       410,
+      false,
+      { code: "target_gone", publicMessage: "This WeChat article was deleted or blocked by WeChat and cannot be viewed." },
     );
   }
   if (/\bitem_show_type\s*[:=]\s*['"]5['"]/.test(html)) {
@@ -309,6 +342,8 @@ export function wechatUnavailableError(html: string): ConvertError | null {
       "This WeChat post is a video and has no article text to convert.",
       422,
       410,
+      false,
+      { code: "no_content", publicMessage: "This WeChat post is a video and has no article text to convert." },
     );
   }
   return null;
@@ -411,7 +446,7 @@ export async function convertUrl(
   // Search pages and proxy services are rejected before either cache, and are not remembered as origin failures.
   const anonymousBlock = anonymousCaller ? anonymousBlockMessage(targetUrl) : null;
   if (anonymousBlock) {
-    throw new ConvertError("Unauthorized", anonymousBlock, 401);
+    throw new ConvertError("Unauthorized", anonymousBlock, 401, undefined, false, { code: "auth_required", publicMessage: anonymousBlock });
   }
   const fallbacks = new Set<string>();
   let browserRendered = false;
@@ -449,13 +484,20 @@ export async function convertUrl(
 
   if (anonymousCaller && cacheAllowed) {
     const negative = await getNegativeCache(env, targetUrl);
-    if (negative) {
+    // Entries written before reasons were stored cannot tell a status the site
+    // sent from one we synthesized (WeChat's 410), so they count as a miss.
+    if (negative?.code) {
       throw new ConvertError(
         negative.title,
         negative.message,
         negative.statusCode,
         negative.targetStatus,
         true,
+        {
+          code: negative.code,
+          publicMessage: negative.publicMessage,
+          originStatus: negative.originStatus,
+        },
       );
     }
   }
@@ -468,6 +510,9 @@ export async function convertUrl(
         "Unauthorized",
         "engine selection requires an API key.",
         401,
+        undefined,
+        false,
+        { code: "auth_required", publicMessage: "engine selection requires an API key." },
       );
     }
 
@@ -520,6 +565,10 @@ export async function convertUrl(
           message: error.message,
           statusCode: error.statusCode,
           targetStatus: error.targetStatus,
+          // Always resolved: an entry without a code is treated as legacy and not replayed.
+          code: error.toPublic().code,
+          ...(error.reason.publicMessage ? { publicMessage: error.reason.publicMessage } : {}),
+          ...(error.reason.originStatus !== undefined ? { originStatus: error.reason.originStatus } : {}),
         });
       } catch {
         // A cache write must not replace the origin error.
@@ -764,7 +813,7 @@ async function tryCfRestApi(
 
     if (cfResult.markdown && cfResult.markdown.length > 200) {
       if (new TextEncoder().encode(cfResult.markdown).byteLength > MAX_RESPONSE_BYTES) {
-        throw new ConvertError("Content Too Large", "The CF response exceeds the 5 MB size limit.", 413);
+        throw new ConvertError("Content Too Large", "The CF response exceeds the 5 MB size limit.", 413, undefined, false, { code: "content_too_large" });
       }
       const cfTitle = extractTitleFromCfMarkdown(cfResult.markdown);
       const sourceContentType = "text/markdown";
@@ -931,6 +980,9 @@ async function tryFetchAndParse(
             "Fetch Failed",
             "WeChat returned an environment verification page instead of the article content.",
             502,
+            undefined,
+            false,
+            WECHAT_VERIFICATION,
           );
         }
         if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(buHtml)) {
@@ -953,6 +1005,9 @@ async function tryFetchAndParse(
             "Fetch Failed",
             "WeChat returned an environment verification page instead of the article content.",
             502,
+            undefined,
+            false,
+            WECHAT_VERIFICATION,
           );
         }
         if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(proxyResult)) {
@@ -986,6 +1041,9 @@ async function tryFetchAndParse(
           ? "WeChat returned only page controls or a title, without article content."
           : "This URL requires browser or proxy access, but no content was returned by the available fallback methods.",
         502,
+        undefined,
+        false,
+        wechatShellSeen ? WECHAT_SHELL : { code: "target_unreadable" },
       );
     }
   } else if (!finalHtml) {
@@ -1019,6 +1077,9 @@ async function tryFetchAndParse(
       "Fetch Failed",
       "The target URL returned no HTML content.",
       502,
+      undefined,
+      false,
+      { code: "no_content" },
     );
   }
   if (targetUrl.includes("mp.weixin.qq.com") && isWechatVerificationHtml(finalHtml)) {
@@ -1026,6 +1087,9 @@ async function tryFetchAndParse(
       "Fetch Failed",
       "WeChat returned an environment verification page instead of the article content.",
       502,
+      undefined,
+      false,
+      WECHAT_VERIFICATION,
     );
   }
   if (targetUrl.includes("mp.weixin.qq.com") && !hasWechatArticleBody(finalHtml)) {
@@ -1034,6 +1098,9 @@ async function tryFetchAndParse(
       "Fetch Failed",
       "WeChat returned only page controls or a title, without article content.",
       502,
+      undefined,
+      false,
+      WECHAT_SHELL,
     );
   }
 
@@ -1044,7 +1111,7 @@ async function tryFetchAndParse(
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
 
   if (new TextEncoder().encode(finalHtml).byteLength > MAX_RESPONSE_BYTES) {
-    throw new ConvertError("Content Too Large", "The page content exceeds the 5 MB size limit.", 413);
+    throw new ConvertError("Content Too Large", "The page content exceeds the 5 MB size limit.", 413, undefined, false, { code: "content_too_large" });
   }
 
   // 8. 应用 adapter 后处理
@@ -1222,9 +1289,11 @@ async function tryFetchAndParse(
   if (challenge && markdown === challengeMarkdown) {
     throw new ConvertError(
       "Fetch Failed",
-      `The site returned a ${challenge} bot-protection page instead of the content` +
-        (providerApiKeysAllowed ? "." : ANON_SIGN_IN_HINT),
+      `The site returned a ${challenge} bot-protection page instead of the content.`,
       502,
+      undefined,
+      false,
+      { code: "target_blocked", publicMessage: "The site answered with a bot check instead of the page: it refuses automated access." },
     );
   }
 
@@ -1233,12 +1302,15 @@ async function tryFetchAndParse(
       "Fetch Failed",
       "WeChat returned only page controls or a title, without article content.",
       502,
+      undefined,
+      false,
+      WECHAT_SHELL,
     );
   }
 
   // Only after a browser render. Static text and short real notices stay successes.
   if (browserRendered && isGovEmptyShell(targetUrl, resolvedUrl, markdown, extractedTitle)) {
-    throw new ConvertError("Fetch Failed", GOV_EMPTY_SHELL_MESSAGE, 502);
+    throw new ConvertError("Fetch Failed", GOV_EMPTY_SHELL_MESSAGE, 502, undefined, false, { code: "no_content", publicMessage: GOV_EMPTY_SHELL_MESSAGE });
   }
 
   // Billed on the article alone, before the Freedium note.
@@ -1253,6 +1325,9 @@ async function tryFetchAndParse(
       "No Content",
       "The target page was fetched, but no readable content could be extracted.",
       422,
+      undefined,
+      false,
+      { code: "no_content" },
     );
   }
 
@@ -1392,9 +1467,6 @@ const CONTEXT_DEV_ANON_DAILY_LIMIT = 25;
 const ANON_PROXY_STATUSES = [403, 429];
 /** Site-wide daily cap on those retries, to protect the proxy's monthly traffic. */
 const ANON_PROXY_DAILY_LIMIT = 100;
-export const ANON_SIGN_IN_HINT =
-  ". This site blocks automated requests. Sign in for free at https://mdget.dev/portal/?ref=blocked to use browser rendering.";
-
 /**
  * Retries a blocked anonymous request once through the residential proxy,
  * within a site-wide daily budget. Returns null when the budget is spent or
@@ -1578,7 +1650,7 @@ async function tryBrowserRendering(
       }
     } else {
       console.error("Browser rendering failed:", errorMessage(error));
-      failure = new ConvertError("Fetch Failed", "Browser rendering failed for this URL.", 502);
+      failure = new ConvertError("Fetch Failed", "Browser rendering failed for this URL.", 502, undefined, false, { code: "target_unreadable" });
     }
     const rescued = providerApiKeysAllowed
       ? await tryContextDev(targetUrl, env, fallbacks, abortSignal, _progress)
@@ -1610,6 +1682,9 @@ async function tryProxyRetry(
       "Fetch Failed",
       "Site requires proxy access. Please configure PROXY_URL or PROXY_POOL.",
       502,
+      undefined,
+      false,
+      { code: "target_blocked" },
     );
   }
   const cookies = retryToken
@@ -1620,6 +1695,9 @@ async function tryProxyRetry(
       "Fetch Failed",
       "Proxy retry cookies are unavailable. Please retry the request.",
       502,
+      undefined,
+      false,
+      { code: "temporary_failure" },
     );
   }
 
@@ -1697,6 +1775,9 @@ async function tryProxyRetry(
       "Fetch Failed",
       `Proxy access failed: ${proxyDetail}`,
       502,
+      undefined,
+      false,
+      { code: "target_unreadable" },
     );
   }
 }
@@ -1836,7 +1917,7 @@ async function tryStaticFetch(
   } catch (e) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
     if (mainlandOnly && isTimeoutLikeError(e)) {
-      throw new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504);
+      throw new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE });
     }
     throw asFetchConvertError(e);
   } finally {
@@ -1848,6 +1929,9 @@ async function tryStaticFetch(
       "Fetch Failed",
       "WeChat returned an environment verification page instead of the article content.",
       502,
+      undefined,
+      false,
+      WECHAT_VERIFICATION,
     );
   }
 
@@ -1899,10 +1983,8 @@ async function tryStaticFetch(
         rescued = await tryAnonymousProxy(resolvedUrl, env, fallbacks, abortSignal, progress);
       }
       if (!rescued) {
-        const error = originStatusError(response);
-        // Anonymous callers cannot use the browser; a free account can.
-        if (blocked && !providerApiKeysAllowed) error.message += ANON_SIGN_IN_HINT;
-        throw error;
+        // Anonymous callers are told an API key opens more pages (see public-error.ts).
+        throw originStatusError(response);
       }
       finalHtml = rescued;
       method = "proxy+readability+turndown";
@@ -1917,6 +1999,9 @@ async function tryStaticFetch(
         "Fetch Failed",
         `Could not fetch this URL with basic methods. An API key is required for browser-rendered pages. Status: ${response.status}`,
         502,
+        undefined,
+        false,
+        { originStatus: response.status },
       );
     }
     // forceBrowser 为 true — 直接进入浏览器渲染
@@ -1944,6 +2029,9 @@ async function tryStaticFetch(
           "Fetch Failed",
           `Static fetch returned ${response.status} and browser rendering also failed.`,
           502,
+          undefined,
+          false,
+          { originStatus: response.status },
         );
       }
       finalHtml = rescued;
@@ -1991,6 +2079,9 @@ async function tryStaticFetch(
         "Unsupported Content",
         `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`,
         415,
+        undefined,
+        false,
+        unsupportedContent(contentType),
       );
     }
     if (
@@ -2002,13 +2093,16 @@ async function tryStaticFetch(
         "Unsupported Content",
         `This URL returned ${contentType} which cannot be converted to Markdown.`,
         415,
+        undefined,
+        false,
+        unsupportedContent(contentType),
       );
     }
 
     // 5. 大小检查
     const contentLength = parseInt(response.headers.get("Content-Length") || "0", 10);
     if (contentLength > MAX_RESPONSE_BYTES) {
-      throw new ConvertError("Content Too Large", "The target page exceeds the 5 MB size limit.", 413);
+      throw new ConvertError("Content Too Large", "The target page exceeds the 5 MB size limit.", 413, undefined, false, { code: "content_too_large" });
     }
 
     let body = "";
@@ -2021,7 +2115,7 @@ async function tryStaticFetch(
       );
     } catch (e) {
       if (e instanceof BodyTooLargeError) {
-        throw new ConvertError("Content Too Large", e.message, 413);
+        throw new ConvertError("Content Too Large", e.message, 413, undefined, false, { code: "content_too_large" });
       }
       throw e;
     }
@@ -2034,6 +2128,9 @@ async function tryStaticFetch(
         "Fetch Failed",
         "WeChat returned an environment verification page instead of the article content.",
         502,
+        undefined,
+        false,
+        WECHAT_VERIFICATION,
       );
     }
 
@@ -2100,6 +2197,9 @@ async function tryStaticFetch(
             "Fetch Failed",
             "WeChat returned an environment verification page and browser rendering failed.",
             502,
+            undefined,
+            false,
+            WECHAT_VERIFICATION,
           );
         }
         console.error("Browser rendering failed, using static HTML:", e instanceof Error ? e.message : e);

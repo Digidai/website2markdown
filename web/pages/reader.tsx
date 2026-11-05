@@ -30,6 +30,20 @@ export interface ErrorProps {
   title: string;
   message: string;
   status?: number;
+  /** What to try next. */
+  hint?: string;
+}
+
+/** Text with its https links clickable. */
+function Linked({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(https:\/\/[^\s"]+)/).map((part, i) =>
+        /^https:\/\//.test(part)
+          ? <a key={i} href={part} className="text-accent underline underline-offset-2 break-all">{part}</a>
+          : part)}
+    </>
+  );
 }
 
 type ChipColor = "accent" | "default" | "success" | "warning" | "danger";
@@ -128,7 +142,7 @@ export function ReaderView(props: ReaderProps) {
   );
 }
 
-export function ErrorCard({ title, message, status, onRetry }: ErrorProps & { onRetry?: () => void }) {
+export function ErrorCard({ title, message, status, hint, onRetry }: ErrorProps & { onRetry?: () => void }) {
   return (
     <Card className="w-full max-w-md">
       <Card.Header className="gap-3">
@@ -140,6 +154,7 @@ export function ErrorCard({ title, message, status, onRetry }: ErrorProps & { on
         ) : null}
         <Card.Title className="text-xl">{title}</Card.Title>
         <Card.Description className="leading-6">{message}</Card.Description>
+        {hint ? <p className="text-sm leading-6 text-muted"><Linked text={hint} /></p> : null}
       </Card.Header>
       <Card.Footer className="gap-2">
         {onRetry ? (

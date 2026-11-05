@@ -1,3 +1,4 @@
+import { isPublicErrorCode, type PublicErrorCode } from "../public-error";
 import type { Env } from "../types";
 import { CACHE_TTL_DEFAULT, CACHE_TTL_SHORT } from "../config";
 import { isNegativeOriginStatus } from "../policy/anonymous-guards";
@@ -42,6 +43,11 @@ export interface NegativeCacheEntry {
   message: string;
   statusCode: number;
   targetStatus: number;
+  /** The public reason, so a replay tells the caller the same thing. */
+  code?: PublicErrorCode;
+  publicMessage?: string;
+  /** The site's own HTTP status, when it answered with one. */
+  originStatus?: number;
 }
 
 const negativeHot = new Map<string, { value: NegativeCacheEntry; expiresAt: number }>();
@@ -406,6 +412,9 @@ function parseNegativeEntry(raw: string): NegativeCacheEntry | null {
       message: parsed.message,
       statusCode: parsed.statusCode,
       targetStatus: parsed.targetStatus,
+      ...(isPublicErrorCode(parsed.code) ? { code: parsed.code } : {}),
+      ...(typeof parsed.publicMessage === "string" ? { publicMessage: parsed.publicMessage.slice(0, 400) } : {}),
+      ...(typeof parsed.originStatus === "number" ? { originStatus: parsed.originStatus } : {}),
     };
   } catch {
     return null;
