@@ -342,6 +342,7 @@ describe("extractEmbeddedArticles", () => {
       PARAGRAPHS.map((p) => `<p>${p}</p>`),
       PARAGRAPHS.map((p) => ({ type: "paragraph", content: `<p>${p}</p>` })),
       PARAGRAPHS.map((p) => ({ type: "paragraph", text: p })),
+      PARAGRAPHS.map((p) => ({ type: "paragraph", content: p.replace("council", "<strong>council</strong>") })),
     ]) {
       const html = nextData({ props: { pageProps: { article: { url: pageUrl, body } } } });
       const [article] = extractEmbeddedArticles(html, "Harbour vote", pageUrl);
@@ -388,6 +389,15 @@ describe("extractEmbeddedArticles", () => {
     const [article] = extractEmbeddedArticles(list, "Harbour vote", pageUrl);
     expect(article.html).toContain("Paragraph 12 reports");
     expect(article.html).not.toContain("Other article");
+  });
+
+  it("does not take a consent or privacy document for the body", () => {
+    const pageUrl = "https://news.example.com/harbour-vote-delayed";
+    const policy = Array.from({ length: 60 }, (_, i) => `Privacy clause ${i + 1} explains how cookies are stored.`);
+    const html = nextData({ props: { pageProps: { url: pageUrl, article: { body: paragraphs(PARAGRAPHS) }, consent: { html: paragraphs(policy) } } } });
+    const found = extractEmbeddedArticles(html, "Harbour vote", pageUrl);
+    expect(found[0].html).toContain("Paragraph 12 reports");
+    expect(found.some((c) => c.html.includes("Privacy clause"))).toBe(false);
   });
 
   it("does not let a description that repeats the page title claim another article", () => {

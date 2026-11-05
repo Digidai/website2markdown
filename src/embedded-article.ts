@@ -248,7 +248,7 @@ function namesArticle(record: object, id: ArticleIdentity): boolean {
 const BODY_KEY = /^(?:body|content|html|text|rendered|article_?body|body_?html|content_?html|story_?body|full_?text)$/i;
 
 /** Branches of page state that hold other text than the article body. */
-const NON_BODY_KEY = /^(?:comments?|replies|responses|discussion|related\w*|recommend\w*|more\w*|popular\w*|trending\w*|most\w*|next\w*|previous\w*|sidebar|footer|nav\w*|ads?)$/i;
+const NON_BODY_KEY = /^(?:comments?|replies|responses|discussion|related\w*|recommend\w*|more\w*|popular\w*|trending\w*|most\w*|next\w*|previous\w*|sidebar|footer|nav\w*|ads?|consent\w*|cookie\w*|privacy\w*|terms\w*|legal\w*|gdpr\w*)$/i;
 
 /**
  * The longest article HTML string (one with paragraphs) in `data` that belongs
@@ -336,7 +336,7 @@ const BLOCK_TYPE = /^(?:p|paragraph|text|heading|header|subhead\w*|h[1-6]|image|
 
 /** One fragment of a body split into blocks: its HTML, or an image or heading block rendered. */
 function renderBlock(item: unknown): string {
-  if (typeof item === "string") return /<[a-z][^<>]*>/i.test(item) ? item : `<p>${escapeHtml(item)}</p>`;
+  if (typeof item === "string") return wrapFragment(item, "p");
   if (!item || typeof item !== "object") return "";
   const block = item as Record<string, unknown>;
   const type = str(block.type).toLowerCase();
@@ -348,11 +348,18 @@ function renderBlock(item: unknown): string {
       (caption ? `<figcaption>${caption}</figcaption>` : "") + "</figure>";
   }
   const html = str(block.html) || str(block.content) || str(block.text);
-  if (html && /<[a-z][^<>]*>/i.test(html)) return html;
-  // Plain text becomes a heading or a paragraph.
-  const heading = /head|^h[1-6]$/.test(type) ? html || str(block.title) || str(block.heading) : "";
-  if (heading) return `<h2>${escapeHtml(heading)}</h2>`;
-  return html ? `<p>${escapeHtml(html)}</p>` : "";
+  if (/head|^h[1-6]$/.test(type)) return wrapFragment(html || str(block.title) || str(block.heading), "h2");
+  return wrapFragment(html, "p");
+}
+
+/**
+ * A fragment as block HTML: HTML with its own block element stays as it is;
+ * text, plain or with only inline tags (<a>, <strong>), goes into `tag`.
+ */
+function wrapFragment(fragment: string, tag: "p" | "h2"): string {
+  if (!fragment) return "";
+  if (/<(?:p|div|h[1-6]|ul|ol|li|figure|blockquote|pre|table|section|article|aside|hr|img|picture|video|iframe)\b/i.test(fragment)) return fragment;
+  return `<${tag}>${/<[a-z][^<>]*>/i.test(fragment) ? fragment : escapeHtml(fragment)}</${tag}>`;
 }
 
 /** Renders Arc XP ANS content_elements (Washington Post, Globe and Mail, ...). */
