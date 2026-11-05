@@ -2232,11 +2232,9 @@ async function tryStaticFetch(
         // A forced render that got a block page while the static page was content
         // (bio-rad, newark): keep the static page. A static shell ("Loading products...")
         // takes the rendered block page on to the rescue below.
-        const staticHasText = body
-          .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, "")
-          .replace(/<[^>]*>/g, "")
-          .replace(/\s/g, "").length >= 500;
-        if (!detectChallengePage(rendered) || detectChallengePage(body) || !staticHasText) {
+        const keepStatic = Boolean(detectChallengePage(rendered)) && !detectChallengePage(body) &&
+          htmlToMarkdown(body, resolvedUrl).markdown.replace(/\s/g, "").length >= 500;
+        if (!keepStatic) {
           finalHtml = rendered;
           method = "browser+readability+turndown";
           browserRendered = true;

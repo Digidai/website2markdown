@@ -1096,6 +1096,11 @@ describe("index mocked branch coverage", () => {
       new Response(article, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }),
     ));
     mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
+    mocked.converter.htmlToMarkdown.mockImplementation((html: string) => ({
+      markdown: html.includes("Glass chromatography") ? "Glass chromatography columns. ".repeat(40) : "Loading products...",
+      title: "Title",
+      contentHtml: "",
+    }));
 
     const req = new Request("https://md.example.com/https://example.com/product?raw=true&force_browser=true", {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
@@ -1110,11 +1115,12 @@ describe("index mocked branch coverage", () => {
 
   it("does not keep a static shell when a forced browser render gets a block page", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response(`<html><head><title>Shop</title></head><body><div id="app">Loading products...</div><script>${"x".repeat(3000)}</script></body></html>`, {
+      new Response(`<html><head><title>Shop</title></head><body><div id="app">Loading products...</div><noscript>${"Enable JavaScript to shop. ".repeat(40)}</noscript></body></html>`, {
         status: 200, headers: { "Content-Type": "text/html; charset=utf-8" },
       }),
     ));
     mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
+    mocked.converter.htmlToMarkdown.mockReturnValue({ markdown: "Loading products...", title: "Shop", contentHtml: "" });
 
     const req = new Request("https://md.example.com/https://example.com/shop?force_browser=true", {
       headers: { Accept: "application/json", Authorization: "Bearer test-token" },
