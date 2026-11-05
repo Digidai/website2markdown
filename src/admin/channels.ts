@@ -6,11 +6,14 @@ import { fetchViaFirecrawl } from "../firecrawl";
 import { fetchViaContextDev } from "../context-dev";
 import { fetchViaJina } from "../jina";
 import { fetchArchiveToday, fetchWaybackSnapshot } from "../paywall";
+import { freediumArticle, freediumUrlFor } from "../medium-feed";
 import { fetchViaProxy, parseProxyPool, parseProxyUrl, type ProxyConfig } from "../proxy";
 import { sanitizeErrorMessage } from "../observability/conversion-events";
 import { errorMessage } from "../utils";
 
 const PROBE_URL = "https://example.com/";
+/** A public Medium post that has stayed up for years. */
+const FREEDIUM_PROBE_URL = "https://medium.com/@karpathy/software-2-0-a64152b37c35";
 
 interface ChannelSpec {
   id: string;
@@ -150,6 +153,20 @@ const CHANNELS: ChannelSpec[] = [
       const html = await fetchArchiveToday(PROBE_URL);
       if (!html) throw new Error("没有可用存档");
       return [`存档 ${html.length} 字节`];
+    },
+  },
+  {
+    id: "freedium",
+    name: "Freedium",
+    role: "第三方 Medium 镜像（freedium-mirror.cfd）：Medium 拦截且 RSS 没有全文（会员文）时读取，结果末尾注明来源。",
+    paths: ["freedium"],
+    env: [],
+    test: async () => {
+      // The signal also ends a stalled body read.
+      const resp = await fetch(freediumUrlFor(FREEDIUM_PROBE_URL)!, { signal: AbortSignal.timeout(12_000) });
+      const html = resp.ok ? freediumArticle(await resp.text()) : null;
+      if (!html) throw new Error(`没有拿到文章（HTTP ${resp.status}）`);
+      return [`文章页 ${html.length} 字节`];
     },
   },
   {
