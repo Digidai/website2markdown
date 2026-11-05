@@ -1092,6 +1092,8 @@ async function tryFetchAndParse(
   if (stillLooksPaywalled) {
     paywallDetected = true;
   }
+  // An embedded copy may itself be a preview, so a short page keeps its archive fallback below.
+  const shortBeforeEmbedded = markdown.length < 500;
   // Pages that hide or hydrate the body with JavaScript often embed all of it
   // as data. A caller's selector targets the page markup, so it skips this.
   if (!selector) {
@@ -1111,7 +1113,7 @@ async function tryFetchAndParse(
   }
 
   // 如果 JSON-LD 后仍然被 paywall 挡住，尝试存档源
-  if (markdown.length < 500 && stillLooksPaywalled && getPaywallRule(conversionUrl)) {
+  if ((markdown.length < 500 || shortBeforeEmbedded) && stillLooksPaywalled && getPaywallRule(conversionUrl)) {
     const waybackHtml = await trackProvider(env, "wayback", abortSignal, () => fetchWaybackSnapshot(conversionUrl, abortSignal), (html) => Boolean(html));
     if (waybackHtml) {
       const wbResult = htmlToMarkdown(
@@ -1129,7 +1131,7 @@ async function tryFetchAndParse(
       console.debug("Wayback fallback unavailable", { stage: "post_convert" });
     }
 
-    if (markdown.length < 500) {
+    if (markdown.length < 500 || (shortBeforeEmbedded && !fallbacks.has("wayback_post_convert"))) {
       const archiveHtml = await trackProvider(env, "archive_today", abortSignal, () => fetchArchiveToday(conversionUrl, abortSignal), (html) => Boolean(html));
       if (archiveHtml) {
         const arResult = htmlToMarkdown(

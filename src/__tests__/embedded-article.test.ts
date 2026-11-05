@@ -315,6 +315,19 @@ describe("extractEmbeddedArticles", () => {
       .toContain("Paragraph 12 reports");
   });
 
+  it("joins a body split into fragments, in order", () => {
+    const pageUrl = "https://news.example.com/harbour-vote-delayed";
+    for (const body of [
+      PARAGRAPHS.map((p) => `<p>${p}</p>`),
+      PARAGRAPHS.map((p) => ({ type: "paragraph", content: `<p>${p}</p>` })),
+    ]) {
+      const html = nextData({ props: { pageProps: { article: { url: pageUrl, body } } } });
+      const [article] = extractEmbeddedArticles(html, "Harbour vote", pageUrl);
+      expect(article.html).toContain("Paragraph 1 reports");
+      expect(article.html).toContain("Paragraph 12 reports");
+    }
+  });
+
   it("ignores short teasers and unparsable state", () => {
     const html = `<script id="__NEXT_DATA__" type="application/json">{"props":{"teaser":"<p>Short.</p>"}}</script>
       <script>window.__INITIAL_STATE__ = {"a": undefined};</script>`;
@@ -382,6 +395,33 @@ describe("embedded article fallback in conversion", () => {
     expect(result.status).toBe(200);
     expect(result.body).toContain("https://cdn.example.com/harbour.jpg");
     expect(result.fallbacks).not.toContain("jsonld");
+  });
+
+  it("still tries the archive when the embedded copy is only a longer preview", async () => {
+    const url = "https://www.ft.com/content/0b1c2d3e-harbour-vote";
+    const snapshot = `https://web.archive.org/web/20261101000000/${url}`;
+    stubPages({
+      [url]: {
+        body: htmlPage(
+          `<script type="application/ld+json">${JSON.stringify({
+            "@type": "NewsArticle", url, headline: "Harbour vote", articleBody: PARAGRAPHS.slice(0, 6).join("\n"),
+          })}</script>`,
+          `<article><h1>Harbour vote</h1><p>${PARAGRAPHS[0]}</p><p>Subscribe to continue reading.</p></article>`,
+        ),
+      },
+      [`https://archive.org/wayback/available?url=${encodeURIComponent(url)}`]: {
+        body: JSON.stringify({ archived_snapshots: { closest: { available: true, url: snapshot } } }),
+        type: "application/json",
+      },
+      [snapshot.replace("/20261101000000/", "/20261101000000id_/")]: {
+        body: htmlPage("", `<article><h1>Harbour vote</h1>${[...PARAGRAPHS, LAST].map((p) => `<p>${p}</p>`).join("")}</article>`),
+      },
+    });
+
+    const result = await convert(url);
+    expect(result.status).toBe(200);
+    expect(result.body).toContain(LAST);
+    expect(result.fallbacks).toContain("wayback_post_convert");
   });
 
   it("reads a paywalled WordPress post from its REST endpoint", async () => {

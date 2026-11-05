@@ -280,6 +280,21 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
         }
       }
     } else if (Array.isArray(node)) {
+      // A body split into fragments (strings, or records with the HTML) is one candidate, in order.
+      if (named && BODY_KEY.test(nodeKey)) {
+        const joined = node.slice(0, MAX_WALK_NODES).map((item) => {
+          if (typeof item === "string") return item;
+          const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+          return str(record.html) || str(record.content) || str(record.text);
+        }).join("\n");
+        if (joined.length > bestChars && /<p[\s>]/i.test(joined)) {
+          const chars = htmlTextChars(joined);
+          if (chars > bestChars) {
+            best = joined;
+            bestChars = chars;
+          }
+        }
+      }
       for (const item of node) {
         if (budget <= 0) break;
         queue(item, named, nodeKey);
