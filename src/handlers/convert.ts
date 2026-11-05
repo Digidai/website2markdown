@@ -1638,6 +1638,14 @@ async function tryBrowserRendering(
       { sessionProfileScope },
     ));
     fallbacks.add("always_browser");
+    // A block page from the browser gets the same rescue as a failed render;
+    // one that stays a block page fails in convertUrl.
+    const challenge = detectChallengePage(html);
+    if (challenge && providerApiKeysAllowed) {
+      fallbacks.add(`challenge_${challenge}`);
+      const rescued = await tryContextDev(targetUrl, env, fallbacks, abortSignal, _progress);
+      if (rescued) return { html: rescued, rendered: true };
+    }
     return { html, rendered: true };
   } catch (error) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
@@ -2040,6 +2048,17 @@ async function tryStaticFetch(
       method = "browser+readability+turndown";
       browserRendered = true;
       fallbacks.add("browser_after_static_failure");
+      // The browser can be denied too (Akamai answers it with its block page):
+      // try Context.dev as when rendering fails. A page that stays a denial fails in convertUrl.
+      const challenge = detectChallengePage(finalHtml);
+      if (challenge && providerApiKeysAllowed) {
+        fallbacks.add(`challenge_${challenge}`);
+        const rescued = await tryContextDev(targetUrl, env, fallbacks, abortSignal, progress);
+        if (rescued) {
+          finalHtml = rescued;
+          method = "proxy+readability+turndown";
+        }
+      }
     } catch (error) {
       if (abortSignal?.aborted) throw new RequestAbortedError();
       console.error("Browser fallback failed:", errorMessage(error));

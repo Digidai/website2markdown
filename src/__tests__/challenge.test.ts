@@ -60,6 +60,51 @@ describe("detectChallengePage", () => {
       .toBe("akamai");
   });
 
+  it("recognises denial pages that browsers get from Akamai-protected stores", () => {
+    // Macy's: the heading names the store, the reference has no "#".
+    expect(detectChallengePage(`<html><head><title>Access Denied - Macy's</title></head><body><h1>Access Denied - Macy's</h1>
+      <p>You don’t have access to this page</p><p>Reference: 0.64a7cb17.1793873586.77c3d7df</p></body></html>`)).toBe("akamai");
+    // Newark: an incident number in bold, repeated in three languages.
+    const newark = `<p>Thanks for visiting our site. It appear that the our security software has identified something in this session that it is unsure of.</p>
+      <p>Otherwise, please call us and quote the following incident number: <b>0.5bc90b17.1793873578.64ebbb98</b></p>`;
+    expect(detectChallengePage(`<html><head><title>Farnell | 403 Error</title></head><body><h1>Access Denied (Error 403)</h1>${newark.repeat(3)}</body></html>`))
+      .toBe("akamai");
+    // Fisher Scientific: no reference, ~1,900 characters of troubleshooting.
+    expect(detectChallengePage(`<html><head><title>Error 403 - Request Blocked</title></head><body><h1>Request Blocked</h1>
+      <p>We could not complete your request because our security service detected activity from your request that may resemble an automated bot.</p>
+      ${"<p>Disable your browser extensions and reload the page to retry Security Validation.</p>".repeat(20)}</body></html>`)).toBe("generic");
+    // Home Depot's page for browsers it denies.
+    expect(detectChallengePage(`<html><head><title>Error Page</title></head><body><p>#1 Home Improvement Retailer</p>
+      <p>Oops!! Something went wrong. Please refresh page</p></body></html>`)).toBe("generic");
+  });
+
+  it("does not take pages about 403 errors or access denial for denial pages", () => {
+    expect(detectChallengePage(`<html><head><title>Error 403 explained</title></head><body><h1>Error 403 explained</h1>
+      <p>A 403 means the server understood the request and refuses it.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Access denied: why stores block bots</title></head><body><h1>Access denied</h1>
+      ${"<p>Retailers resemble an automated bot farm in their own scraping. ".repeat(80)}</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>How to fix Error 403</title></head><body><h1>How to fix Error 403</h1>
+      <p>Causes include wrong permissions and protection against automated requests. Reference #18.4f2a3b17 explains more.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>How to fix Error 403</title></head><body><h1>How to fix Error 403</h1>
+      <p>The site's security service detected a bot? Clear cookies.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error 403 explained</title></head><body><h1>Error 403 explained</h1>
+      <p>If the security service detected automated requests, clear your cookies. Our security service detected nothing here.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error 403 - How to fix it</title></head><body><h1>Fixing 403s</h1>
+      <p>If the site's security service detected automated requests, clear your cookies and retry. Our security service detected nothing here.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error 403 - How to fix it</title></head><body><h1>Error 403 - How to fix it</h1>
+      <p>Fisher Scientific says "our security service detected activity from your request". Clear cookies and retry.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error 403 - Troubleshooting</title></head><body><h1>Error 403 - Troubleshooting</h1>
+      <p>Quote the reference, such as 0.64a7cb17.1793873586.77c3d7df, when you contact support.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error Page</title></head><body><h1>Error Page</h1>
+      <p>The Error Page component shows "Something went wrong" and a retry button.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>How to fix - Error 403</title></head><body><h1>How to fix - Error 403</h1>
+      <p>A store may say "our security service detected activity from your request". Clear cookies and retry.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Troubleshooting | Error 403</title></head><body><h1>Troubleshooting | Error 403</h1>
+      <p>A store may say "our security service detected activity from your request". Clear cookies and retry.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Release notes</title></head><body><h1>Release notes</h1>
+      <p>Version 0.5bc90b17.1793873578.64ebbb98 is out.</p></body></html>`)).toBeNull();
+  });
+
   it("recognises a vendor's block-page title with its block wording", () => {
     expect(detectChallengePage(`<html><head><title>Attention Required! | Cloudflare</title></head><body>
       <h1>Sorry, you have been blocked</h1><p>Cloudflare Ray ID: 8f2c</p></body></html>`)).toBe("cloudflare");

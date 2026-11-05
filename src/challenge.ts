@@ -67,6 +67,39 @@ const BLOCK_EVIDENCE =
 /** A block notice is a few lines; an article with that heading is longer. */
 const MAX_GENERIC_TEXT_CHARS = 600;
 
+const DENIAL = String.raw`(?:[Aa]ccess [Dd]enied|ACCESS DENIED|[Rr]equest [Bb]locked|[Ee]rror 403|403 [Ee]rror)`;
+/** A site's name beside the denial: one or two capitalised words, so "How to fix" is not one. */
+const SITE_NAME = String.raw`\p{Lu}[^\s|\u2013()-]*(?: \p{Lu}[^\s|\u2013()-]*)?`;
+/**
+ * A title or heading that is a denial notice, alone, after the site's name, or
+ * with a second denial: "Farnell | 403 Error", "Error 403 - Request Blocked",
+ * "Access Denied (Error 403)", "Access Denied - Macy's".
+ * "Error 403 explained" and "Error 403 - Troubleshooting" are not.
+ */
+const DENIAL_HEADING = new RegExp(
+  `^(?:${SITE_NAME}\\s[|\u2013-]\\s)?(?:${DENIAL}(?:\\s[|\u2013-]\\s${DENIAL}|\\s\\((?:[Ee]rror )?403\\))?|(?:[Aa]ccess [Dd]enied|ACCESS DENIED)\\s[|\u2013-]\\s${SITE_NAME})$`,
+  "u",
+);
+/** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
+const AKAMAI_REFERENCE = /\b\d{1,3}\.[\da-f]{6,8}\.\d{10}\.[\da-f]{6,10}\b/i;
+/** The whole sentence a denial page opens with to say the visitor was taken for a bot (Fisher Scientific). */
+const DENIAL_EVIDENCE = /\bwe could not complete your request because our security service detected activity from your request\b/i;
+/** Denial pages explain how to get unblocked at length; Fisher Scientific's runs to ~1,900 characters. */
+const MAX_DENIAL_TEXT_CHARS = 2500;
+
+/**
+ * A denial page: its heading announces the denial, and its text has Akamai's
+ * reference or says the visitor looked like a bot. Also Home Depot's "Error Page"
+ * with its own wording, which its browser visitors get instead of Akamai's denial.
+ */
+function denialRule(headings: string[], text: string): ChallengeVendor | null {
+  const textChars = text.replace(/\s/g, "").length;
+  if (textChars <= MAX_GENERIC_TEXT_CHARS && headings.some((heading) => /^error page$/i.test(heading)) && /\boops!! something went wrong\. please refresh page\b/i.test(text)) return "generic";
+  if (textChars > MAX_DENIAL_TEXT_CHARS || !headings.some((heading) => DENIAL_HEADING.test(heading))) return null;
+  if (AKAMAI_REFERENCE.test(text)) return "akamai";
+  return DENIAL_EVIDENCE.test(text) ? "generic" : null;
+}
+
 interface PageParts {
   /** Script code with string literals blanked, lowercased. */
   code: string;
@@ -282,7 +315,7 @@ function pageParts(html: string): PageParts {
 export function detectChallengePage(html: string): ChallengeVendor | null {
   const { code, sources, pxCaptcha, hasImage, text, title, headings } = pageParts(html);
   const textChars = text.replace(/\s/g, "").length;
-  if (textChars > MAX_CHALLENGE_TEXT_CHARS) return null;
+  if (textChars > MAX_CHALLENGE_TEXT_CHARS) return denialRule(headings, text);
 
   for (const [vendor, markers] of VENDOR_SCRIPTS) {
     if (markers.globals.some((assignment) => assignment.test(code)) || markers.sources.some((src) => sources.includes(src))) return vendor;
@@ -298,7 +331,7 @@ export function detectChallengePage(html: string): ChallengeVendor | null {
  * service extracted (Firecrawl, Jina): `title`, the page's headings, and its text.
  */
 export function detectChallengeText(title: string, headings: string[], text: string): ChallengeVendor | null {
-  if (text.replace(/\s/g, "").length > MAX_CHALLENGE_TEXT_CHARS) return null;
+  if (text.replace(/\s/g, "").length > MAX_CHALLENGE_TEXT_CHARS) return denialRule([title, ...headings].filter(Boolean), text);
   return textRules(title, [title, ...headings].filter(Boolean), text, "");
 }
 
@@ -316,5 +349,5 @@ function textRules(title: string, headings: string[], text: string, sources: str
     headings.some((heading) => BLOCK_HEADING.test(heading)) &&
     BLOCK_EVIDENCE.test(text)
   ) return "generic";
-  return null;
+  return denialRule(headings, text);
 }
