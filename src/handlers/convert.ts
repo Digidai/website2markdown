@@ -33,6 +33,7 @@ import {
   parseProxyPool,
   fetchViaProxy,
   fetchViaProxyPool,
+  type ProxyFetchResult,
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
 import { fetchViaContextDev } from "../context-dev";
@@ -1817,6 +1818,7 @@ async function tryDirectProxyFetch(
     headers["Referer"] = "https://mp.weixin.qq.com/";
   }
 
+  let result: ProxyFetchResult;
   try {
     const headerVariants = [
       { name: "mobile", headers },
@@ -1841,11 +1843,24 @@ async function tryDirectProxyFetch(
       },
     ));
     fallbacks.add(`direct_proxy_${proxyResult.variant}`);
-    return proxyResult.body;
+    result = proxyResult;
   } catch (e) {
     console.error("Direct proxy fetch failed:", errorMessage(e));
     return null;
   }
+  // The site said what it sent; a PDF or image must not be decoded as a page.
+  const contentType = result.headers["content-type"] || "";
+  if (contentType && !/text\/|html|xml/i.test(contentType)) {
+    throw new ConvertError(
+      "Unsupported Content",
+      `This URL returned non-text content (${contentType}). Only HTML and text pages can be converted to Markdown.`,
+      415,
+      undefined,
+      false,
+      unsupportedContent(contentType),
+    );
+  }
+  return result.body;
 }
 
 // ─── 子函数：静态获取 ────────────────────────────────────────
