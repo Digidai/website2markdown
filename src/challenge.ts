@@ -70,15 +70,16 @@ const MAX_GENERIC_TEXT_CHARS = 600;
 const DENIAL = String.raw`(?:[Aa]ccess [Dd]enied|ACCESS DENIED|[Rr]equest [Bb]locked|[Ee]rror 403|403 [Ee]rror)`;
 /** A site's name before the denial: anything short up to the separator. */
 const SITE_PREFIX = String.raw`[^|\u2013()-]{1,40}`;
-/** A site's name after the denial: one or two capitalised words, so "How to fix it" is not one. */
+/** A site's name after "Access Denied": one or two capitalised words, so "How to fix it" is not one. */
 const SITE_SUFFIX = String.raw`\p{Lu}[^\s|\u2013()-]*(?: \p{Lu}[^\s|\u2013()-]*)?`;
 /**
- * A title or heading that is a denial notice, alone or with the site's name or
- * a second denial: "Access Denied - Macy's", "Error 403 - Request Blocked",
- * "Farnell | 403 Error", "Access Denied (Error 403)". "Error 403 explained" is not.
+ * A title or heading that is a denial notice, alone, after the site's name, or
+ * with a second denial: "Farnell | 403 Error", "Error 403 - Request Blocked",
+ * "Access Denied (Error 403)", "Access Denied - Macy's".
+ * "Error 403 explained" and "Error 403 - Troubleshooting" are not.
  */
 const DENIAL_HEADING = new RegExp(
-  `^(?:${SITE_PREFIX}\\s[|\u2013-]\\s)?${DENIAL}(?:\\s[|\u2013-]\\s(?:${DENIAL}|${SITE_SUFFIX})|\\s\\((?:[Ee]rror )?403\\))?$`,
+  `^(?:${SITE_PREFIX}\\s[|\u2013-]\\s)?(?:${DENIAL}(?:\\s[|\u2013-]\\s${DENIAL}|\\s\\((?:[Ee]rror )?403\\))?|(?:[Aa]ccess [Dd]enied|ACCESS DENIED)\\s[|\u2013-]\\s${SITE_SUFFIX})$`,
   "u",
 );
 /** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
@@ -90,12 +91,12 @@ const MAX_DENIAL_TEXT_CHARS = 2500;
 
 /**
  * A denial page: its heading announces the denial, and its text has Akamai's
- * reference or says the visitor looked like a bot. Also Home Depot's bare
- * "Error Page", which its browser visitors get instead of Akamai's denial.
+ * reference or says the visitor looked like a bot. Also Home Depot's "Error Page"
+ * with its own wording, which its browser visitors get instead of Akamai's denial.
  */
 function denialRule(headings: string[], text: string): ChallengeVendor | null {
   const textChars = text.replace(/\s/g, "").length;
-  if (textChars <= MAX_GENERIC_TEXT_CHARS && headings.some((heading) => /^error page$/i.test(heading)) && /\bsomething went wrong\b/i.test(text)) return "generic";
+  if (textChars <= MAX_GENERIC_TEXT_CHARS && headings.some((heading) => /^error page$/i.test(heading)) && /\boops!! something went wrong\. please refresh page\b/i.test(text)) return "generic";
   if (textChars > MAX_DENIAL_TEXT_CHARS || !headings.some((heading) => DENIAL_HEADING.test(heading))) return null;
   if (AKAMAI_REFERENCE.test(text)) return "akamai";
   return DENIAL_EVIDENCE.test(text) ? "generic" : null;

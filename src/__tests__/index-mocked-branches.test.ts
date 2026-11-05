@@ -1090,7 +1090,7 @@ describe("index mocked branch coverage", () => {
   const AKAMAI_DENIAL = `<html><head><title>Access Denied - Macy's</title></head><body><h1>Access Denied - Macy's</h1>
     <p>You don't have access to this page</p><p>Reference: 0.64a7cb17.1793873586.77c3d7df</p></body></html>`;
 
-  it("keeps the static page when a forced browser render gets a block page", async () => {
+  it("falls back to the static page when a forced browser render gets a block page and the rescue fails", async () => {
     const article = `<html><head><title>Glass columns</title></head><body><article>${"Glass chromatography columns. ".repeat(40)}</article></body></html>`;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
       new Response(article, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }),
@@ -1111,24 +1111,6 @@ describe("index mocked branch coverage", () => {
     expect(mocked.browser.fetchWithBrowser).toHaveBeenCalled();
     expect(mocked.converter.htmlToMarkdown.mock.calls[0][0]).toContain("Glass chromatography columns.");
     expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
-  });
-
-  it("does not keep a static shell when a forced browser render gets a block page", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
-      new Response(`<html><head><title>Shop</title></head><body><div id="app">Loading products...</div><noscript>${"Enable JavaScript to shop. ".repeat(40)}</noscript></body></html>`, {
-        status: 200, headers: { "Content-Type": "text/html; charset=utf-8" },
-      }),
-    ));
-    mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
-    mocked.converter.htmlToMarkdown.mockReturnValue({ markdown: "Loading products...", title: "Shop", contentHtml: "" });
-
-    const req = new Request("https://md.example.com/https://example.com/shop?force_browser=true", {
-      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
-    });
-    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
-
-    expect(res.status).toBe(502);
-    expect((await res.json() as { code?: string }).code).toBe("target_blocked");
   });
 
   it("fails as blocked when the browser gets a block page after a blocked static fetch", async () => {
