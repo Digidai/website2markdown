@@ -19,7 +19,8 @@ export type ProviderPath =
   | "substack_proxy"
   | "wayback"
   | "archive_today"
-  | "context_dev";
+  | "context_dev"
+  | "freedium";
 
 export type { ProviderPathHealth };
 export { ALERT_FAILURE_RATE, ALERT_MIN_ATTEMPTS };
