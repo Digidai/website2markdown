@@ -341,12 +341,19 @@ const ARTICLE_TYPES = new Set([
 /**
  * Extract article content from JSON-LD structured data.
  * Returns minimal HTML suitable for Readability, or null.
+ *
+ * When the page holds several article bodies, `isRequested` (if given) keeps
+ * only the nodes that are the requested article, so a longer related article
+ * cannot win.
  */
-export function extractJsonLdArticle(html: string): string | null {
+export function extractJsonLdArticle(
+  html: string,
+  isRequested?: (node: Record<string, unknown>) => boolean,
+): string | null {
   // Find all <script type="application/ld+json"> blocks
   const regex = /<script\s+type\s*=\s*["']application\/ld\+json["'][^<>]*>([\s\S]*?)<\/script>/gi;
   let match: RegExpExecArray | null;
-  const candidates: Array<{ headline: string; body: string }> = [];
+  let candidates: Array<{ headline: string; body: string; node: Record<string, unknown> }> = [];
 
   while ((match = regex.exec(html)) !== null) {
     try {
@@ -368,6 +375,7 @@ export function extractJsonLdArticle(html: string): string | null {
               candidates.push({
                 headline: (node.headline || "").trim(),
                 body,
+                node,
               });
             }
           }
@@ -378,6 +386,9 @@ export function extractJsonLdArticle(html: string): string | null {
     }
   }
 
+  if (candidates.length > 1 && isRequested) {
+    candidates = candidates.filter((candidate) => isRequested(candidate.node));
+  }
   if (candidates.length === 0) return null;
 
   // Pick the candidate with the longest body

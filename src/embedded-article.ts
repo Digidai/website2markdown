@@ -94,13 +94,17 @@ function normalizeText(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function articleIdentity(pageUrl: string, title: string): ArticleIdentity {
-  let path = "";
+/** The normalised path of a URL or path string, or null. */
+function urlPath(value: string): string | null {
   try {
-    path = decodeURIComponent(new URL(pageUrl).pathname).replace(/\/+$/, "").toLowerCase();
+    return decodeURIComponent(new URL(value, "https://page.invalid").pathname).replace(/\/+$/, "").toLowerCase();
   } catch {
-    /* keep empty */
+    return null;
   }
+}
+
+function articleIdentity(pageUrl: string, title: string): ArticleIdentity {
+  const path = urlPath(pageUrl) ?? "";
   const slug = path.split("/").pop() ?? "";
   const normalizedTitle = normalizeText(title);
   return {
@@ -124,16 +128,26 @@ function recordNamesArticle(record: object, id: ArticleIdentity): boolean | null
   return hasIdentity ? false : null;
 }
 
+/**
+ * Whole-value matches only: `/harbour-vote` must not claim the record of a
+ * prefetched `/harbour-vote-delayed`.
+ */
 function namesArticle(record: object, id: ArticleIdentity): boolean {
   for (const value of Object.values(record)) {
     if (typeof value !== "string" || value.length > 2000) continue;
-    const lower = value.toLowerCase();
-    if (id.slug && lower.includes(id.slug)) return true;
-    if (id.path && lower.endsWith(id.path)) return true;
+    if (/^(?:https?:)?\/\/|^\//i.test(value)) {
+      const path = urlPath(value);
+      if (path && ((id.path && path === id.path) || (id.slug && path.split("/").pop() === id.slug))) return true;
+    } else if (id.slug && value.toLowerCase() === id.slug) {
+      return true;
+    }
     if (id.title) {
-      // The page title may carry a site suffix ("Headline | Site").
+      // The page title may add a site name after a separator ("Headline | Site").
       const text = normalizeText(value);
-      if (text.length >= 12 && id.title.startsWith(text)) return true;
+      if (
+        text.length >= 12 &&
+        (text === id.title || (id.title.startsWith(text) && /^\s*[|\-–—:·•]/.test(id.title.slice(text.length))))
+      ) return true;
     }
   }
   return false;
@@ -157,10 +171,18 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
     }
     return false;
   };
-  // Each entry carries its nearest enclosing records, nearest first.
+  // Each entry carries its nearest enclosing records, nearest first. Only
+  // strings and containers are queued, and the budget is spent when queuing,
+  // so a huge array cannot allocate a stack entry per element.
   const stack: Array<[unknown, object[]]> = [[data, []]];
-  let visited = 0;
-  while (stack.length > 0 && visited++ < MAX_WALK_NODES) {
+  let budget = MAX_WALK_NODES;
+  const queue = (value: unknown, records: object[]) => {
+    if (budget > 0 && (typeof value === "string" || (value !== null && typeof value === "object"))) {
+      budget--;
+      stack.push([value, records]);
+    }
+  };
+  while (stack.length > 0) {
     const [node, records] = stack.pop()!;
     if (typeof node === "string") {
       if (node.length > bestChars && /<p[\s>]/i.test(node) && belongs(records)) {
@@ -171,10 +193,16 @@ function longestArticleHtml(data: unknown, id: ArticleIdentity): string | null {
         }
       }
     } else if (Array.isArray(node)) {
-      for (const item of node) stack.push([item, records]);
+      for (const item of node) {
+        if (budget <= 0) break;
+        queue(item, records);
+      }
     } else if (node && typeof node === "object") {
       const inner = [node, ...records].slice(0, 3);
-      for (const value of Object.values(node)) stack.push([value, inner]);
+      for (const key in node) {
+        if (budget <= 0) break;
+        queue((node as Record<string, unknown>)[key], inner);
+      }
     }
   }
   return best;
@@ -237,7 +265,15 @@ export function extractEmbeddedArticles(rawHtml: string, title: string, pageUrl:
   const found: EmbeddedArticle[] = [];
   const id = articleIdentity(pageUrl, title);
 
-  const jsonLd = extractJsonLdArticle(rawHtml);
+  const jsonLd = extractJsonLdArticle(rawHtml, (node) => {
+    const page = node.mainEntityOfPage;
+    return namesArticle({
+      url: node.url,
+      id: node["@id"],
+      page: typeof page === "object" && page ? (page as Record<string, unknown>)["@id"] : page,
+      headline: node.headline,
+    }, id);
+  });
   if (jsonLd) found.push({ source: "jsonld", html: jsonLd });
 
   const fusion = readAssignedJson(rawHtml, /Fusion\.globalContent\s*=\s*/) as Record<string, unknown> | null;

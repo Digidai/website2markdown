@@ -103,6 +103,31 @@ describe("extractEmbeddedArticles", () => {
     expect(article.html).not.toContain("different town");
   });
 
+  it("does not take a prefetched article whose slug merely extends the requested one", () => {
+    const longer = Array.from({ length: 40 }, (_, i) => `Delayed vote paragraph ${i + 1} covers a later meeting.`);
+    const html = nextData({
+      props: {
+        pageProps: {
+          article: { url: "https://news.example.com/harbour-vote", body: paragraphs(PARAGRAPHS) },
+          next: { url: "https://news.example.com/harbour-vote-delayed", body: paragraphs(longer) },
+        },
+      },
+    });
+    const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote/");
+    expect(article.html).toContain("Paragraph 12 reports");
+    expect(article.html).not.toContain("later meeting");
+  });
+
+  it("picks the requested JSON-LD article when the page lists several", () => {
+    const ld = (node: object) => `<script type="application/ld+json">${JSON.stringify(node)}</script>`;
+    const html =
+      ld({ "@type": "NewsArticle", url: "https://news.example.com/harbour-vote", headline: "Harbour vote", articleBody: PARAGRAPHS.join("\n") }) +
+      ld({ "@type": "NewsArticle", url: "https://news.example.com/other", headline: "Other story", articleBody: PARAGRAPHS.join("\n").repeat(3) });
+    const [article] = extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote");
+    expect(article.source).toBe("jsonld");
+    expect(article.html).toContain("<title>Harbour vote</title>");
+  });
+
   it("ignores page state that does not name the requested article", () => {
     const html = nextData({ props: { pageProps: { story: { url: "https://news.example.com/other-story", body: paragraphs(PARAGRAPHS) } } } });
     expect(extractEmbeddedArticles(html, "Harbour vote", "https://news.example.com/harbour-vote-delayed")).toEqual([]);
