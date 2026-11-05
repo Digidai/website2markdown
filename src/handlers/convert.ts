@@ -1177,7 +1177,8 @@ async function tryFetchAndParse(
   );
   // A browser's block page the HTML rules missed (its markup varies by session):
   // its Markdown, title and headings still read as one.
-  if (!challenge && browserRendered) challenge = markdownChallenge(markdown, extractedTitle);
+  // Only the page's title counts as its heading: a section "## Access denied" is not the page.
+  if (!challenge && browserRendered) challenge = markdownChallenge(markdown, extractedTitle, false);
   // The challenge page's own text; once another source replaces it, the page is rescued.
   const challengeMarkdown = challenge ? markdown : null;
   let output: string;
@@ -1453,18 +1454,26 @@ async function fetchWpJsonArticle(
 /** Whether a provider's Markdown is the challenge page again: the same wording, or a block page's. */
 function isChallengeMarkdown(markdown: string, title: string, challengeMarkdown: string): boolean {
   const words = (md: string) => md.replace(/[^\p{L}\p{N}]+/gu, " ").trim().toLowerCase();
-  // The same wording, or part of it (a provider may drop the title or repeat it:
-  // "Access Denied - Macy's Access Denied - Macy's"), or all of it.
+  // The same wording, or part of it, perhaps repeated (a provider may drop the
+  // text and repeat the title: "Access Denied - Macy's Access Denied - Macy's").
   const got = words(markdown);
   const challenge = words(challengeMarkdown);
-  const challengeWords = new Set(challenge.split(" "));
-  if (got && challenge && (got.split(" ").every((word) => challengeWords.has(word)) || (got.includes(challenge) && got.length < challenge.length * 2))) return true;
-  return markdownChallenge(markdown, title) !== null;
+  if (got && challenge && (challenge.includes(repeatedUnit(got)) || (got.includes(challenge) && got.length < challenge.length * 2))) return true;
+  return markdownChallenge(markdown, title, true) !== null;
 }
 
-/** The vendor whose block page this Markdown reads as, by the page rules on its title, headings and text. */
-function markdownChallenge(markdown: string, title: string): ChallengeVendor | null {
-  const headings = [...markdown.matchAll(/^#{1,2}\s+(.+)$/gm)].slice(0, 2).map((m) => m[1].trim());
+/** The shortest run of words that `text` repeats whole ("a b a b" gives "a b"), or `text`. */
+function repeatedUnit(text: string): string {
+  const words = text.split(" ");
+  for (let size = 1; size <= words.length / 2; size++) {
+    if (words.length % size === 0 && words.every((word, i) => word === words[i % size])) return words.slice(0, size).join(" ");
+  }
+  return text;
+}
+
+/** The vendor whose block page this Markdown reads as, by the page rules on its title, first headings if `withHeadings`, and text. */
+function markdownChallenge(markdown: string, title: string, withHeadings: boolean): ChallengeVendor | null {
+  const headings = withHeadings ? [...markdown.matchAll(/^#{1,2}\s+(.+)$/gm)].slice(0, 2).map((m) => m[1].trim()) : [];
   // Headings apart too, and the text (headings included) without Markdown marks, as the page rules expect.
   // Only heading marks are dropped; a "#" in the text (Akamai's "Reference #18.4f...") stays.
   const text = markdown.replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*_`>[\]]/g, " ").replace(/\s+/g, " ").trim();
