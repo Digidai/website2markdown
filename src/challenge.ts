@@ -80,6 +80,10 @@ const DENIAL_HEADING = new RegExp(
   `^(?:${SITE_NAME}\\s[|\u2013-]\\s)?(?:${DENIAL}(?:\\s[|\u2013-]\\s${DENIAL}|\\s\\((?:[Ee]rror )?403\\))?|(?:[Aa]ccess [Dd]enied|ACCESS DENIED)\\s[|\u2013-]\\s${SITE_NAME})$`,
   "u",
 );
+/** Whether a title or heading is a denial notice ("Access Denied - Macy's", "Farnell | 403 Error"). */
+export function isDenialHeading(heading: string): boolean {
+  return DENIAL_HEADING.test(heading.trim());
+}
 /** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
 const AKAMAI_REFERENCE = /\b\d{1,3}\.[\da-f]{6,8}\.\d{10}\.[\da-f]{6,10}\b/i;
 /** The whole sentence a denial page opens with to say the visitor was taken for a bot (Fisher Scientific). */

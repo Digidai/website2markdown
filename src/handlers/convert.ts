@@ -50,7 +50,7 @@ import {
   mediumArticleFromFeed,
   mediumFeedFor,
 } from "../medium-feed";
-import { detectChallengePage, detectChallengeText, type ChallengeVendor } from "../challenge";
+import { detectChallengePage, detectChallengeText, isDenialHeading, type ChallengeVendor } from "../challenge";
 import {
   extractEmbeddedArticles,
   findWpJsonUrl,
@@ -1179,7 +1179,7 @@ async function tryFetchAndParse(
   // its Markdown, title and headings still read as one.
   // Only Akamai's denial, whose title and reference number are hard to mistake (Newark's);
   // only the page's title counts as its heading, and not for the part a selector picked.
-  if (!challenge && browserRendered && !selector && markdownChallenge(markdown, extractedTitle, false) === "akamai") challenge = "akamai";
+  if (!challenge && browserRendered && !selector && isDenialHeading(extractedTitle) && markdownChallenge(markdown, extractedTitle, false) === "akamai") challenge = "akamai";
   // The challenge page's own text; once another source replaces it, the page is rescued.
   const challengeMarkdown = challenge ? markdown : null;
   let output: string;

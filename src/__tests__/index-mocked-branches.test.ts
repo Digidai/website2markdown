@@ -1181,6 +1181,25 @@ describe("index mocked branch coverage", () => {
     expect(res.status).toBe(200);
   });
 
+  it("keeps a rendered help article that quotes Akamai's denial", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><article>help</article></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Troubleshooting Akamai errors\n\nThe page says You don't have permission to access this server. Reference #18.4f2a3b17.1793840000.1a2b3c4d",
+      title: "Troubleshooting Akamai errors",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/help?raw=true&force_browser=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+  });
+
   it("does not take a provider's cut-down copy of the block page as a rescue", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("https://r.jina.ai/")
       ? Response.json({ code: 200, data: { title: "Access Denied - Macy's", content: "# Access Denied - Macy's\n\nAccess Denied - Macy's" } })
