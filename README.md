@@ -58,8 +58,7 @@ Fetch target with Accept: text/markdown
 | **Native** | Target site supports Markdown for Agents | Cloudflare edge converts via `Accept: text/markdown` content negotiation | `native` |
 | **Fallback** | Normal HTML pages | Readability extracts main content → Turndown converts to Markdown | `readability+turndown` |
 | **Browser** | Anti-bot pages, JS-rendered content | Headless Chrome renders the page → Readability + Turndown | `browser+readability+turndown` |
-| **Firecrawl** | API key plus explicit `engine=firecrawl`, a non-text document, or thin local extraction | Convert via Firecrawl v2 scrape. Anonymous callers never reach this path | `readability+turndown` |
-| **Jina** | API key plus explicit `engine=jina`, or an authenticated last-resort fallback | Convert via Jina Reader API while preserving the same output/query surface | `readability+turndown` |
+| **Extended fallbacks** | API key, when the paths above return too little or the page blocks direct access | Further fetch paths, then the same extraction. Anonymous callers never reach this path | `readability+turndown` |
 
 ## API Usage
 
@@ -89,11 +88,11 @@ curl https://mdget.dev/https://example.com/page \
 Sign up at **[mdget.dev/portal/](https://mdget.dev/portal/)** with
 your email to get an API key. No password; a sign-in link is emailed to you.
 
-| Tier | Credits/month | Browser rendering | Engines |
+| Tier | Credits/month | Browser rendering | Pipeline |
 |------|---------------|-------------------|---------|
 | **Anonymous** (no key) | — | No | Cache, direct fetch, and Readability only. Limited to 10 requests a minute and 100 a day per IP |
-| **Free** | 1,000 | Yes. A live render costs 3 credits | `engine=jina` and `engine=firecrawl`. `engine=cf`, proxy, and `no_cache` require Pro |
-| **Pro** | 50,000 | Yes. A live render costs 3 credits | All engines, plus `no_cache` and `force_browser` |
+| **Free** | 1,000 | Yes. A live render costs 3 credits | Full pipeline, including extended fallbacks. `no_cache` requires Pro |
+| **Pro** | 50,000 | Yes. A live render costs 3 credits | Full pipeline with more fallback paths, plus `no_cache` and `force_browser` |
 
 Convert, stream, and each batch URL cost 1 credit. A successful live browser
 render on those routes costs 3. Cache hits stay at the route cost, including
@@ -187,31 +186,6 @@ curl "https://mdget.dev/https://example.com?selector=%23main-content&raw=true"
 curl "https://mdget.dev/https://example.com/js-heavy-page?raw=true&force_browser=true"
 ```
 
-### Jina Reader Engine
-
-Use `engine=jina` with an API key to convert via [r.jina.ai](https://r.jina.ai) instead of the built-in pipeline. Free and Pro keys can select it. Anonymous requests are rejected. `engine=cf` still requires Pro.
-
-```bash
-curl "https://mdget.dev/https://example.com?raw=true&engine=jina" \
-  -H "Authorization: Bearer mk_..."
-```
-
-> With an API key, Jina is also a last-resort fallback when Readability extraction produces very little content and no browser path was used. Anonymous callers stay on cache, direct fetch, and Readability.
-
-### Firecrawl
-
-Use `engine=firecrawl` with an API key to convert via Firecrawl v2 scrape. If `FIRECRAWL_API_KEY`
-is not configured, the worker sends no `Authorization` header so Firecrawl can
-use its upstream free tier when that upstream accepts the request. Anonymous
-callers cannot select this engine, and the worker does not call Firecrawl or Jina for them.
-
-```bash
-curl "https://mdget.dev/https://example.com?raw=true&engine=firecrawl" \
-  -H "Authorization: Bearer mk_..."
-```
-
-> With an API key, Firecrawl is tried before Jina when local extraction is too thin or the target is a non-text document such as a PDF. `engine=cf`, proxy, and `no_cache` still require Pro.
-
 ### Cache Control
 
 Results are cached in KV for fast repeat access. To bypass cache:
@@ -244,7 +218,7 @@ curl -X POST https://mdget.dev/api/batch \
 
 `urls` supports:
 - String item: `"https://example.com/a"` (defaults to markdown)
-- Object item: `{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean, "engine?": "jina" }`
+- Object item: `{ "url": "...", "format?": "markdown|html|text|json", "selector?": "...", "force_browser?": boolean, "no_cache?": boolean }`
 
 Response:
 ```json
@@ -445,10 +419,8 @@ print(data["title"], data["method"])
 | `/<url>?format=text` | GET | Return plain text (no formatting) |
 | `/<url>?selector=.class` | GET | Extract specific CSS selector |
 | `/<url>?force_browser=true` | GET | Force browser rendering. Requires an API key. A successful live render costs 3 credits |
-| `/<url>?engine=jina` | GET | Convert via Jina Reader API. Requires an API key |
-| `/<url>?engine=firecrawl` | GET | Convert via Firecrawl scrape. Requires an API key |
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
-| `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) with `selector` / `force_browser` / `no_cache` / `engine` / `token` support |
+| `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) with `selector` / `force_browser` / `no_cache` / `token` support |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |
 | `/api/extract` | POST | Structured extraction API (`css` / `xpath` / `regex`) |
 | `/api/jobs` | POST | Create queued crawl/extract job record |
@@ -470,7 +442,7 @@ can skip the `AUTH_DB` binding and fall back to the legacy
 
 | Route Group | Anonymous | Free tier (`mk_…`) | Pro tier (`mk_…`) |
 |---|---|---|---|
-| `GET /<url>` | ✅ cache, direct fetch, Readability | ✅ full pipeline + `engine=jina/firecrawl`; live browser success costs 3 | ✅ + `engine=cf`, `no_cache`, `force_browser` |
+| `GET /<url>` | ✅ cache, direct fetch, Readability | ✅ full pipeline; live browser success costs 3 | ✅ + more fallback paths, `no_cache`, `force_browser` |
 | `GET /api/stream` | ✅ cache, direct fetch, Readability | ✅ same as convert | ✅ full + params |
 | `POST /api/batch` | ❌ 401 | ✅ | ✅ |
 | `POST /api/extract` | ❌ 401 | ✅ | ✅ |
