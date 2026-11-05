@@ -67,16 +67,19 @@ const BLOCK_EVIDENCE =
 /** A block notice is a few lines; an article with that heading is longer. */
 const MAX_GENERIC_TEXT_CHARS = 600;
 
-const DENIAL = String.raw`(?:access denied|request blocked|error 403|403 error)`;
-const SITE_NAME = String.raw`[^|\u2013()-]{1,40}`;
+const DENIAL = String.raw`(?:[Aa]ccess [Dd]enied|ACCESS DENIED|[Rr]equest [Bb]locked|[Ee]rror 403|403 [Ee]rror)`;
+/** A site's name before the denial: anything short up to the separator. */
+const SITE_PREFIX = String.raw`[^|\u2013()-]{1,40}`;
+/** A site's name after the denial: one or two capitalised words, so "How to fix it" is not one. */
+const SITE_SUFFIX = String.raw`\p{Lu}[^\s|\u2013()-]*(?: \p{Lu}[^\s|\u2013()-]*)?`;
 /**
  * A title or heading that is a denial notice, alone or with the site's name or
  * a second denial: "Access Denied - Macy's", "Error 403 - Request Blocked",
  * "Farnell | 403 Error", "Access Denied (Error 403)". "Error 403 explained" is not.
  */
 const DENIAL_HEADING = new RegExp(
-  `^(?:${SITE_NAME}\\s[|\u2013-]\\s)?${DENIAL}(?:\\s[|\u2013-]\\s(?:${DENIAL}|${SITE_NAME})|\\s\\((?:error )?403\\))?$`,
-  "i",
+  `^(?:${SITE_PREFIX}\\s[|\u2013-]\\s)?${DENIAL}(?:\\s[|\u2013-]\\s(?:${DENIAL}|${SITE_SUFFIX})|\\s\\((?:[Ee]rror )?403\\))?$`,
+  "u",
 );
 /** Akamai's reference number, with or without "Reference #": 0.5bc90b17.1793873578.64ebbb98. */
 const AKAMAI_REFERENCE = /\b\d{1,3}\.[\da-f]{6,8}\.\d{10}\.[\da-f]{6,10}\b/i;

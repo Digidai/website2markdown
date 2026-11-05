@@ -91,6 +91,8 @@ describe("detectChallengePage", () => {
       <p>If the security service detected automated requests, clear your cookies. Our security service detected nothing here.</p></body></html>`)).toBeNull();
     expect(detectChallengePage(`<html><head><title>Error 403 - How to fix it</title></head><body><h1>Fixing 403s</h1>
       <p>If the site's security service detected automated requests, clear your cookies and retry. Our security service detected nothing here.</p></body></html>`)).toBeNull();
+    expect(detectChallengePage(`<html><head><title>Error 403 - How to fix it</title></head><body><h1>Error 403 - How to fix it</h1>
+      <p>Fisher Scientific says "our security service detected activity from your request". Clear cookies and retry.</p></body></html>`)).toBeNull();
     expect(detectChallengePage(`<html><head><title>Release notes</title></head><body><h1>Release notes</h1>
       <p>Version 0.5bc90b17.1793873578.64ebbb98 is out.</p></body></html>`)).toBeNull();
   });
