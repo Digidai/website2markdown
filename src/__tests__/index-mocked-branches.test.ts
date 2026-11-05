@@ -1162,6 +1162,25 @@ describe("index mocked branch coverage", () => {
     expect(res.status).toBe(200);
   });
 
+  it("keeps a rendered page whose code identifiers only look like block wording", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response("Forbidden", { status: 403, headers: { "Content-Type": "text/html" } }),
+    ));
+    mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><article>doc</article></body></html>");
+    mocked.converter.htmlToMarkdown.mockReturnValue({
+      markdown: "# Security check\n\nEach response carries `request_id`: abc123456.",
+      title: "Security check",
+      contentHtml: "",
+    });
+
+    const req = new Request("https://md.example.com/https://example.com/docs?raw=true&force_browser=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    });
+    const res = await worker.fetch(req, createMockEnv({ API_TOKEN: "test-token" }).env, mockCtx());
+
+    expect(res.status).toBe(200);
+  });
+
   it("does not take a provider's cut-down copy of the block page as a rescue", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("https://r.jina.ai/")
       ? Response.json({ code: 200, data: { title: "Access Denied - Macy's", content: "# Access Denied - Macy's\n\nAccess Denied - Macy's" } })

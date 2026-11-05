@@ -1476,7 +1476,8 @@ function markdownChallenge(markdown: string, title: string, withHeadings: boolea
   const headings = withHeadings ? [...markdown.matchAll(/^#{1,2}\s+(.+)$/gm)].slice(0, 2).map((m) => m[1].trim()) : [];
   // Headings apart too, and the text (headings included) without Markdown marks, as the page rules expect.
   // Only heading marks are dropped; a "#" in the text (Akamai's "Reference #18.4f...") stays.
-  const text = markdown.replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*_`>[\]]/g, " ").replace(/\s+/g, " ").trim();
+  // An underscore inside a word ("request_id") is the word's, not emphasis.
+  const text = markdown.replace(/^\s{0,3}#{1,6}\s+/gm, " ").replace(/[*`>[\]]|(?<![\p{L}\p{N}])_|_(?![\p{L}\p{N}])/gu, " ").replace(/\s+/g, " ").trim();
   return detectChallengeText(title, headings, text);
 }
 
