@@ -688,9 +688,10 @@ async function buildExternalMarkdownResult(
   };
 }
 
-/** Firecrawl's copy of a page the origin refused, unless it is that site's block page too. */
+/** Firecrawl's copy of a page the origin refused, unless it is that site's block page too. Cached under `targetUrl`. */
 async function tryFirecrawlRescue(
   targetUrl: string,
+  fetchUrl: string,
   env: Env,
   format: OutputFormat,
   selector: string | undefined,
@@ -704,7 +705,7 @@ async function tryFirecrawlRescue(
     markdownBodyChars(result.markdown) >= 200 && markdownChallenge(result.markdown, result.title, true) === null;
   try {
     const result = await trackProvider(env, "firecrawl", abortSignal, () => fetchViaFirecrawl(
-      targetUrl,
+      fetchUrl,
       getFirecrawlConfig(env),
       abortSignal,
     ), usable);
@@ -2114,10 +2115,11 @@ async function tryStaticFetch(
       } else if (!providerApiKeysAllowed && ANON_PROXY_STATUSES.includes(response.status)) {
         rescued = await tryAnonymousProxy(resolvedUrl, env, fallbacks, abortSignal, progress);
       }
-      if (!rescued && blocked && providerApiKeysAllowed) {
-        // Firecrawl reaches some blocked sites Context.dev cannot (Home Depot); its Markdown skips our parse.
+      if (!rescued && blocked && providerApiKeysAllowed && !selector) {
+        // Firecrawl reaches some blocked sites Context.dev cannot (Home Depot). It returns the whole
+        // page as Markdown, skipping our parse, so a selector request cannot use it.
         const earlyReturn = await tryFirecrawlRescue(
-          resolvedUrl, env, format, selector, noCache, engine, fallbacks, abortSignal,
+          targetUrl, resolvedUrl, env, format, selector, noCache, engine, fallbacks, abortSignal,
         );
         if (earlyReturn) {
           return {

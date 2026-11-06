@@ -887,6 +887,7 @@ describe("index mocked branch coverage", () => {
       const url = String(input);
       if (url.startsWith("https://api.context.dev/")) return Response.json({ html: { success: false, error_code: "REQUEST_TIMEOUT" } });
       if (url.endsWith("/v2/scrape")) return firecrawl();
+      if (url === "https://example.com/walled-a") return new Response(null, { status: 301, headers: { Location: "https://www.example.com/walled-a" } });
       return new Response("<html><body>FORBIDDEN-BLOCK-PAGE</body></html>", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -898,6 +899,17 @@ describe("index mocked branch coverage", () => {
     const rescued = await worker.fetch(request("walled-a"), env, mockCtx());
     expect(rescued.status).toBe(200);
     expect(await rescued.text()).toContain("FIRECRAWL-BODY");
+    // Fetched at the redirect target, cached under the URL the caller asked for.
+    const scrapes = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v2/scrape"));
+    expect(JSON.parse(String((scrapes[0] as unknown[] as [unknown, RequestInit])[1].body)).url).toBe("https://www.example.com/walled-a");
+    expect(mocked.cache.setCache.mock.calls.map((c: any[]) => c[1])).toContain("https://example.com/walled-a");
+
+    // Firecrawl returns the whole page, which is not what a selector asked for.
+    const scoped = await worker.fetch(new Request("https://md.example.com/https://example.com/walled-c?raw=true&selector=.price", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    }), env, mockCtx());
+    expect(scoped.status).toBe(502);
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v2/scrape"))).toHaveLength(1);
 
     // Firecrawl handing back the site's denial page is no rescue.
     firecrawl = () => Response.json({
