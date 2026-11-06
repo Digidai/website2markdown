@@ -560,6 +560,7 @@ export async function convertUrl(
       progress, abortSignal, browserAllowed, providerApiKeysAllowed, sessionProfileScope,
     );
   } catch (error) {
+    if (error instanceof ConvertError) error.fallbacks = [...fallbacks];
     if (
       anonymousCaller &&
       cacheAllowed &&
@@ -657,6 +658,8 @@ async function buildExternalMarkdownResult(
   markdown: string,
   title: string,
   fallbacks: Set<string>,
+  /** The URL the caller requested, when `targetUrl` is where a redirect led. */
+  cacheUrl: string = targetUrl,
 ): Promise<ConvertResult> {
   const sourceContentType = "text/markdown";
   const output = formatOutput(markdown, format, targetUrl, title, method);
@@ -664,7 +667,7 @@ async function buildExternalMarkdownResult(
 
   if (!noCache) {
     await setCache(
-      env, targetUrl, format,
+      env, cacheUrl, format,
       { content: output, method, title, sourceContentType, bodyChars: outputBodyChars },
       selector, undefined, engine,
     );
@@ -685,6 +688,39 @@ async function buildExternalMarkdownResult(
       fallbacks: [...fallbacks],
     },
   };
+}
+
+/** Firecrawl's copy of a page the origin refused, unless it is that site's block page too. Cached under `targetUrl`. */
+async function tryFirecrawlRescue(
+  targetUrl: string,
+  fetchUrl: string,
+  env: Env,
+  format: OutputFormat,
+  selector: string | undefined,
+  noCache: boolean,
+  engine: string | undefined,
+  fallbacks: Set<string>,
+  abortSignal?: AbortSignal,
+): Promise<ConvertResult | null> {
+  // A few lines of text are an error shell, not the page.
+  const usable = (result: { markdown: string; title: string }) =>
+    markdownBodyChars(result.markdown) >= 200 && markdownChallenge(result.markdown, result.title, true) === null;
+  try {
+    const result = await trackProvider(env, "firecrawl", abortSignal, () => fetchViaFirecrawl(
+      fetchUrl,
+      getFirecrawlConfig(env),
+      abortSignal,
+    ), usable);
+    if (!usable(result)) return null;
+    fallbacks.add("firecrawl_fallback");
+    return buildExternalMarkdownResult(
+      fetchUrl, env, format, selector, noCache, engine, "firecrawl", result.markdown, result.title, fallbacks, targetUrl,
+    );
+  } catch (error) {
+    if (abortSignal?.aborted) throw new RequestAbortedError();
+    console.debug("Firecrawl fallback unavailable:", errorMessage(error));
+    return null;
+  }
 }
 
 async function tryExternalMarkdownEarlyReturn(
@@ -1668,11 +1704,15 @@ async function tryContextDev(
       },
       (r) => usable(r.html),
     );
-    if (!usable(result.html)) return null;
+    if (!usable(result.html)) {
+      fallbacks.add("context_dev_failed");
+      return null;
+    }
     fallbacks.add("context_dev");
     return result.html;
   } catch (error) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
+    fallbacks.add("context_dev_failed");
     console.error("Context.dev fallback failed:", errorMessage(error));
     if (host && errorMessage(error).includes("REQUEST_TIMEOUT")) {
       await bumpLimit(env, timeoutKey, CONTEXT_DEV_HOST_TIMEOUT_LIMIT, CONTEXT_DEV_HOST_TIMEOUT_WINDOW_S);
@@ -2076,6 +2116,24 @@ async function tryStaticFetch(
         rescued = await tryContextDev(resolvedUrl, env, fallbacks, abortSignal, progress);
       } else if (!providerApiKeysAllowed && ANON_PROXY_STATUSES.includes(response.status)) {
         rescued = await tryAnonymousProxy(resolvedUrl, env, fallbacks, abortSignal, progress);
+      }
+      if (!rescued && blocked && providerApiKeysAllowed && !selector && !isWechat && !resolvedUrl.includes("mp.weixin.qq.com")) {
+        // Firecrawl reaches some blocked sites Context.dev cannot (Home Depot). Its Markdown skips our
+        // parse: no selector, and no WeChat image proxying, so those requests cannot use it.
+        const earlyReturn = await tryFirecrawlRescue(
+          targetUrl, resolvedUrl, env, format, selector, noCache, engine, fallbacks, abortSignal,
+        );
+        if (earlyReturn) {
+          return {
+            earlyReturn,
+            finalHtml: "",
+            method: earlyReturn.method,
+            resolvedUrl,
+            browserRendered,
+            paywallDetected,
+            sourceContentType: earlyReturn.sourceContentType,
+          };
+        }
       }
       if (!rescued) {
         // Anonymous callers are told an API key opens more pages (see public-error.ts).

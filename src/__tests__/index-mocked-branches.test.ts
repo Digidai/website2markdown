@@ -877,6 +877,58 @@ describe("index mocked branch coverage", () => {
     expect(converted).not.toContain("FORBIDDEN-BLOCK-PAGE");
   });
 
+  it("tries Firecrawl after Context.dev fails on a signed-in 403, and logs the steps when both fail", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    let firecrawl: () => Response = () => Response.json({
+      success: true,
+      data: { markdown: `# Sponges\n\nFIRECRAWL-BODY ${"f".repeat(400)}`, metadata: { title: "Sponges" } },
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.context.dev/")) return Response.json({ html: { success: false, error_code: "REQUEST_TIMEOUT" } });
+      if (url.endsWith("/v2/scrape")) return firecrawl();
+      if (url === "https://example.com/walled-a") return new Response(null, { status: 301, headers: { Location: "https://www.example.com/walled-a" } });
+      return new Response("<html><body>FORBIDDEN-BLOCK-PAGE</body></html>", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const env = createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", API_TOKEN: "test-token" }).env;
+    const request = (path: string) => new Request(`https://md.example.com/https://example.com/${path}?raw=true`, {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    });
+
+    const rescued = await worker.fetch(new Request("https://md.example.com/https://example.com/walled-a?format=json", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    }), env, mockCtx());
+    expect(rescued.status).toBe(200);
+    const body = await rescued.json() as { url: string; markdown: string };
+    expect(body.markdown).toContain("FIRECRAWL-BODY");
+    expect(body.url).toBe("https://www.example.com/walled-a");
+    // Fetched at the redirect target, cached under the URL the caller asked for.
+    const scrapes = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v2/scrape"));
+    expect(JSON.parse(String((scrapes[0] as unknown[] as [unknown, RequestInit])[1].body)).url).toBe("https://www.example.com/walled-a");
+    expect(mocked.cache.setCache.mock.calls.map((c: any[]) => c[1])).toContain("https://example.com/walled-a");
+
+    // Firecrawl returns the whole page, which is not what a selector asked for.
+    const scoped = await worker.fetch(new Request("https://md.example.com/https://example.com/walled-c?raw=true&selector=.price", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    }), env, mockCtx());
+    expect(scoped.status).toBe(502);
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v2/scrape"))).toHaveLength(1);
+
+    // Firecrawl handing back the site's denial page is no rescue.
+    firecrawl = () => Response.json({
+      success: true,
+      data: { markdown: "# Access Denied\n\nYou don't have permission to access this server.\n\nReference #18.4f2a3b17.1793876400.5e1c2a", metadata: { title: "Access Denied" } },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const ctx = mockCtx();
+    const failed = await worker.fetch(request("walled-b"), env, ctx);
+    expect(failed.status).toBe(502);
+    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    const event = log.mock.calls.map((c) => String(c[0])).filter((line) => line.includes('"conversion.event"')).map((line) => JSON.parse(line))[0];
+    expect(event).toMatchObject({ outcome: "convert_error", fallbacks: ["context_dev_failed"] });
+  });
+
   it("retries an anonymous 403 once through the proxy, and points to sign-in when it fails", async () => {
     mocked.paywall.getPaywallRule.mockReturnValue(null);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>blocked</html>", {
