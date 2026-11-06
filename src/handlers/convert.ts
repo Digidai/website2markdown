@@ -658,6 +658,8 @@ async function buildExternalMarkdownResult(
   markdown: string,
   title: string,
   fallbacks: Set<string>,
+  /** The URL the caller requested, when `targetUrl` is where a redirect led. */
+  cacheUrl: string = targetUrl,
 ): Promise<ConvertResult> {
   const sourceContentType = "text/markdown";
   const output = formatOutput(markdown, format, targetUrl, title, method);
@@ -665,7 +667,7 @@ async function buildExternalMarkdownResult(
 
   if (!noCache) {
     await setCache(
-      env, targetUrl, format,
+      env, cacheUrl, format,
       { content: output, method, title, sourceContentType, bodyChars: outputBodyChars },
       selector, undefined, engine,
     );
@@ -712,7 +714,7 @@ async function tryFirecrawlRescue(
     if (!usable(result)) return null;
     fallbacks.add("firecrawl_fallback");
     return buildExternalMarkdownResult(
-      targetUrl, env, format, selector, noCache, engine, "firecrawl", result.markdown, result.title, fallbacks,
+      fetchUrl, env, format, selector, noCache, engine, "firecrawl", result.markdown, result.title, fallbacks, targetUrl,
     );
   } catch (error) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
@@ -2115,9 +2117,9 @@ async function tryStaticFetch(
       } else if (!providerApiKeysAllowed && ANON_PROXY_STATUSES.includes(response.status)) {
         rescued = await tryAnonymousProxy(resolvedUrl, env, fallbacks, abortSignal, progress);
       }
-      if (!rescued && blocked && providerApiKeysAllowed && !selector) {
-        // Firecrawl reaches some blocked sites Context.dev cannot (Home Depot). It returns the whole
-        // page as Markdown, skipping our parse, so a selector request cannot use it.
+      if (!rescued && blocked && providerApiKeysAllowed && !selector && !isWechat) {
+        // Firecrawl reaches some blocked sites Context.dev cannot (Home Depot). Its Markdown skips our
+        // parse: no selector, and no WeChat image proxying, so those requests cannot use it.
         const earlyReturn = await tryFirecrawlRescue(
           targetUrl, resolvedUrl, env, format, selector, noCache, engine, fallbacks, abortSignal,
         );

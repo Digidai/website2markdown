@@ -896,9 +896,13 @@ describe("index mocked branch coverage", () => {
       headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
     });
 
-    const rescued = await worker.fetch(request("walled-a"), env, mockCtx());
+    const rescued = await worker.fetch(new Request("https://md.example.com/https://example.com/walled-a?format=json", {
+      headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+    }), env, mockCtx());
     expect(rescued.status).toBe(200);
-    expect(await rescued.text()).toContain("FIRECRAWL-BODY");
+    const body = await rescued.json() as { url: string; markdown: string };
+    expect(body.markdown).toContain("FIRECRAWL-BODY");
+    expect(body.url).toBe("https://www.example.com/walled-a");
     // Fetched at the redirect target, cached under the URL the caller asked for.
     const scrapes = fetchMock.mock.calls.filter((c) => String(c[0]).endsWith("/v2/scrape"));
     expect(JSON.parse(String((scrapes[0] as unknown[] as [unknown, RequestInit])[1].body)).url).toBe("https://www.example.com/walled-a");
