@@ -64,6 +64,9 @@ export interface ConvertErrorPublic {
  * or fallbacks, so it goes to logs only. Callers see `toPublic()`.
  */
 export class ConvertError extends Error {
+  /** Fallback steps the conversion tried before failing, for the conversion log. */
+  fallbacks: string[] = [];
+
   constructor(
     public readonly title: string,
     message: string,

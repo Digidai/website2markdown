@@ -268,6 +268,7 @@ export function handleStream(
           outcome: "convert_error",
           statusCode: err.statusCode,
           cacheHit: err.fromCache,
+          fallbacks: err.fallbacks,
           latencyMs: Date.now() - startedAt,
           errorTitle: err.title,
           errorMessage: err.message,

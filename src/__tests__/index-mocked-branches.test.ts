@@ -877,6 +877,42 @@ describe("index mocked branch coverage", () => {
     expect(converted).not.toContain("FORBIDDEN-BLOCK-PAGE");
   });
 
+  it("tries Firecrawl after Context.dev fails on a signed-in 403, and logs the steps when both fail", async () => {
+    mocked.paywall.getPaywallRule.mockReturnValue(null);
+    let firecrawl: () => Response = () => Response.json({
+      success: true,
+      data: { markdown: `# Sponges\n\nFIRECRAWL-BODY ${"f".repeat(400)}`, metadata: { title: "Sponges" } },
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.context.dev/")) return Response.json({ html: { success: false, error_code: "REQUEST_TIMEOUT" } });
+      if (url.endsWith("/v2/scrape")) return firecrawl();
+      return new Response("<html><body>FORBIDDEN-BLOCK-PAGE</body></html>", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const env = createMockEnv({ CONTEXT_DEV_API_KEY: "ctxt_secret_test", API_TOKEN: "test-token" }).env;
+    const request = (path: string) => new Request(`https://md.example.com/https://example.com/${path}?raw=true`, {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    });
+
+    const rescued = await worker.fetch(request("walled-a"), env, mockCtx());
+    expect(rescued.status).toBe(200);
+    expect(await rescued.text()).toContain("FIRECRAWL-BODY");
+
+    // Firecrawl handing back the site's denial page is no rescue.
+    firecrawl = () => Response.json({
+      success: true,
+      data: { markdown: "# Access Denied\n\nYou don't have permission to access this server.\n\nReference #18.4f2a3b17.1793876400.5e1c2a", metadata: { title: "Access Denied" } },
+    });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const ctx = mockCtx();
+    const failed = await worker.fetch(request("walled-b"), env, ctx);
+    expect(failed.status).toBe(502);
+    await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
+    const event = log.mock.calls.map((c) => String(c[0])).filter((line) => line.includes('"conversion.event"')).map((line) => JSON.parse(line))[0];
+    expect(event).toMatchObject({ outcome: "convert_error", fallbacks: ["context_dev_failed"] });
+  });
+
   it("retries an anonymous 403 once through the proxy, and points to sign-in when it fails", async () => {
     mocked.paywall.getPaywallRule.mockReturnValue(null);
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>blocked</html>", {

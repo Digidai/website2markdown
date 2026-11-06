@@ -1232,6 +1232,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
           outcome: "convert_error",
           statusCode: err.statusCode,
           cacheHit: err.fromCache,
+          fallbacks: err.fallbacks,
           latencyMs: Date.now() - conversionStartedAt,
           selector: eventSelector,
           forceBrowser: eventForceBrowser,
