@@ -83,6 +83,19 @@ function stripLeakedSpeculationRules(markdown: string): string {
   return markdown;
 }
 
+/** A one-line `document.referrer` override that Firecrawl's own page script leaks into some Markdown. */
+const LEAKED_REFERRER_SCRIPT = /^\s*Object\.defineProperty\(document,\s*"referrer",\s*\{[^\n]*\}\);?[ \t]*(?:\n\s*|$)/;
+
+/** Drop leaked script text at the top of Firecrawl's Markdown, in whichever order the pieces come. */
+function stripLeakedScripts(markdown: string): string {
+  let previous: string;
+  do {
+    previous = markdown;
+    markdown = stripLeakedSpeculationRules(markdown).replace(LEAKED_REFERRER_SCRIPT, "");
+  } while (markdown !== previous);
+  return markdown;
+}
+
 /**
  * Fetch a URL's content as Markdown via Firecrawl v2 scrape.
  *
@@ -149,7 +162,7 @@ export async function fetchViaFirecrawl(
       throw new Error(json.error || "Firecrawl returned success=false");
     }
 
-    const markdown = stripLeakedSpeculationRules(json.data?.markdown || "");
+    const markdown = stripLeakedScripts(json.data?.markdown || "");
     if (!markdown.trim()) {
       throw new Error("Firecrawl returned empty markdown");
     }

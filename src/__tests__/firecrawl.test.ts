@@ -64,6 +64,35 @@ describe("fetchViaFirecrawl", () => {
     expect(result.markdown).toBe(body);
   });
 
+  // Line copied from production Home Depot responses (2026-11-06).
+  const referrer = 'Object.defineProperty(document, "referrer", {get : function(){ return "https://www.google.com/"; }})';
+
+  it.each([
+    ["alone", `${referrer}\n\n\n\n\n `],
+    ["after the speculation rules", `{"prefetch": \\[{"where": {"href\\_matches": "/\\*"}}\\]}\n\n${referrer}\n\n`],
+    ["before the speculation rules", `${referrer}\n\n{"prefetch": \\[{"where": {"href\\_matches": "/\\*"}}\\]}\n\n`],
+  ])("drops a leading referrer override %s", async (_, leaked) => {
+    const body = "HDX Scouring Pad - The Home Depot\n\n[Specials & Offers](https://www.homedepot.com/c/Savings_Center)";
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      Response.json({ success: true, data: { markdown: leaked + body } }),
+    );
+
+    const result = await fetchViaFirecrawl("https://www.homedepot.com/p/1");
+
+    expect(result.markdown).toBe(body);
+  });
+
+  it("keeps a referrer override that is part of the page", async () => {
+    const markdown = `# Faking document.referrer\n\nRun this before the page script:\n\n${referrer}\n`;
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      Response.json({ success: true, data: { markdown } }),
+    );
+
+    const result = await fetchViaFirecrawl("https://example.com");
+
+    expect(result.markdown).toBe(markdown);
+  });
+
   it("stops at the rules' own closing brace when they are on one line", async () => {
     const leaked = '{"prerender": \\[{"where": {"href\\_matches": "/\\*"}}\\]} ';
     const body = "# Title\n\nIntro\n\n```json\n{\n \"a\": 1\n}\n```\n\nEnd";
