@@ -2117,7 +2117,7 @@ async function tryStaticFetch(
       } else if (!providerApiKeysAllowed && ANON_PROXY_STATUSES.includes(response.status)) {
         rescued = await tryAnonymousProxy(resolvedUrl, env, fallbacks, abortSignal, progress);
       }
-      if (!rescued && blocked && providerApiKeysAllowed && !selector && !isWechat) {
+      if (!rescued && blocked && providerApiKeysAllowed && !selector && !isWechat && !resolvedUrl.includes("mp.weixin.qq.com")) {
         // Firecrawl reaches some blocked sites Context.dev cannot (Home Depot). Its Markdown skips our
         // parse: no selector, and no WeChat image proxying, so those requests cannot use it.
         const earlyReturn = await tryFirecrawlRescue(
