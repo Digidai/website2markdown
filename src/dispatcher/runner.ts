@@ -145,7 +145,6 @@ export async function runTasksWithControls<TInput>(
         };
       }
 
-      attempts += 1;
       try {
         await waitForDomain(domain);
       } catch (error) {
@@ -163,6 +162,8 @@ export async function runTasksWithControls<TInput>(
         };
       }
 
+      // Count an attempt only once the executor runs; a cancel during the domain wait is not one.
+      attempts += 1;
       let outcome: TaskExecutionOutcome;
       try {
         outcome = await executor(task);

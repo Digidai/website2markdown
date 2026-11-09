@@ -78,6 +78,8 @@ describe("dispatcher runner", () => {
     expect(results[0].success).toBe(false);
     expect(results[1].success).toBe(false);
     expect(results[1].error).toContain("abort");
+    // t2 never ran, so it used no attempt (a job rerun would otherwise charge it a retry).
+    expect(results[1].attempts).toBe(0);
     expect(spy).toHaveBeenCalledTimes(1);
   });
 });
