@@ -475,6 +475,14 @@ describe("GET /portal/ — HTML page", () => {
     expect(html).not.toContain('name="email"');
   });
 
+  it("still serves the sign-in form when the session cookie does not decode", async () => {
+    const { env } = createMockEnv();
+    const req = new Request("https://md.example.com/portal/", { headers: { Cookie: "md_session=%" } });
+    const res = await worker.fetch(req, env, mockCtx());
+    expect(res.status).toBe(200);
+    expect(await res.text()).toMatch(/<input[^>]*name="email"/);
+  });
+
   it("serves HTML at /portal (no trailing slash)", async () => {
     const { env } = createMockEnv();
     const req = new Request("https://md.example.com/portal");
