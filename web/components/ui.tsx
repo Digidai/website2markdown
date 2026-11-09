@@ -1,10 +1,26 @@
 import { Check, Copy, Display, LogoGithub, Moon, Sun } from "@gravity-ui/icons";
 import { Button, Dropdown, Label, buttonVariants, cn, useIsHydrated, useTheme } from "@heroui/react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export const GITHUB_URL = "https://github.com/Digidai/website2markdown";
 
 /** An <a> styled as a HeroUI Button, for navigation that must work without JS. */
+/**
+ * "Submitting" state for a form that leaves the page. It ends when the browser
+ * restores this page from the back/forward cache, so Back never shows a stuck spinner.
+ */
+export function useLeavingPage(): [leaving: boolean, start: () => void] {
+  const [leaving, setLeaving] = useState(false);
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) setLeaving(false);
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+  return [leaving, () => setLeaving(true)];
+}
+
 export function LinkButton({
   href,
   variant = "primary",

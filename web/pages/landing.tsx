@@ -37,7 +37,7 @@ import { useState, type ComponentType, type FormEvent, type ReactNode } from "re
 import type { Lang, SitePage } from "../contract";
 import { COPY, type Copy } from "../copy";
 import { PLATFORMS } from "../platforms";
-import { Brand, CodeBlock, GithubButton, GITHUB_URL, LinkButton, SectionHeading, ThemeSwitcher } from "../components/ui";
+import { Brand, CodeBlock, GithubButton, GITHUB_URL, LinkButton, SectionHeading, ThemeSwitcher, useLeavingPage } from "../components/ui";
 
 export interface LandingProps {
   host: string;
@@ -482,7 +482,7 @@ function Hero({ ctx }: { ctx: Ctx }) {
   const { t, host, isZh, stay } = ctx;
   const [value, setValue] = useState("");
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  const [pending, startLeaving] = useLeavingPage();
   const target = value.trim();
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -492,7 +492,7 @@ function Hero({ ctx }: { ctx: Ctx }) {
       return;
     }
     setError("");
-    setPending(true);
+    startLeaving();
     window.location.href = "/" + target;
   };
 
