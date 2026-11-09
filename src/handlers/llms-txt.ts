@@ -60,6 +60,7 @@ POST ${baseUrl}/api/deepcrawl
 POST ${baseUrl}/api/jobs
 - Body: { "tasks": [{ "url": "..." }] }
 - Returns: Job ID for polling results
+- POST ${baseUrl}/api/jobs/<id>/run runs queued tasks and retries failed ones; each rerun counts toward maxRetries. runnableTasks in the job summary is how many tasks the next run would execute; 0 means running again changes nothing.
 
 ### Errors
 A failed conversion returns JSON (send Accept: application/json or text/markdown):

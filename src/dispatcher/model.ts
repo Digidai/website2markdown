@@ -123,14 +123,20 @@ export function jobIdempotencyKey(key: string): string {
   return `${JOB_IDEMPOTENCY_PREFIX}:${key}`;
 }
 
-export function isValidStatusTransition(
-  from: JobStatus,
-  to: JobStatus,
-): boolean {
-  if (from === to) return true;
-  if (from === "queued") return to === "running" || to === "canceled" || to === "failed";
-  if (from === "running") return to === "succeeded" || to === "failed" || to === "canceled";
-  return false;
+/**
+ * Task lifecycle. `/run` moves queued tasks to running, and failed tasks back to
+ * running while they have retries left; succeeded and canceled are final.
+ */
+const TASK_TRANSITIONS: Record<JobTaskStatus, readonly JobTaskStatus[]> = {
+  queued: ["running", "canceled"],
+  running: ["succeeded", "failed", "canceled"],
+  failed: ["running"],
+  succeeded: [],
+  canceled: [],
+};
+
+export function isValidStatusTransition(from: JobTaskStatus, to: JobTaskStatus): boolean {
+  return TASK_TRANSITIONS[from].includes(to);
 }
 
 export function validateJobCreatePayload(input: unknown): {

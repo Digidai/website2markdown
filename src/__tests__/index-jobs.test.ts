@@ -535,6 +535,11 @@ describe("POST /api/jobs", () => {
     expect(persisted.tasks[0].status).toBe("failed");
     expect(persisted.tasks[0].result).toBeUndefined();
     expect(typeof persisted.tasks[0].error).toBe("string");
+    // The rerun was the task's one allowed retry, even though a 400 is not retried within a run.
+    expect((persisted.tasks[0] as { retryCount?: number }).retryCount).toBe(1);
+    const payload = await res.json() as { runnableTasks?: number; retriesUsedInRun?: number };
+    expect(payload.retriesUsedInRun).toBe(1);
+    expect(payload.runnableTasks).toBe(0);
   });
 
   it("does not rerun failed tasks that exhausted maxRetries", async () => {
