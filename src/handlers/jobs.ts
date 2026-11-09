@@ -576,6 +576,12 @@ export async function executeJobRun(
   for (const task of job.tasks) {
     const outcome = resultById.get(task.id);
     if (!outcome) continue;
+    if (outcome.attempts === 0) {
+      // Canceled before its turn: it never ran, so it goes back to how this run found it.
+      task.status = rerunTaskIds.has(task.id) ? "failed" : "queued";
+      task.updatedAt = new Date().toISOString();
+      continue;
+    }
     task.retryCount += retriesUsed(outcome);
     task.status = outcome.success ? "succeeded" : "failed";
     task.error = outcome.success ? undefined : outcome.error || "Task failed";

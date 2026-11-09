@@ -129,7 +129,8 @@ export function jobIdempotencyKey(key: string): string {
  */
 const TASK_TRANSITIONS: Record<JobTaskStatus, readonly JobTaskStatus[]> = {
   queued: ["running", "canceled"],
-  running: ["succeeded", "failed", "canceled"],
+  // Back to queued when a run is canceled before the task's turn.
+  running: ["succeeded", "failed", "canceled", "queued"],
   failed: ["running"],
   succeeded: [],
   canceled: [],
