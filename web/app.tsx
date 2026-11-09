@@ -7,7 +7,7 @@ import { ErrorPage, LoadingPage, ReaderView, type ErrorProps, type LoadingProps,
 /** What the server embeds in #__props so the client can hydrate the same tree. */
 export type AppState =
   | { view: "landing"; props: LandingProps }
-  | { view: "portal"; props: { host: string } }
+  | { view: "portal"; props: { host: string; hasSession: boolean; error?: string } }
   | { view: "loading"; props: LoadingProps }
   | { view: "reader"; props: ReaderProps }
   | { view: "error"; props: ErrorProps & { host?: string } }

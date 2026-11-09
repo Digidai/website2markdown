@@ -45,6 +45,10 @@ const api = {
     }),
 };
 
+function signInBanner(error?: string): Banner {
+  return error ? { status: "danger", text: SIGN_IN_ERRORS[error] || "Sign-in failed." } : null;
+}
+
 function formatDate(iso: string) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
@@ -65,12 +69,13 @@ function PortalHeader({ host }: { host: string }) {
   );
 }
 
-export function PortalPage({ host }: { host: string }) {
-  const [status, setStatus] = useState<"loading" | "signed-out" | "signed-in">("loading");
+export function PortalPage({ host, hasSession, error }: { host: string; hasSession: boolean; error?: string }) {
+  // Without a session cookie /api/me can only answer 401, so the server already renders the sign-in form.
+  const [status, setStatus] = useState<"loading" | "signed-out" | "signed-in">(hasSession ? "loading" : "signed-out");
   const [session, setSession] = useState<Session | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
   const [keys, setKeys] = useState<ApiKey[]>([]);
-  const [banner, setBanner] = useState<Banner>(null);
+  const [banner, setBanner] = useState<Banner>(() => signInBanner(error));
 
   const loadKeys = useCallback(async () => {
     const resp = await api.get("/api/keys").catch(() => null);
@@ -78,8 +83,8 @@ export function PortalPage({ host }: { host: string }) {
   }, []);
 
   useEffect(() => {
-    const url = new URL(location.href);
-    const error = url.searchParams.get("error");
+    if (error) history.replaceState(null, "", "/portal/");
+    if (!hasSession) return;
     (async () => {
       const resp = await api.get("/api/me").catch(() => null);
       if (resp?.ok) {
@@ -89,12 +94,10 @@ export function PortalPage({ host }: { host: string }) {
         await loadKeys();
         setStatus("signed-in");
       } else {
-        if (error) setBanner({ status: "danger", text: SIGN_IN_ERRORS[error] || "Sign-in failed." });
         setStatus("signed-out");
       }
-      if (error) history.replaceState(null, "", "/portal/");
     })();
-  }, [loadKeys]);
+  }, [hasSession, error, loadKeys]);
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
@@ -115,6 +118,7 @@ export function PortalPage({ host }: { host: string }) {
           reloadKeys={loadKeys}
           onSignOut={() => {
             setSession(null);
+            setBanner(null);
             setStatus("signed-out");
           }}
         />
@@ -124,17 +128,27 @@ export function PortalPage({ host }: { host: string }) {
 }
 
 function SignIn({ banner: initial }: { banner: Banner }) {
-  const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
   const [banner, setBanner] = useState<Banner>(initial);
+  // The form is server-rendered, so it shows before this script runs. Until then the button stays
+  // disabled, which also stops Enter from submitting the form natively with the email in the URL.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  // Text typed before hydration is only in the DOM. Seed the field with it, or React's first
+  // update after hydration writes the empty value back over it.
+  const [typedEarly] = useState(() =>
+    typeof document === "undefined" ? "" : (document.querySelector<HTMLInputElement>('input[name="email"]')?.value ?? ""),
+  );
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!email.trim()) return;
+    // Read the field itself: text typed before hydration is in the input but not in React state.
+    const email = String(new FormData(event.currentTarget).get("email") ?? "").trim();
+    if (!email) return;
     setPending(true);
     try {
       const source = new URL(location.href).searchParams.get("ref") || undefined;
-      const resp = await api.json("/api/auth/magic-link", "POST", { email: email.trim(), source });
+      const resp = await api.json("/api/auth/magic-link", "POST", { email, source });
       const data = (await resp.json().catch(() => ({}))) as { error?: string };
       setBanner(
         resp.ok
@@ -155,9 +169,8 @@ function SignIn({ banner: initial }: { banner: Banner }) {
           <span className="grid size-11 place-items-center rounded-xl bg-accent-soft text-accent-soft-foreground">
             <Key className="size-5" />
           </span>
-          <Card.Title className="text-2xl">
-            <h1>Developer Portal</h1>
-          </Card.Title>
+          {/* Card.Title is an <h3>; an <h1> inside it gets split apart by the HTML parser and breaks hydration. */}
+          <h1 className="card__title text-2xl" data-slot="card-title">Developer Portal</h1>
           <Card.Description>Sign in to manage API keys and usage. No password: we email you a link.</Card.Description>
         </Card.Header>
         <Card.Content className="flex flex-col gap-4">
@@ -170,11 +183,11 @@ function SignIn({ banner: initial }: { banner: Banner }) {
             </Alert>
           ) : null}
           <form onSubmit={onSubmit} className="flex flex-col gap-4">
-            <TextField isRequired type="email" name="email" value={email} onChange={setEmail} autoComplete="email">
+            <TextField isRequired type="email" name="email" autoComplete="email" defaultValue={typedEarly}>
               <Label>Email</Label>
               <Input placeholder="you@example.com" autoFocus />
             </TextField>
-            <Button type="submit" fullWidth isPending={pending}>
+            <Button type="submit" fullWidth isPending={pending} isDisabled={!ready}>
               {pending ? <Spinner color="current" size="sm" /> : <Envelope className="size-4" />}
               {pending ? "Sending..." : "Send login link"}
             </Button>
