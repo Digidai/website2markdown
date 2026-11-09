@@ -5,8 +5,8 @@
  * Best-effort: Worker crash loses unflushed counts.
  */
 
-import type { AuthContext, Env, Tier } from "../types";
-import { TIER_QUOTAS } from "../types";
+import type { AuthContext, Env } from "../types";
+import { TIER_QUOTAS, tierForPlan } from "../types";
 import { CORS_HEADERS } from "../config";
 import { ensureMonthlyQuota, utcQuotaWindow } from "../middleware/quota";
 
@@ -172,7 +172,7 @@ export async function handleUsageForAccount(
       account.monthly_credits_reset_at,
       now,
     );
-    const tier = (account.tier === "pro" ? "pro" : account.tier === "enterprise" ? "pro" : "free") as Tier;
+    const tier = tierForPlan(account.tier);
     const quota = TIER_QUOTAS[tier];
     const used = rolled.used;
 

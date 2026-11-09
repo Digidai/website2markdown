@@ -88,13 +88,14 @@ function insertAccount(
     createdAt: string;
     keyId: string;
     keyHash: string;
+    tier?: string;
   },
 ): void {
   raw.prepare(`
     INSERT INTO accounts (
       id, email, tier, monthly_credits_used, monthly_credits_reset_at, created_at, updated_at
-    ) VALUES (?, ?, 'free', ?, ?, ?, ?)
-  `).run(row.id, row.email, row.used, row.resetAt, row.createdAt, row.createdAt);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(row.id, row.email, row.tier ?? "free", row.used, row.resetAt, row.createdAt, row.createdAt);
   raw.prepare(`
     INSERT INTO api_keys (id, account_id, prefix, key_hash, name, revoked_at, created_at)
     VALUES (?, ?, 'mk_test', ?, NULL, NULL, ?)
@@ -287,6 +288,32 @@ describe("monthly quota roll", () => {
 
     expect(rolled).toEqual({ used: 1934, resetAt: "2026-08-01T00:00:00.000Z" });
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("gives an enterprise account the same pro quota through its API key and the portal", async () => {
+    const db = createSqliteAuthDb();
+    const rawKey = "mk_enterprise_gate";
+    const account = {
+      id: "acct-ent",
+      email: "ent@example.com",
+      used: 0,
+      resetAt: NEXT_RESET,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      keyId: "key-ent",
+      keyHash: await sha256(rawKey),
+      tier: "enterprise",
+    };
+    insertAccount(db.raw, account);
+
+    const auth = await resolveAuth(
+      new Request("https://md.example.com/", { headers: { Authorization: `Bearer ${rawKey}` } }),
+      { AUTH_DB: db.db } as Env,
+    );
+    const body = await (await handleUsageForAccount({ AUTH_DB: db.db } as Env, account.id)).json() as { quota: number };
+
+    expect(auth.tier).toBe("pro");
+    expect(auth.quotaLimit).toBe(50_000);
+    expect(body.quota).toBe(50_000);
   });
 
   it("makes the auth gate and the portal report the same rolled balance", async () => {

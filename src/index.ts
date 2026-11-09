@@ -1,7 +1,7 @@
 // 主入口：路由分发与 Cloudflare Worker 导出
 
 import type { ConvertMethod, Env, OutputFormat, AuthContext, PolicyDecision, Tier } from "./types";
-import { TIER_QUOTAS } from "./types";
+import { TIER_QUOTAS, tierForPlan } from "./types";
 import {
   MAX_SELECTOR_LENGTH,
   CORS_HEADERS,
@@ -179,7 +179,7 @@ async function resolveStreamAuth(request: Request, env: Env): Promise<AuthContex
   const session = await resolveSession(request, env);
   if (!session) return bearerAuth;
 
-  const tier: Tier = session.tier === "pro" || session.tier === "enterprise" ? "pro" : "free";
+  const tier = tierForPlan(session.tier);
   return {
     tier,
     accountId: session.accountId,

@@ -408,7 +408,7 @@ function UsageCards({ usage: u }: { usage: Usage }) {
       <Card>
         <Card.Header>
           <Card.Description>Current tier</Card.Description>
-          <Chip size="lg" variant="soft" color={u.tier === "pro" ? "success" : "accent"} className="mt-1 self-start capitalize">
+          <Chip size="lg" variant="soft" color={u.tier === "free" ? "accent" : "success"} className="mt-1 self-start capitalize">
             {u.tier}
           </Chip>
         </Card.Header>

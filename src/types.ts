@@ -76,6 +76,18 @@ export interface PolicyDecision {
   creditCost: number;
 }
 
+/** The plan stored on an account row (accounts.tier). */
+export type AccountPlan = "free" | "pro" | "enterprise";
+
+export function accountPlan(raw: unknown): AccountPlan {
+  return raw === "pro" || raw === "enterprise" ? raw : "free";
+}
+
+/** The limits an account gets. Enterprise has pro limits until it gets its own. */
+export function tierForPlan(raw: unknown): Exclude<Tier, "anonymous"> {
+  return accountPlan(raw) === "free" ? "free" : "pro";
+}
+
 /** Quota limits per tier (credits per month) */
 export const TIER_QUOTAS: Record<Tier, number> = {
   anonymous: 0,

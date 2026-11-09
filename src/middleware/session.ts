@@ -15,7 +15,8 @@
  * in the cookie; D1 only stores the hash. If D1 leaks, sessions aren't compromised.
  */
 
-import type { Env } from "../types";
+import type { AccountPlan, Env } from "../types";
+import { accountPlan } from "../types";
 import { sha256Hex } from "../helpers/crypto";
 
 export const SESSION_TTL_DAYS = 7;
@@ -25,7 +26,7 @@ export interface SessionContext {
   sessionId: string;
   accountId: string;
   email: string;
-  tier: "free" | "pro" | "enterprise";
+  tier: AccountPlan;
   githubId: string | null;
 }
 
@@ -135,7 +136,7 @@ export async function resolveSession(
       return null;
     }
 
-    const tier = (row.tier === "pro" ? "pro" : row.tier === "enterprise" ? "enterprise" : "free") as SessionContext["tier"];
+    const tier = accountPlan(row.tier);
     return {
       sessionId: row.session_id,
       accountId: row.account_id,
