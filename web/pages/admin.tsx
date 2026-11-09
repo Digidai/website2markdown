@@ -41,7 +41,7 @@ import {
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { useEffect, useState, type ReactNode } from "react";
-import { Brand, CopyButton, LinkButton, ThemeSwitcher } from "../components/ui";
+import { Brand, CopyButton, LinkButton, ThemeSwitcher, useLeavingPage } from "../components/ui";
 import {
   ALERT_FAILURE_RATE,
   ALERT_MIN_ATTEMPTS,
@@ -178,7 +178,7 @@ function LogoutButton() {
 
 function Login({ error }: { error?: string }) {
   const [visible, setVisible] = useState(false);
-  const [pending, setPending] = useState(false);
+  const [pending, startLeaving] = useLeavingPage();
   const [next, setNext] = useState("/admin");
   useEffect(() => {
     setNext(location.pathname === "/admin" ? location.pathname + location.search : "/admin");
@@ -195,7 +195,7 @@ function Login({ error }: { error?: string }) {
             <Card.Title className="text-2xl">运营后台</Card.Title>
             <Card.Description>输入管理口令，查看访问、使用数据和渠道状态。</Card.Description>
           </Card.Header>
-          <form method="post" action="/admin" onSubmit={() => setPending(true)}>
+          <form method="post" action="/admin" onSubmit={startLeaving}>
             <Card.Content className="flex flex-col gap-4">
               {error ? (
                 <Alert status="danger">
