@@ -2,7 +2,16 @@ import { ArrowLeft, ArrowRotateRight, ArrowUpRightFromSquare, CircleCheck, Trian
 import { Button, Card, Chip, Spinner, Tabs, Typography } from "@heroui/react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
+import {
+  conversionReducer,
+  initialConversionState,
+  RESULT_TIMEOUT_MS,
+  stepDetail,
+  stepRows,
+  STREAM_TIMEOUT_MS,
+  type ConversionEvent,
+} from "../conversion-stream";
 import { Brand, CopyButton, LinkButton, ThemeSwitcher } from "../components/ui";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System", title: "Theme" };
@@ -179,110 +188,101 @@ export function ErrorPage(props: ErrorProps & { host?: string }) {
   );
 }
 
-const STEPS = [
-  { id: "fetch", label: "Fetching page" },
-  { id: "analyze", label: "Analyzing content" },
-  { id: "browser", label: "Rendering with browser" },
-  { id: "convert", label: "Converting to Markdown" },
-] as const;
-type StepId = (typeof STEPS)[number]["id"];
-
-interface DoneEvent {
-  method?: string;
-  cached?: boolean;
-  tokenCount?: number | string;
-  rawUrl?: string;
-  title?: string;
-}
-
 export function LoadingPage({ host, targetUrl, streamUrl, rawRequestPath }: LoadingProps) {
-  const [active, setActive] = useState<StepId>("fetch");
-  const [usedBrowser, setUsedBrowser] = useState(false);
+  const [state, dispatch] = useReducer(conversionReducer, undefined, () => initialConversionState());
   const [elapsed, setElapsed] = useState(0);
-  const [error, setError] = useState<ErrorProps | null>(null);
-  const [result, setResult] = useState<ReaderProps | null>(null);
-  const handled = useRef(false);
+  const { attempt, phase } = state;
+  const running = phase === "streaming" || phase === "loadingResult";
 
+  // One EventSource per attempt. It never reconnects by itself: each connection
+  // to /api/stream starts a new conversion, so a dropped stream becomes an error.
   useEffect(() => {
     if (typeof EventSource === "undefined") {
       window.location.href = rawRequestPath;
       return;
     }
-    const timer = setInterval(() => setElapsed((n) => n + 1), 1000);
     const es = new EventSource(streamUrl);
-    const finish = () => {
-      handled.current = true;
+    const end = (event: ConversionEvent) => {
       es.close();
-      clearInterval(timer);
       clearTimeout(timeout);
+      dispatch(event);
     };
-    const timeout = setTimeout(() => {
-      if (handled.current) return;
-      finish();
-      setError({ title: "Timeout", message: "The conversion is taking too long. Please try again.", status: 504 });
-    }, 90000);
-
-    es.addEventListener("step", (e) => {
-      if (handled.current) return;
-      const id = JSON.parse((e as MessageEvent).data).id as StepId;
-      if (id === "browser") setUsedBrowser(true);
-      setActive(id);
-    });
-    es.addEventListener("done", (e) => {
-      if (handled.current) return;
-      finish();
-      const data = JSON.parse((e as MessageEvent).data) as DoneEvent;
-      setActive("done" as StepId);
-      const rawUrl = data.rawUrl || rawRequestPath;
-      if (data.title) document.title = `${data.title} — ${host}`;
-      fetch(rawUrl, { headers: { Accept: "text/markdown" } })
-        .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
-        .then((md) =>
-          setResult({
-            host,
-            sourceUrl: targetUrl,
-            rawRequestPath: rawUrl,
-            method: data.method || "",
-            cached: Boolean(data.cached),
-            tokenCount: data.tokenCount ? String(data.tokenCount) : "",
-            title: data.title || "",
-            content: md,
-          }),
-        )
-        .catch(() =>
-          setError({ title: "Could not load the result", message: "The conversion finished but the Markdown failed to load. Try the Raw link." }),
-        );
-    });
-    es.addEventListener("fail", (e) => {
-      if (handled.current) return;
-      finish();
-      setError(JSON.parse((e as MessageEvent).data) as ErrorProps);
-    });
-    es.onerror = () => {
-      if (handled.current) return;
-      if (es.readyState === EventSource.CLOSED) {
-        finish();
-        setError({ title: "Connection Lost", message: "Lost connection to the server. Please try again." });
+    const parse = (e: Event): unknown => {
+      try {
+        return JSON.parse((e as MessageEvent).data);
+      } catch {
+        return undefined;
       }
     };
+    const timeout = setTimeout(() => end({ type: "timeout" }), STREAM_TIMEOUT_MS);
+    es.addEventListener("step", (e) => dispatch({ type: "step", data: parse(e) }));
+    es.addEventListener("done", (e) => end({ type: "done", data: parse(e) }));
+    es.addEventListener("fail", (e) => end({ type: "fail", data: parse(e) }));
+    es.onerror = () => end({ type: "connectionLost" });
     return () => {
       es.close();
-      clearInterval(timer);
       clearTimeout(timeout);
     };
-  }, [host, rawRequestPath, streamUrl, targetUrl]);
+  }, [attempt, rawRequestPath, streamUrl]);
 
-  if (result) return <ReaderView {...result} />;
+  const done = phase === "loadingResult" || phase === "result" ? state.done : null;
+  const rawUrl = done?.rawUrl || rawRequestPath;
 
-  const visible = STEPS.filter((s) => s.id !== "browser" || usedBrowser);
-  const activeIndex = (active as string) === "done" ? visible.length : visible.findIndex((s) => s.id === active);
+  useEffect(() => {
+    if (phase !== "loadingResult") return;
+    if (done?.title) document.title = `${done.title} — ${host}`;
+    let cancelled = false;
+    const controller = new AbortController();
+    // Aborting on timeout fails the load; aborting on cleanup does not.
+    const timeout = setTimeout(() => controller.abort(), RESULT_TIMEOUT_MS);
+    fetch(rawUrl, { headers: { Accept: "text/markdown" }, signal: controller.signal })
+      .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
+      .then((markdown) => dispatch({ type: "resultLoaded", markdown }))
+      .catch(() => {
+        if (!cancelled) dispatch({ type: "resultFailed" });
+      })
+      .finally(() => clearTimeout(timeout));
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [phase, done, rawUrl, host]);
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setElapsed((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [running, attempt]);
+
+  if (state.phase === "result") {
+    return (
+      <ReaderView
+        host={host}
+        sourceUrl={targetUrl}
+        rawRequestPath={rawUrl}
+        method={state.done.method || ""}
+        cached={Boolean(state.done.cached)}
+        tokenCount={state.done.tokenCount ? String(state.done.tokenCount) : ""}
+        title={state.done.title || ""}
+        content={state.markdown}
+      />
+    );
+  }
+
+  const error = state.phase === "failed" ? state.failure : null;
+  const detail = stepDetail(state);
+  const retry = () => {
+    setElapsed(0);
+    dispatch({ type: "retry" });
+  };
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
       <TopBar host={host} />
       <main className="grid flex-1 place-items-center px-4 py-16">
         {error ? (
-          <ErrorCard {...error} onRetry={() => window.location.reload()} />
+          <ErrorCard {...error} onRetry={error.retryable === false ? undefined : retry} />
         ) : (
           <Card className="w-full max-w-md">
             <Card.Header className="gap-2">
@@ -293,24 +293,27 @@ export function LoadingPage({ host, targetUrl, streamUrl, rawRequestPath }: Load
             </Card.Header>
             <Card.Content>
               <ol className="flex flex-col gap-3">
-                {visible.map((step, i) => {
-                  const state = i < activeIndex ? "done" : i === activeIndex ? "active" : "pending";
-                  return (
-                    <li key={step.id} className="flex items-center gap-3" data-state={state}>
-                      <span className="grid size-5 place-items-center">
-                        {state === "done" ? (
-                          <CircleCheck className="size-5 text-success" />
-                        ) : state === "active" ? (
-                          <Spinner size="sm" />
-                        ) : (
-                          <span className="size-3.5 rounded-full border-2 border-border" />
-                        )}
-                      </span>
-                      <span className={state === "pending" ? "text-sm text-muted" : "text-sm font-medium"}>{step.label}</span>
-                    </li>
-                  );
-                })}
+                {stepRows(state).map((step) => (
+                  <li key={step.id} className="flex items-center gap-3" data-state={step.status}>
+                    <span className="grid size-5 place-items-center">
+                      {step.status === "done" ? (
+                        <CircleCheck className="size-5 text-success" />
+                      ) : step.status === "active" ? (
+                        <Spinner size="sm" />
+                      ) : (
+                        <span className="size-3.5 rounded-full border-2 border-border" />
+                      )}
+                    </span>
+                    <span className={step.status === "pending" ? "text-sm text-muted" : "text-sm font-medium"}>{step.label}</span>
+                  </li>
+                ))}
               </ol>
+              {detail ? (
+                <p className="mt-3 flex items-center gap-2 text-sm text-muted" aria-live="polite">
+                  {phase === "loadingResult" ? <Spinner size="sm" /> : null}
+                  {detail}…
+                </p>
+              ) : null}
             </Card.Content>
             <Card.Footer className="justify-between">
               <span className="font-mono text-xs text-muted tabular-nums">{elapsed}s elapsed</span>

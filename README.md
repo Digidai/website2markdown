@@ -420,7 +420,7 @@ print(data["title"], data["method"])
 | `/<url>?selector=.class` | GET | Extract specific CSS selector |
 | `/<url>?force_browser=true` | GET | Force browser rendering. Requires an API key. A successful live render costs 3 credits |
 | `/<url>?no_cache=true` | GET | Bypass KV cache |
-| `/api/stream?url=<encoded-url>` | GET | SSE conversion stream (`step`, `done`, `fail`) with `selector` / `force_browser` / `no_cache` / `token` support |
+| `/api/stream?url=<encoded-url>` | GET | SSE conversion stream with `selector` / `force_browser` / `no_cache` / `token` support. Events: `step` (`id`: `fetch`, `analyze`, `browser`, `convert`; may repeat on retry), then `done` (`rawUrl`, `title`, `method`, `tokenCount`, `cached`, `creditCost`) or `fail` (`title`, `message`, `status`, `code`, `retryable`, `hint`). Each connection starts a new conversion, so do not auto-reconnect |
 | `/api/batch` | POST | Batch convert multiple URLs (max 10) |
 | `/api/extract` | POST | Structured extraction API (`css` / `xpath` / `regex`) |
 | `/api/jobs` | POST | Create queued crawl/extract job record |

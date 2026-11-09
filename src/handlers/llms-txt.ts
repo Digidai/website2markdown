@@ -36,6 +36,10 @@ Preferred agent request:
 ### Streaming (GET)
 GET ${baseUrl}/api/stream?url=<encoded-url>
 - Returns: Server-Sent Events stream with conversion progress
+- event: step  data: {"id": "fetch"|"analyze"|"browser"|"convert", "label": "<what is happening>"}. A retry can repeat an earlier step id.
+- event: done  data: {"rawUrl", "title", "method", "tokenCount", "cached", "creditCost"}. GET rawUrl for the Markdown.
+- event: fail  data: {"title", "message", "status", "code", "retryable", "hint"}
+- The stream ends after done or fail. Do not let the client reconnect on its own: every connection starts a new conversion.
 
 ### Batch Convert (POST)
 POST ${baseUrl}/api/batch

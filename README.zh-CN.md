@@ -380,7 +380,7 @@ print(data["title"], data["method"])
 | `/<url>?selector=.class` | GET | 提取指定 CSS 选择器 |
 | `/<url>?force_browser=true` | GET | 强制浏览器渲染。需要 API key。真实渲染成功计 3 credits |
 | `/<url>?no_cache=true` | GET | 跳过 KV 缓存 |
-| `/api/stream?url=<encoded-url>` | GET | SSE 转换流（`step` / `done` / `fail`），支持 `selector` / `force_browser` / `no_cache` / `token` |
+| `/api/stream?url=<encoded-url>` | GET | SSE 转换流，支持 `selector` / `force_browser` / `no_cache` / `token`。事件：`step`（`id` 为 `fetch` / `analyze` / `browser` / `convert`，重试时可能重复），最后是 `done`（`rawUrl`、`title`、`method`、`tokenCount`、`cached`、`creditCost`）或 `fail`（`title`、`message`、`status`、`code`、`retryable`、`hint`）。每次连接都会重新转换，客户端不要自动重连 |
 | `/api/batch` | POST | 批量转换（最多 10 条） |
 | `/api/extract` | POST | 结构化提取 API（`css` / `xpath` / `regex`） |
 | `/api/jobs` | POST | 创建排队的 crawl/extract 任务记录 |

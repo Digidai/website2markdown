@@ -1,5 +1,6 @@
 // SSE 流式响应处理
 
+import type { StreamDoneEvent, StreamFailEvent, StreamStepEvent } from "../../web/contract";
 import { publicMethod } from "../helpers/format";
 import type { AuthContext, Env } from "../types";
 import { CORS_HEADERS, MAX_SELECTOR_LENGTH } from "../config";
@@ -179,7 +180,7 @@ export function handleStream(
     try {
       const result = await convertUrlWithMetrics(
         targetUrl, env, host, "markdown", selector, forceBrowser, noCache,
-        async (step, label) => { await send("step", { id: step, label }); },
+        async (step, label) => { await send("step", { id: step, label } satisfies StreamStepEvent); },
         streamSignal,
         engine,
         browserAllowed,
@@ -202,7 +203,7 @@ export function handleStream(
         tokenCount: result.tokenCount,
         cached: result.cached,
         creditCost: charged,
-      });
+      } satisfies StreamDoneEvent);
       incrementCounter("conversionsTotal");
       if (cacheHit) incrementCounter("cacheHits");
       if (browserRendered) {
@@ -278,7 +279,7 @@ export function handleStream(
           debugTrace: observability.debugTrace,
         }));
         const pub = err.toPublic(observability.anonymousCaller === true);
-        await send("fail", { title: err.title, message: pub.message, status: err.statusCode, ...publicErrorFields(pub) });
+        await send("fail", { title: err.title, message: pub.message, status: err.statusCode, ...publicErrorFields(pub) } satisfies StreamFailEvent);
       } else {
         console.error("Stream conversion error:", sanitizeErrorMessage(err));
         incrementCounter("conversionFailures");
@@ -300,7 +301,7 @@ export function handleStream(
           noCache,
           debugTrace: observability.debugTrace,
         }));
-        await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 });
+        await send("fail", { title: "Error", message: "Failed to process the URL. Please try again later.", status: 500 } satisfies StreamFailEvent);
       }
     }
   }, request.signal, sseHeaders);
