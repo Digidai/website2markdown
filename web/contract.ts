@@ -12,6 +12,38 @@ export type SitePage = "home" | "examples" | "docs" | "integration" | "pricing";
 /** The public conversion method; never names the channel or vendor that fetched the page. */
 export type ReaderMethod = "native" | "readability+turndown" | "browser+readability+turndown";
 
+// ─── Conversion stream (GET /api/stream) ─────────────────────
+
+/**
+ * Progress steps of a conversion, in display order. The server may report a
+ * step again after a later one (a retry); clients should not move backwards.
+ */
+export const STREAM_STEPS = ["fetch", "analyze", "browser", "convert"] as const;
+export type StreamStepId = (typeof STREAM_STEPS)[number];
+
+/** `event: step`. `label` says what is happening now, e.g. "Retrying". */
+export interface StreamStepEvent { id: StreamStepId; label: string }
+
+/** `event: done`. The Markdown itself is fetched from `rawUrl`. */
+export interface StreamDoneEvent {
+  rawUrl: string;
+  title: string;
+  method: ReaderMethod;
+  tokenCount: string;
+  cached: boolean;
+  creditCost: number;
+}
+
+/** `event: fail`. Extra fields (`code`, `cause`, `retryable`, `hint`, `target_status`) come from the public error catalog. */
+export interface StreamFailEvent {
+  title: string;
+  message: string;
+  status: number;
+  code?: string;
+  retryable?: boolean;
+  hint?: string;
+}
+
 export interface WebRenderers {
   landingPageHTML(host: string, lang?: Lang, page?: SitePage): string;
   /** `hasSession`: the request carries a session cookie. `error`: the ?error= code from a failed sign-in link. */

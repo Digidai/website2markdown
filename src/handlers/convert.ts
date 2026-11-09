@@ -1,5 +1,6 @@
 // 核心转换逻辑
 
+import type { StreamStepId } from "../../web/contract";
 import type { ConvertMethod, Env, OutputFormat } from "../types";
 import {
   MAX_RESPONSE_BYTES,
@@ -80,6 +81,9 @@ import { formatOutput, markdownBodyChars } from "../helpers/format";
 import { trackProvider } from "../observability/provider-attempts";
 
 // ─── 错误类 ──────────────────────────────────────────────────
+
+/** Reports a conversion step to the client (SSE `step` event); a no-op outside /api/stream. */
+export type StreamProgress = (step: StreamStepId, label: string) => void | Promise<void>;
 
 export class RequestAbortedError extends Error {
   constructor() {
@@ -441,7 +445,7 @@ export async function convertUrl(
   selector: string | undefined,
   forceBrowser: boolean,
   noCache: boolean,
-  onProgress?: (step: string, label: string) => void | Promise<void>,
+  onProgress?: StreamProgress,
   abortSignal?: AbortSignal,
   engine?: string,
   browserAllowed: boolean = true,
@@ -596,7 +600,7 @@ async function tryFirecrawlFastPath(
   selector: string | undefined,
   noCache: boolean,
   engine: string | undefined,
-  progress: (step: string, label: string) => void | Promise<void>,
+  progress: StreamProgress,
   abortSignal?: AbortSignal,
   providerApiKeysAllowed: boolean = true,
 ): Promise<ConvertResult> {
@@ -795,7 +799,7 @@ async function tryJinaFastPath(
   selector: string | undefined,
   noCache: boolean,
   engine: string | undefined,
-  progress: (step: string, label: string) => void | Promise<void>,
+  progress: StreamProgress,
   abortSignal?: AbortSignal,
 ): Promise<ConvertResult> {
   await progress("fetch", "Fetching page");
@@ -843,7 +847,7 @@ async function tryCfRestApi(
   noCache: boolean,
   engine: string | undefined,
   fallbacks: Set<string>,
-  progress: (step: string, label: string) => void | Promise<void>,
+  progress: StreamProgress,
   abortSignal?: AbortSignal,
 ): Promise<ConvertResult | null> {
   const cfConfig = getCfRestConfig(env);
@@ -913,7 +917,7 @@ async function tryFetchAndParse(
   browserRendered: boolean,
   paywallDetected: boolean,
   sourceContentType: string,
-  progress: (step: string, label: string) => void | Promise<void>,
+  progress: StreamProgress,
   abortSignal?: AbortSignal,
   browserAllowed: boolean = true,
   providerApiKeysAllowed: boolean = true,
@@ -1016,7 +1020,7 @@ async function tryFetchAndParse(
     const browserUseKey = env.BROWSER_USE_API_KEY;
     if (!finalHtml && browserUseKey) {
       throwIfAborted(abortSignal);
-      await progress("fetch", "Rendering with browser");
+      await progress("browser", "Rendering with browser");
       const buHtml = await trackProvider(env, "browser_use", abortSignal, () => fetchViaBrowserUse(targetUrl, browserUseKey, abortSignal), (html) => Boolean(html));
       if (buHtml) {
         if (targetUrl.includes("mp.weixin.qq.com") && isWechatVerificationHtml(buHtml)) {
@@ -1566,7 +1570,7 @@ async function tryAnonymousProxy(
   env: Env,
   fallbacks: Set<string>,
   abortSignal?: AbortSignal,
-  progress?: (step: string, label: string) => void | Promise<void>,
+  progress?: StreamProgress,
 ): Promise<string | null> {
   if (!env.PROXY_POOL && !env.PROXY_URL) return null;
   const day = new Date().toISOString().slice(0, 10);
@@ -1588,7 +1592,7 @@ async function tryMediumFeed(
   env: Env,
   fallbacks: Set<string>,
   abortSignal: AbortSignal | undefined,
-  progress: (step: string, label: string) => void | Promise<void>,
+  progress: StreamProgress,
   providerApiKeysAllowed: boolean,
 ): Promise<string | null> {
   const target = mediumFeedFor(url);
@@ -1627,7 +1631,7 @@ async function tryFreedium(
   env: Env,
   fallbacks: Set<string>,
   abortSignal: AbortSignal | undefined,
-  progress: (step: string, label: string) => void | Promise<void>,
+  progress: StreamProgress,
 ): Promise<string | null> {
   const freediumUrl = freediumUrlFor(url);
   if (!freediumUrl) return null;
@@ -1660,7 +1664,7 @@ async function tryContextDev(
   env: Env,
   fallbacks: Set<string>,
   abortSignal?: AbortSignal,
-  progress?: (step: string, label: string) => void | Promise<void>,
+  progress?: StreamProgress,
   anonymous: boolean = false,
 ): Promise<string | null> {
   const apiKey = env.CONTEXT_DEV_API_KEY;
@@ -1727,7 +1731,7 @@ async function tryBrowserRendering(
   host: string,
   fallbacks: Set<string>,
   abortSignal?: AbortSignal,
-  progress?: (step: string, label: string) => void | Promise<void>,
+  progress?: StreamProgress,
   sessionProfileScope?: string,
   providerApiKeysAllowed: boolean = false,
 ): Promise<{ html: string; rendered: boolean }> {
@@ -1790,7 +1794,7 @@ async function tryProxyRetry(
   retryToken: string | null,
   legacyCookies: string | null,
   abortSignal?: AbortSignal,
-  progress?: (step: string, label: string) => void | Promise<void>,
+  progress?: StreamProgress,
 ): Promise<{ html: string; rendered: boolean }> {
   const _progress = progress || (() => {});
   const pooledConfigs = env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
@@ -1910,7 +1914,7 @@ async function tryDirectProxyFetch(
   env: Env,
   fallbacks: Set<string>,
   abortSignal?: AbortSignal,
-  progress?: (step: string, label: string) => void | Promise<void>,
+  progress?: StreamProgress,
 ): Promise<string | null> {
   const _progress = progress || (() => {});
   const pooledConfigs = env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
@@ -2010,7 +2014,7 @@ async function tryStaticFetch(
   sourceContentType: string,
   resolvedUrl: string,
   method: ConvertMethod,
-  progress: (step: string, label: string) => void | Promise<void>,
+  progress: StreamProgress,
   abortSignal?: AbortSignal,
   browserAllowed: boolean = true,
   providerApiKeysAllowed: boolean = true,
