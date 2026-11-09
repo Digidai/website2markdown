@@ -11,6 +11,7 @@ import { publicErrorFields } from "../public-error";
 import { PRIVATE_ERROR_CACHE_CONTROL } from "../policy/anonymous-guards";
 import { errorMessage } from "../utils";
 import {
+  contentSources,
   convertUrlWithMetrics,
   RequestAbortedError,
   SseStreamClosedError,
@@ -210,9 +211,7 @@ export function handleStream(
         incrementCounter("browserRenderCalls");
       }
       if (result.diagnostics.paywallDetected) incrementCounter("paywallDetections");
-      if (result.diagnostics.fallbacks.length > 0) {
-        incrementCounter("paywallFallbacks", result.diagnostics.fallbacks.length);
-      }
+      incrementCounter("paywallFallbacks", contentSources(result.diagnostics.fallbacks).length);
       logMetric("stream.convert_done", {
         method: result.method,
         cached: result.cached,

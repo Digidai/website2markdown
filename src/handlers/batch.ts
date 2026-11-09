@@ -16,6 +16,7 @@ import { authorizeApiAccess, sessionProfileScopeForAuth } from "../middleware/ap
 import { browserAllowedForRequest, chargedCreditCost, checkPolicy } from "../middleware/tier-gate";
 import { recordUsage } from "./usage";
 import {
+  contentSources,
   convertUrlWithMetrics,
   readBodyWithLimit,
   BodyTooLargeError,
@@ -253,9 +254,7 @@ export async function handleBatch(
           incrementCounter("browserRenderCalls");
         }
         if (result.diagnostics.paywallDetected) incrementCounter("paywallDetections");
-        if (result.diagnostics.fallbacks.length > 0) {
-          incrementCounter("paywallFallbacks", result.diagnostics.fallbacks.length);
-        }
+        incrementCounter("paywallFallbacks", contentSources(result.diagnostics.fallbacks).length);
         return {
           url: item.url,
           format: item.format,
