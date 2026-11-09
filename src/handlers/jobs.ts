@@ -121,8 +121,13 @@ export function summarizeJob(job: StoredJobRecord): Record<string, unknown> {
     priority: job.priority ?? 10,
     maxRetries: job.maxRetries ?? 2,
     retryCount: job.retryCount ?? 0,
-    /** Tasks the next POST /run would execute: queued ones, and failed ones with retries left. */
-    runnableTasks: (job.tasks ?? []).filter((task) => isTaskRunnable(task, job.maxRetries ?? 2)).length,
+    /**
+     * Tasks the next POST /run would execute: queued ones, and failed ones with retries left.
+     * Tasks still marked running count as the failed tasks a later run recovers them as.
+     */
+    runnableTasks: (job.tasks ?? []).filter((task) =>
+      isTaskRunnable(task.status === "running" ? { ...task, status: "failed" } : task, job.maxRetries ?? 2),
+    ).length,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   };

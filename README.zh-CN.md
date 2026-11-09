@@ -386,7 +386,7 @@ print(data["title"], data["method"])
 | `/api/jobs` | POST | 创建排队的 crawl/extract 任务记录 |
 | `/api/jobs/:id` | GET | 查询任务状态 |
 | `/api/jobs/:id/stream` | GET | SSE 任务状态流 |
-| `/api/jobs/:id/run` | POST | 执行排队中的子任务，并重试失败的子任务。每次重跑失败子任务都计入 `maxRetries`，单个子任务最多执行 `maxRetries + 1` 次。任务摘要中的 `runnableTasks` 表示下次运行会执行几个子任务；为 `0` 时再次运行不会有变化 |
+| `/api/jobs/:id/run` | POST | 执行排队中的子任务，并重试失败的子任务。每次重跑失败子任务都计入 `maxRetries`，单个子任务最多执行 `maxRetries + 1` 次。任务摘要中的 `runnableTasks` 表示下次运行会执行几个子任务；任务不处于 `running` 时，为 `0` 表示再次运行不会有变化 |
 | `/api/deepcrawl` | POST | Deep Crawl（BFS/BestFirst，流式/非流式，断点续跑） |
 | `/api/og` | GET | landing/rendered 页面使用的动态分享图 |
 | `/img/<encoded-url>` | GET | 图片代理（绕过防盗链） |
