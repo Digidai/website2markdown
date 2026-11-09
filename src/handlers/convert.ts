@@ -418,12 +418,9 @@ const NOTE_FALLBACKS = new Set([
   "firecrawl_error_fallthrough",
 ]);
 
-/** Whether some fallback already supplied the content (notes such as a failed attempt do not count). */
-export function usedAlternateSource(fallbacks: Iterable<string>): boolean {
-  for (const tag of fallbacks) {
-    if (!NOTE_FALLBACKS.has(tag) && !tag.startsWith("challenge_")) return true;
-  }
-  return false;
+/** The fallback tags that supplied content, leaving out notes such as a failed attempt. */
+export function contentSources(fallbacks: Iterable<string>): string[] {
+  return [...fallbacks].filter((tag) => !NOTE_FALLBACKS.has(tag) && !tag.startsWith("challenge_"));
 }
 
 // ─── 转换结果接口 ────────────────────────────────────────────
@@ -1319,7 +1316,7 @@ async function tryFetchAndParse(
   if (
     providerApiKeysAllowed &&
     (markdown === challengeMarkdown ||
-      (markdown.length < 500 && !browserRendered && !usedAlternateSource(fallbacks) && finalHtml.length > 2000))
+      (markdown.length < 500 && !browserRendered && contentSources(fallbacks).length === 0 && finalHtml.length > 2000))
   ) {
     // A challenge page's wording is no content: any provider text beats it,
     // unless the provider was shown the challenge too.

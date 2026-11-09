@@ -19,6 +19,7 @@ import {
   cleanupExpiredDebugTraces,
   cleanupExpiredOperationalRows,
 } from "../observability/conversion-events";
+import { runtimeCounters } from "../runtime-state";
 import { createMockEnv, mockCtx } from "./test-helpers";
 
 interface D1StatementCall {
@@ -167,6 +168,26 @@ describe("conversion observability", () => {
     expect(logged).toContain("conversion.event");
     expect(logged).not.toContain("target_secret");
     expect(logged).not.toContain("session_secret");
+  });
+
+  it("counts only fallbacks that supplied content, not notes about failed attempts", async () => {
+    vi.mocked(convertUrlWithMetrics).mockResolvedValue(convertResult({
+      diagnostics: {
+        cacheHit: false,
+        browserRendered: false,
+        paywallDetected: false,
+        fallbacks: ["cf_error_fallthrough", "context_dev_failed", "challenge_cloudflare", "wayback_pre_fetch"],
+      },
+    }));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const before = runtimeCounters.paywallFallbacks;
+
+    const res = await worker.fetch(new Request("https://md.example.com/https://example.com/counted?raw=true", {
+      headers: { Accept: "text/markdown" },
+    }), createMockEnv().env, mockCtx());
+
+    expect(res.status).toBe(200);
+    expect(runtimeCounters.paywallFallbacks - before).toBe(1);
   });
 
   it("records authenticated tier without persisting raw bearer, account, or key ids", async () => {

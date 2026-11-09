@@ -71,6 +71,7 @@ import {
   withExtraHeaders,
 } from "./helpers/response";
 import {
+  contentSources,
   convertUrlWithMetrics,
   readBodyWithLimit,
   BodyTooLargeError,
@@ -1157,9 +1158,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
         incrementCounter("browserRenderCalls");
       }
       if (result.diagnostics.paywallDetected) incrementCounter("paywallDetections");
-      if (result.diagnostics.fallbacks.length > 0) {
-        incrementCounter("paywallFallbacks", result.diagnostics.fallbacks.length);
-      }
+      incrementCounter("paywallFallbacks", contentSources(result.diagnostics.fallbacks).length);
       logMetric("convert.completed", {
         method: result.method,
         cached: result.cached,
