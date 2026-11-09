@@ -526,6 +526,8 @@ export async function runBfsDeepCrawl(
         linksDiscovered: discoveredLinks.length,
       };
     } catch (error) {
+      // An abort is not this page's failure: stop without recording it, so a resume fetches it again.
+      throwIfAborted(options.signal);
       node = {
         url: current.url,
         parentUrl: current.parentUrl,
@@ -707,6 +709,8 @@ export async function runBestFirstDeepCrawl(
         linksDiscovered: discoveredCount,
       };
     } catch (error) {
+      // An abort is not this page's failure: stop without recording it, so a resume fetches it again.
+      throwIfAborted(options.signal);
       node = {
         url: current.url,
         parentUrl: current.parentUrl,

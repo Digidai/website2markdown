@@ -141,6 +141,38 @@ describe("deepcrawl core", () => {
     expect(new Set(urls).size).toBe(5);
   });
 
+  it.each([
+    ["BFS", runBfsDeepCrawl],
+    ["BestFirst", runBestFirstDeepCrawl],
+  ] as const)("%s: a page cut short by an abort is fetched again on resume", async (_name, run) => {
+    const seed = "https://crawl.example.com/start";
+    const graph = createGraphFetcher({
+      "https://crawl.example.com/start": "<html><body><a href='/a'>A</a></body></html>",
+      "https://crawl.example.com/a": "<html><body>A</body></html>",
+    });
+    const controller = new AbortController();
+    const fetcher = async (url: string) => {
+      if (url.endsWith("/a")) {
+        controller.abort();
+        throw new Error("Request aborted");
+      }
+      return graph(url);
+    };
+    let snapshot: DeepCrawlStateSnapshot | undefined;
+
+    await expect(run(seed, fetcher, {
+      maxDepth: 1,
+      maxPages: 5,
+      checkpointEvery: 1,
+      signal: controller.signal,
+      onCheckpoint: (state) => { snapshot = state; },
+    })).rejects.toThrow();
+    expect(snapshot!.results.map((r) => r.url)).toEqual([seed]);
+
+    const resumed = await run(seed, graph, { maxDepth: 1, maxPages: 5, initialState: snapshot });
+    expect(resumed.results.find((r) => r.url === "https://crawl.example.com/a")?.success).toBe(true);
+  });
+
   it("filters non-http links, blocks external URLs, and deduplicates discovered links", async () => {
     const seed = "https://crawl.example.com/root";
     const fetcher = createGraphFetcher({
