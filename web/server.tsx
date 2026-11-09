@@ -157,11 +157,11 @@ export const landingPageHTML: WebRenderers["landingPageHTML"] = (host, lang: Lan
   });
 };
 
-export const portalPageHTML: WebRenderers["portalPageHTML"] = () =>
+export const portalPageHTML: WebRenderers["portalPageHTML"] = (hasSession, error) =>
   documentHTML({
     lang: "en",
     head: `<title>Developer Portal — mdget.dev</title>\n<meta name="robots" content="noindex, nofollow">`,
-    state: { view: "portal", props: { host: "mdget.dev" } },
+    state: { view: "portal", props: { host: "mdget.dev", hasSession, error } },
   });
 
 export const loadingPageHTML: WebRenderers["loadingPageHTML"] = (host, targetUrl, extraStreamParams, rawRequestPath = rawPath(targetUrl)) => {

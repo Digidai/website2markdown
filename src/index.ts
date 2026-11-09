@@ -46,7 +46,7 @@ import { classifyAccessPath } from "./admin/classify";
 import { sessionProfileScopeForAuth } from "./middleware/api-access";
 import { consumeRateLimit, rateLimitedResponse } from "./middleware/rate-limit";
 import { recordUsage, flushUsage, shouldFlush, handleUsage, handleUsageForAccount } from "./handlers/usage";
-import { resolveSession } from "./middleware/session";
+import { hasSessionCookie, resolveSession } from "./middleware/session";
 import {
   handleCreateKey,
   handleListKeys,
@@ -478,7 +478,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 
     // Developer Portal (SPA — single HTML page, client-side routing)
     if (path === "/portal" || path === "/portal/" || path.startsWith("/portal/")) {
-      return new Response(portalPageHTML(), {
+      return new Response(portalPageHTML(hasSessionCookie(request), url.searchParams.get("error") ?? undefined), {
         status: 200,
         headers: {
           "Content-Type": "text/html; charset=utf-8",

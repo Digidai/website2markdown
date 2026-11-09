@@ -14,7 +14,8 @@ export type ReaderMethod = "native" | "readability+turndown" | "browser+readabil
 
 export interface WebRenderers {
   landingPageHTML(host: string, lang?: Lang, page?: SitePage): string;
-  portalPageHTML(): string;
+  /** `hasSession`: the request carries a session cookie. `error`: the ?error= code from a failed sign-in link. */
+  portalPageHTML(hasSession: boolean, error?: string): string;
   loadingPageHTML(
     host: string,
     targetUrl: string,

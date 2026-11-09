@@ -458,6 +458,23 @@ describe("GET /portal/ — HTML page", () => {
     expect(body).toContain('"view":"portal"');
   });
 
+  it("server-renders the sign-in form when there is no session cookie", async () => {
+    const { env } = createMockEnv();
+    const res = await worker.fetch(new Request("https://md.example.com/portal/?error=link_expired"), env, mockCtx());
+    const html = (await res.text()).split('<script type="application/json"')[0];
+    expect(html).toMatch(/<input[^>]*name="email"/);
+    // Disabled until the script runs, so Enter cannot submit the form natively with the email in the URL.
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
+    expect(html).toContain("This sign-in link has expired.");
+  });
+
+  it("waits for /api/me before showing the form when a session cookie is present", async () => {
+    const { env } = createMockEnv();
+    const req = new Request("https://md.example.com/portal/", { headers: { Cookie: "theme=dark; md_session=abc" } });
+    const html = (await (await worker.fetch(req, env, mockCtx())).text()).split('<script type="application/json"')[0];
+    expect(html).not.toContain('name="email"');
+  });
+
   it("serves HTML at /portal (no trailing slash)", async () => {
     const { env } = createMockEnv();
     const req = new Request("https://md.example.com/portal");

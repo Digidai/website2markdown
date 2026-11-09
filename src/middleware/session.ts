@@ -51,6 +51,11 @@ function parseCookie(header: string | null, name: string): string | null {
   return null;
 }
 
+/** Whether the request carries a session cookie at all; says nothing about whether it is still valid. */
+export function hasSessionCookie(request: Request): boolean {
+  return Boolean(parseCookie(request.headers.get("Cookie"), SESSION_COOKIE_NAME));
+}
+
 /**
  * Create a new session, store hashed token in D1, return the plaintext token
  * (to be set as a cookie — never persisted anywhere else).
