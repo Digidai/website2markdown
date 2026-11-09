@@ -142,19 +142,28 @@ export function PortalPage({ host, hasSession, error }: { host: string; hasSessi
     };
   }, [checking]);
 
+  // Each load bumps its counter; only the newest request may write its result,
+  // so a slow earlier response cannot replace a newer one (e.g. the list after creating a key).
+  const usageRequest = useRef(0);
+  const keysRequest = useRef(0);
+
   const loadUsage = useCallback(async () => {
+    const id = ++usageRequest.current;
     dispatch({ type: "usageLoading" });
     const resp = await api.get("/api/usage").catch(() => null);
-    if (resp?.status === 401) return dispatch({ type: "sessionExpired" });
     const usage = resp?.ok ? await readJson<Usage>(resp) : null;
+    if (id !== usageRequest.current) return;
+    if (resp?.status === 401) return dispatch({ type: "sessionExpired" });
     dispatch(typeof usage?.quota === "number" ? { type: "usageLoaded", usage } : { type: "usageFailed" });
   }, []);
 
   const loadKeys = useCallback(async () => {
+    const id = ++keysRequest.current;
     dispatch({ type: "keysLoading" });
     const resp = await api.get("/api/keys").catch(() => null);
-    if (resp?.status === 401) return dispatch({ type: "sessionExpired" });
     const data = resp?.ok ? await readJson<{ keys?: ApiKey[] }>(resp) : null;
+    if (id !== keysRequest.current) return;
+    if (resp?.status === 401) return dispatch({ type: "sessionExpired" });
     dispatch(Array.isArray(data?.keys) ? { type: "keysLoaded", keys: data.keys } : { type: "keysFailed" });
   }, []);
 
