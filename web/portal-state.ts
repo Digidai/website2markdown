@@ -20,7 +20,7 @@ export type Loadable<T> = { status: "loading" } | { status: "ready"; value: T } 
 export type PortalState =
   /** banner: a sign-in error from the URL, shown if the cookie turns out to be stale. */
   | { phase: "checking"; banner: Banner }
-  | { phase: "unavailable" }
+  | { phase: "unavailable"; banner: Banner }
   | { phase: "signedOut"; banner: Banner }
   | { phase: "signedIn"; session: Session; usage: Loadable<Usage>; keys: Loadable<ApiKey[]> };
 
@@ -60,10 +60,10 @@ export function portalReducer(state: PortalState, event: PortalEvent): PortalSta
     case "checking":
       if (event.type === "meLoaded") return { phase: "signedIn", session: event.session, usage: { status: "loading" }, keys: { status: "loading" } };
       if (event.type === "meUnauthorized") return { phase: "signedOut", banner: state.banner };
-      if (event.type === "meFailed") return { phase: "unavailable" };
+      if (event.type === "meFailed") return { phase: "unavailable", banner: state.banner };
       return state;
     case "unavailable":
-      return event.type === "retry" ? { phase: "checking", banner: null } : state;
+      return event.type === "retry" ? { phase: "checking", banner: state.banner } : state;
     case "signedOut":
       return state;
     case "signedIn":

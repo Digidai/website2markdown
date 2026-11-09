@@ -21,16 +21,19 @@ describe("portal session state machine", () => {
     // A stale cookie must not swallow the link error: it comes back when /api/me says 401.
     const checking = initialPortalState(true, "link_expired");
     expect(checking.phase).toBe("checking");
-    expect(portalReducer(checking, { type: "meUnauthorized" })).toEqual({
+    const expired = { status: "danger", text: "This sign-in link has expired. Please request a new one." };
+    expect(portalReducer(checking, { type: "meUnauthorized" })).toEqual({ phase: "signedOut", banner: expired });
+    // It also survives an outage and a retry before the 401.
+    expect(run([{ type: "meFailed" }, { type: "retry" }, { type: "meUnauthorized" }], checking)).toEqual({
       phase: "signedOut",
-      banner: { status: "danger", text: "This sign-in link has expired. Please request a new one." },
+      banner: expired,
     });
   });
 
   it("treats only a 401 as signed out; an outage offers a retry instead of the sign-in form", () => {
     expect(run([{ type: "meUnauthorized" }], { phase: "checking", banner: null })).toEqual({ phase: "signedOut", banner: null });
     const down = run([{ type: "meFailed" }], { phase: "checking", banner: null });
-    expect(down).toEqual({ phase: "unavailable" });
+    expect(down).toEqual({ phase: "unavailable", banner: null });
     expect(run([{ type: "retry" }], down)).toEqual({ phase: "checking", banner: null });
   });
 
