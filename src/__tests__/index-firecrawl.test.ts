@@ -117,6 +117,30 @@ describe("Firecrawl integration", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("still rescues a near-empty page with Firecrawl after the CF engine failed", async () => {
+    const story = "The council approved the harbour plan after a long night of debate. ".repeat(12);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith("https://api.cloudflare.com/")) return Response.json({ success: false }, { status: 500 });
+      if (url.includes("firecrawl")) {
+        return Response.json({ success: true, data: { markdown: `# Harbour plan\n\n${story}`, metadata: { title: "Harbour plan" } } });
+      }
+      // A client-rendered shell: plenty of HTML, almost no text.
+      return new Response(`<html><head><title>Harbour plan</title></head>
+        <body><div id="root">${'<div class="card-placeholder"></div>'.repeat(120)}</div><p>Loading</p></body></html>`, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { env } = createMockEnv({ API_TOKEN: "test-token", CF_ACCOUNT_ID: "acct", CF_API_TOKEN: "cf-token" });
+
+    const res = await worker.fetch(new Request("https://md.example.com/https://news.example.com/harbour-plan-cf?engine=cf&raw=true", {
+      headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+    }), env, mockCtx());
+
+    expect(res.status).toBe(200);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("https://api.cloudflare.com/"))).toBe(true);
+    expect(await res.text()).toContain("approved the harbour plan");
+  });
+
   it("falls through to Jina when Firecrawl keyless is blocked", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(
