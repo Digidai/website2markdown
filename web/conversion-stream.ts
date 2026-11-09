@@ -39,8 +39,11 @@ export type ConversionEvent =
 
 /** How long the stream may run before the page gives up. */
 export const STREAM_TIMEOUT_MS = 90_000;
-/** How long loading the finished Markdown may take. */
-export const RESULT_TIMEOUT_MS = 30_000;
+/**
+ * How long loading the finished Markdown may take. With no_cache or force_browser the raw
+ * request converts the page again, so it gets the same budget as the stream.
+ */
+export const RESULT_TIMEOUT_MS = STREAM_TIMEOUT_MS;
 
 export const STEP_LABELS: Record<StreamStepId, string> = {
   fetch: "Fetching page",
