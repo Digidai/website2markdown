@@ -426,7 +426,7 @@ print(data["title"], data["method"])
 | `/api/jobs` | POST | Create queued crawl/extract job record |
 | `/api/jobs/:id` | GET | Query job status |
 | `/api/jobs/:id/stream` | GET | SSE job status stream |
-| `/api/jobs/:id/run` | POST | Execute queued/failed tasks in job |
+| `/api/jobs/:id/run` | POST | Run queued tasks and retry failed ones. Each rerun of a failed task counts toward `maxRetries`, so a task runs at most `maxRetries + 1` times in total. The job summary's `runnableTasks` says how many tasks the next run would execute; once the job is no longer `running`, `0` means rerunning will not change anything |
 | `/api/deepcrawl` | POST | Deep crawl API (BFS/BestFirst, stream/non-stream, checkpoint) |
 | `/api/og` | GET | Dynamic Open Graph image for landing/rendered pages |
 | `/img/<encoded-url>` | GET | Image proxy (bypasses hotlink protection) |

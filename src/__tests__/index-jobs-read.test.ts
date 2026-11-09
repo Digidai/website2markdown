@@ -83,6 +83,10 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
           priority: 5,
           maxRetries: 2,
           retryCount: 0,
+          tasks: [
+            { id: "t1", status: "succeeded", retryCount: 0, input: "https://example.com/a", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+            { id: "t2", status: "running", retryCount: 0, input: "https://example.com/b", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+          ],
           createdAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:01:00.000Z",
         });
@@ -95,12 +99,14 @@ describe("GET /api/jobs/:id and /api/jobs/:id/stream", () => {
     });
 
     const res = await worker.fetch(req, env, mockCtx());
-    const payload = await res.json() as { jobId?: string; status?: string; totalTasks?: number };
+    const payload = await res.json() as { jobId?: string; status?: string; totalTasks?: number; runnableTasks?: number };
 
     expect(res.status).toBe(200);
     expect(payload.jobId).toBe("job-1");
     expect(payload.status).toBe("running");
     expect(payload.totalTasks).toBe(2);
+    // If that run was interrupted, the next /run recovers and retries the running task.
+    expect(payload.runnableTasks).toBe(1);
   });
 
   it("streams job status and done for terminal job", async () => {

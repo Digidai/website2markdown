@@ -16,6 +16,7 @@ import {
 } from "../extraction/strategies";
 import {
   buildJobRecord,
+  isValidStatusTransition,
   jobStorageKey,
   validateJobCreatePayload,
 } from "../dispatcher/model";
@@ -120,6 +121,13 @@ export function summarizeJob(job: StoredJobRecord): Record<string, unknown> {
     priority: job.priority ?? 10,
     maxRetries: job.maxRetries ?? 2,
     retryCount: job.retryCount ?? 0,
+    /**
+     * Tasks the next POST /run would execute: queued ones, and failed ones with retries left.
+     * Tasks still marked running count as the failed tasks a later run recovers them as.
+     */
+    runnableTasks: (job.tasks ?? []).filter((task) =>
+      isTaskRunnable(task.status === "running" ? { ...task, status: "failed" } : task, job.maxRetries ?? 2),
+    ).length,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   };
@@ -345,8 +353,9 @@ export function remainingRetriesForTask(task: JobTaskRecord, maxRetries: number)
 }
 
 export function isTaskRunnable(task: JobTaskRecord, maxRetries: number): boolean {
-  if (task.status === "queued") return true;
-  return task.status === "failed" && remainingRetriesForTask(task, maxRetries) > 0;
+  if (!isValidStatusTransition(task.status, "running")) return false;
+  // Running a failed task again is itself a retry, so it needs one left.
+  return task.status === "queued" || remainingRetriesForTask(task, maxRetries) > 0;
 }
 
 export function recoverInterruptedTasks(job: JobRecord, nowIso: string): boolean {
@@ -404,6 +413,10 @@ export async function executeJobRun(
     );
   }
 
+  // Failed tasks run again as a retry: their first attempt in this run counts toward maxRetries.
+  const rerunTaskIds = new Set(
+    job.tasks.filter((task) => runnableTaskIds.has(task.id) && task.status === "failed").map((task) => task.id),
+  );
   for (const task of job.tasks) {
     if (!runnableTaskIds.has(task.id)) continue;
     task.status = "running";
@@ -421,7 +434,7 @@ export async function executeJobRun(
       input: task,
       url: task.url,
       retryCount: task.retryCount,
-      maxRetries: remainingRetriesForTask(task, job.maxRetries),
+      maxRetries: remainingRetriesForTask(task, job.maxRetries) - (rerunTaskIds.has(task.id) ? 1 : 0),
     })),
     async (runnerTask) => {
       const task = runnerTask.input as JobTaskRecord;
@@ -551,9 +564,9 @@ export async function executeJobRun(
     },
   );
 
-  const retriesUsedInRun = results.reduce(
-    (sum, item) => sum + Math.max(0, item.attempts - 1), 0,
-  );
+  const retriesUsed = (item: { id: string; attempts: number }) =>
+    Math.max(0, item.attempts - (rerunTaskIds.has(item.id) ? 0 : 1));
+  const retriesUsedInRun = results.reduce((sum, item) => sum + retriesUsed(item), 0);
   const runDurationMs = Math.max(0, Date.now() - runStartedAt);
   incrementCounter("jobRuns");
   incrementCounter("jobRetryAttempts", retriesUsedInRun);
@@ -563,7 +576,13 @@ export async function executeJobRun(
   for (const task of job.tasks) {
     const outcome = resultById.get(task.id);
     if (!outcome) continue;
-    task.retryCount += Math.max(0, outcome.attempts - 1);
+    if (outcome.attempts === 0) {
+      // Canceled before its turn: it never ran, so it goes back to how this run found it.
+      task.status = rerunTaskIds.has(task.id) ? "failed" : "queued";
+      task.updatedAt = new Date().toISOString();
+      continue;
+    }
+    task.retryCount += retriesUsed(outcome);
     task.status = outcome.success ? "succeeded" : "failed";
     task.error = outcome.success ? undefined : outcome.error || "Task failed";
     task.result = outcome.success ? normalizeTaskResultForStorage(outcome.result) : undefined;

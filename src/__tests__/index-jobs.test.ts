@@ -6,6 +6,7 @@ vi.mock("cloudflare:sockets", () => ({
 
 import worker from "../index";
 import { jobStorageKey } from "../dispatcher/model";
+import { executeJobRun } from "../handlers/jobs";
 import { createApiKeyAuthD1, createMockEnv, mockCtx } from "./test-helpers";
 import { createMockJobCoordinatorNamespace } from "./job-coordinator-test-helpers";
 
@@ -535,6 +536,11 @@ describe("POST /api/jobs", () => {
     expect(persisted.tasks[0].status).toBe("failed");
     expect(persisted.tasks[0].result).toBeUndefined();
     expect(typeof persisted.tasks[0].error).toBe("string");
+    // The rerun was the task's one allowed retry, even though a 400 is not retried within a run.
+    expect((persisted.tasks[0] as { retryCount?: number }).retryCount).toBe(1);
+    const payload = await res.json() as { runnableTasks?: number; retriesUsedInRun?: number };
+    expect(payload.retriesUsedInRun).toBe(1);
+    expect(payload.runnableTasks).toBe(0);
   });
 
   it("does not rerun failed tasks that exhausted maxRetries", async () => {
@@ -584,6 +590,45 @@ describe("POST /api/jobs", () => {
     expect(res.status).toBe(200);
     expect(payload.executedTasks).toBe(0);
     expect(payload.status).toBe("failed");
+  });
+
+  it("leaves tasks that never ran as they were when the run is canceled first", async () => {
+    const { env, mocks } = createMockEnv({ API_TOKEN: "token" });
+    const now = "2026-01-01T00:00:00.000Z";
+    const job = {
+      id: "job-canceled-early",
+      type: "crawl",
+      status: "failed",
+      priority: 10,
+      maxRetries: 1,
+      retryCount: 0,
+      totalTasks: 2,
+      succeededTasks: 0,
+      failedTasks: 1,
+      queuedTasks: 1,
+      runningTasks: 0,
+      canceledTasks: 0,
+      tasks: [
+        { id: "task-1", status: "queued", retryCount: 0, input: "https://example.com/a", url: "https://example.com/a", createdAt: now, updatedAt: now },
+        { id: "task-2", status: "failed", retryCount: 0, input: "https://example.com/b", url: "https://example.com/b", error: "old error", createdAt: now, updatedAt: now },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
+    mocks.kvGet.mockImplementation(async (key: string) =>
+      key === jobStorageKey("job-canceled-early") ? JSON.stringify(job) : null);
+
+    const res = await executeJobRun(env, "md.example.com", "job-canceled-early", AbortSignal.abort());
+    const payload = await res.json() as { runnableTasks?: number; retriesUsedInRun?: number };
+
+    const finalPersistCall = mocks.kvPut.mock.calls[mocks.kvPut.mock.calls.length - 1];
+    const persisted = JSON.parse(finalPersistCall[1] as string) as {
+      tasks: Array<{ status: string; retryCount: number; error?: string }>;
+    };
+    expect(persisted.tasks.map((t) => [t.status, t.retryCount])).toEqual([["queued", 0], ["failed", 0]]);
+    expect(persisted.tasks[1].error).toBe("old error");
+    expect(payload.retriesUsedInRun).toBe(0);
+    expect(payload.runnableTasks).toBe(2);
   });
 
   it("returns 503 when JOB_COORDINATOR is missing for /api/jobs/:id/run", async () => {

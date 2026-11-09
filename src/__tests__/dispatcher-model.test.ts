@@ -283,5 +283,8 @@ describe("dispatcher model", () => {
     expect(isValidStatusTransition("queued", "running")).toBe(true);
     expect(isValidStatusTransition("running", "succeeded")).toBe(true);
     expect(isValidStatusTransition("succeeded", "running")).toBe(false);
+    expect(isValidStatusTransition("failed", "running")).toBe(true);
+    expect(isValidStatusTransition("canceled", "running")).toBe(false);
+    expect(isValidStatusTransition("running", "running")).toBe(false);
   });
 });
