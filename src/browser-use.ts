@@ -96,39 +96,62 @@ async function createSession(
   return (await resp.json()) as BrowserUseSession;
 }
 
+/** Resolves after ms, or rejects as soon as the signal aborts. */
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Polls until the session finishes, fails, the caller aborts, or MAX_POLL_MS passes.
+ * Whenever it gives up before the session finished, it stops the remote session so it
+ * does not keep running (and billing) with nobody waiting for it.
+ */
 async function pollSession(
   sessionId: string,
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<BrowserUseSession | null> {
-  const deadline = Date.now() + MAX_POLL_MS;
+  const timeout = AbortSignal.timeout(MAX_POLL_MS);
+  const giveUp = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
-  while (Date.now() < deadline) {
-    if (signal?.aborted) return null;
+  try {
+    while (true) {
+      await wait(POLL_INTERVAL_MS, giveUp);
+      const resp = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+        headers: { "X-Browser-Use-API-Key": apiKey },
+        signal: AbortSignal.any([giveUp, AbortSignal.timeout(10000)]),
+      }).catch((error) => {
+        if (giveUp.aborted) throw error;
+        return null; // One slow or failed poll: try again.
+      });
+      if (!resp?.ok) continue;
 
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
-    const resp = await fetch(`${API_BASE}/sessions/${sessionId}`, {
-      headers: { "X-Browser-Use-API-Key": apiKey },
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!resp.ok) continue;
-
-    const session = (await resp.json()) as BrowserUseSession;
-
-    // "stopped" is the normal terminal state (agent finished and session stopped)
-    if (session.status === "completed" || session.status === "finished" || session.status === "stopped") {
-      return session;
+      const session = await resp.json().catch(() => null) as BrowserUseSession | null;
+      if (!session) continue;
+      // "stopped" is the normal terminal state (agent finished and session stopped)
+      if (session.status === "completed" || session.status === "finished" || session.status === "stopped") {
+        return session;
+      }
+      if (session.status === "failed" || session.status === "error") {
+        console.error("Browser Use session failed:", session.status);
+        return null;
+      }
     }
-    if (session.status === "failed" || session.status === "error") {
-      console.error("Browser Use session failed:", session.status);
-      return null;
-    }
-    // Still running — continue polling
+  } catch {
+    // Aborted by the caller or out of time.
   }
 
-  // Timed out — try to stop the session
   try {
     await fetch(`${API_BASE}/sessions/${sessionId}/stop`, {
       method: "PUT",
@@ -137,6 +160,6 @@ async function pollSession(
     });
   } catch {}
 
-  console.error("Browser Use session timed out after", MAX_POLL_MS, "ms");
+  if (!signal?.aborted) console.error("Browser Use session timed out after", MAX_POLL_MS, "ms");
   return null;
 }
