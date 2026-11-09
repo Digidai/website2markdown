@@ -18,7 +18,8 @@ export type Banner = { status: "success" | "danger"; text: string } | null;
 export type Loadable<T> = { status: "loading" } | { status: "ready"; value: T } | { status: "failed" };
 
 export type PortalState =
-  | { phase: "checking" }
+  /** banner: a sign-in error from the URL, shown if the cookie turns out to be stale. */
+  | { phase: "checking"; banner: Banner }
   | { phase: "unavailable" }
   | { phase: "signedOut"; banner: Banner }
   | { phase: "signedIn"; session: Session; usage: Loadable<Usage>; keys: Loadable<ApiKey[]> };
@@ -50,19 +51,19 @@ export const SESSION_EXPIRED_TEXT = "Your session has expired. Sign in again to 
 
 /** First state: without a session cookie /api/me can only answer 401, so the sign-in form shows at once. */
 export function initialPortalState(hasSession: boolean, error?: string): PortalState {
-  if (hasSession) return { phase: "checking" };
-  return { phase: "signedOut", banner: error ? { status: "danger", text: SIGN_IN_ERRORS[error] || "Sign-in failed." } : null };
+  const banner: Banner = error ? { status: "danger", text: SIGN_IN_ERRORS[error] || "Sign-in failed." } : null;
+  return hasSession ? { phase: "checking", banner } : { phase: "signedOut", banner };
 }
 
 export function portalReducer(state: PortalState, event: PortalEvent): PortalState {
   switch (state.phase) {
     case "checking":
       if (event.type === "meLoaded") return { phase: "signedIn", session: event.session, usage: { status: "loading" }, keys: { status: "loading" } };
-      if (event.type === "meUnauthorized") return { phase: "signedOut", banner: null };
+      if (event.type === "meUnauthorized") return { phase: "signedOut", banner: state.banner };
       if (event.type === "meFailed") return { phase: "unavailable" };
       return state;
     case "unavailable":
-      return event.type === "retry" ? { phase: "checking" } : state;
+      return event.type === "retry" ? { phase: "checking", banner: null } : state;
     case "signedOut":
       return state;
     case "signedIn":

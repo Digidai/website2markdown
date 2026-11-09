@@ -18,31 +18,37 @@ describe("portal session state machine", () => {
       banner: { status: "danger", text: "This sign-in link has expired. Please request a new one." },
     });
     expect(initialPortalState(false)).toEqual({ phase: "signedOut", banner: null });
-    expect(initialPortalState(true, "link_expired")).toEqual({ phase: "checking" });
+    // A stale cookie must not swallow the link error: it comes back when /api/me says 401.
+    const checking = initialPortalState(true, "link_expired");
+    expect(checking.phase).toBe("checking");
+    expect(portalReducer(checking, { type: "meUnauthorized" })).toEqual({
+      phase: "signedOut",
+      banner: { status: "danger", text: "This sign-in link has expired. Please request a new one." },
+    });
   });
 
   it("treats only a 401 as signed out; an outage offers a retry instead of the sign-in form", () => {
-    expect(run([{ type: "meUnauthorized" }], { phase: "checking" })).toEqual({ phase: "signedOut", banner: null });
-    const down = run([{ type: "meFailed" }], { phase: "checking" });
+    expect(run([{ type: "meUnauthorized" }], { phase: "checking", banner: null })).toEqual({ phase: "signedOut", banner: null });
+    const down = run([{ type: "meFailed" }], { phase: "checking", banner: null });
     expect(down).toEqual({ phase: "unavailable" });
-    expect(run([{ type: "retry" }], down)).toEqual({ phase: "checking" });
+    expect(run([{ type: "retry" }], down)).toEqual({ phase: "checking", banner: null });
   });
 
   it("shows a failed usage or keys request as failed, never as empty data", () => {
-    const state = run([{ type: "meLoaded", session }, { type: "usageFailed" }, { type: "keysFailed" }], { phase: "checking" });
+    const state = run([{ type: "meLoaded", session }, { type: "usageFailed" }, { type: "keysFailed" }], { phase: "checking", banner: null });
     expect(state).toEqual({ phase: "signedIn", session, usage: { status: "failed" }, keys: { status: "failed" } });
     expect(run([{ type: "usageLoading" }], state)).toMatchObject({ usage: { status: "loading" } });
   });
 
   it("keeps the current key list while a refresh is loading or fails", () => {
-    const ready = run([{ type: "meLoaded", session }, { type: "keysLoaded", keys: [key] }], { phase: "checking" });
+    const ready = run([{ type: "meLoaded", session }, { type: "keysLoaded", keys: [key] }], { phase: "checking", banner: null });
     expect(run([{ type: "keysLoading" }], ready)).toBe(ready);
     expect(run([{ type: "keysFailed" }], ready)).toBe(ready);
     expect(run([{ type: "keysLoaded", keys: [] }], ready)).toMatchObject({ keys: { status: "ready", value: [] } });
   });
 
   it("returns to the sign-in form with a notice when the session expires, and quietly on sign-out", () => {
-    const signedIn = run([{ type: "meLoaded", session }], { phase: "checking" });
+    const signedIn = run([{ type: "meLoaded", session }], { phase: "checking", banner: null });
     expect(run([{ type: "sessionExpired" }], signedIn)).toEqual({
       phase: "signedOut",
       banner: { status: "danger", text: SESSION_EXPIRED_TEXT },
