@@ -403,6 +403,29 @@ export function extractTitleFromCfMarkdown(markdown: string): string {
   return match ? match[1].trim() : "";
 }
 
+/**
+ * Fallback tags that only record what was tried, skipped or detected. Every other tag
+ * means the content came from a source other than the plain fetch.
+ */
+const NOTE_FALLBACKS = new Set([
+  "cf_empty_fallthrough",
+  "cf_error_fallthrough",
+  "context_dev_failed",
+  "context_dev_retry",
+  "context_dev_skipped_slow_host",
+  "context_dev_anon_budget_exhausted",
+  "proxy_anon_budget_exhausted",
+  "firecrawl_error_fallthrough",
+]);
+
+/** Whether some fallback already supplied the content (notes such as a failed attempt do not count). */
+export function usedAlternateSource(fallbacks: Iterable<string>): boolean {
+  for (const tag of fallbacks) {
+    if (!NOTE_FALLBACKS.has(tag) && !tag.startsWith("challenge_")) return true;
+  }
+  return false;
+}
+
 // ─── 转换结果接口 ────────────────────────────────────────────
 
 export interface ConvertResult {
@@ -1296,7 +1319,7 @@ async function tryFetchAndParse(
   if (
     providerApiKeysAllowed &&
     (markdown === challengeMarkdown ||
-      (markdown.length < 500 && !browserRendered && fallbacks.size === 0 && finalHtml.length > 2000))
+      (markdown.length < 500 && !browserRendered && !usedAlternateSource(fallbacks) && finalHtml.length > 2000))
   ) {
     // A challenge page's wording is no content: any provider text beats it,
     // unless the provider was shown the challenge too.
