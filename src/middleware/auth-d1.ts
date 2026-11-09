@@ -13,8 +13,8 @@
  *                                  return anonymous
  */
 
-import type { AuthContext, Env, Tier } from "../types";
-import { TIER_QUOTAS } from "../types";
+import type { AuthContext, Env } from "../types";
+import { TIER_QUOTAS, tierForPlan } from "../types";
 import { ensureMonthlyQuota } from "./quota";
 
 const AUTH_LRU_CAPACITY = 1024;
@@ -123,7 +123,7 @@ export async function resolveAuth(
     );
     const creditsUsed = rolled.used;
 
-    const tier = (row.tier === "pro" ? "pro" : "free") as Tier;
+    const tier = tierForPlan(row.tier);
     const ctx: AuthContext = {
       tier,
       accountId: row.account_id,
