@@ -1,4 +1,5 @@
 import { MAX_URL_LENGTH } from "./config";
+import { TLDS } from "./tlds";
 import { errorMessage } from "./utils";
 
 const SAFE_URL_MEMO_MAX_SIZE = 2048;
@@ -382,10 +383,10 @@ export function isSafeUrl(url: string): boolean {
   }
 }
 
-// A trailing backup suffix (phpinfo.php.bak, info.php.old) is the same probe.
-// The suffix only counts after a file extension, so a real .save domain still works.
+// .save is a real TLD and also an editor backup suffix (phpinfo.php.save). It only counts
+// after a file extension, so a real .save domain still works.
 const FILE_EXTENSION_HOST =
-  /\.(txt|json|xml|html?|php|aspx?|js|css|jpe?g|png|gif|svg|ico|webp)(\.(bak|old|save|swp|orig|tmp|backup|\d+))?$/i;
+  /\.(txt|json|xml|html?|php|aspx?|js|css|jpe?g|png|gif|svg|ico|webp)\.save$/i;
 
 /** Check that the URL is valid HTTP(S). */
 export function isValidUrl(url: string): boolean {
@@ -396,8 +397,12 @@ export function isValidUrl(url: string): boolean {
     // A dotless host such as https://wp-content/... is a mis-joined relative path or a probe.
     // IPv6 literals keep their colons in the hostname.
     if (!/[.:]/.test(parsed.hostname)) return false;
-    // A host such as ads.txt or sellers.json is a file name a scanner joined as a host.
-    // These endings are not top-level domains (unlike .zip, .mov or .md), so no real site uses them.
+    // IP literals have no top-level domain; isSafeUrl decides which addresses are allowed.
+    if (parsed.hostname.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(parsed.hostname)) return true;
+    // A host such as config.env or docker-compose.yml is a file name a scanner joined as a host,
+    // and static.. is a mis-joined path. Neither ends in a real top-level domain.
+    const tld = parsed.hostname.replace(/\.$/, "").split(".").pop()!;
+    if (!TLDS.has(tld)) return false;
     return !FILE_EXTENSION_HOST.test(parsed.hostname);
   } catch {
     return false;

@@ -189,6 +189,18 @@ describe("isValidUrl", () => {
     expect(isValidUrl("https://jsonplaceholder.typicode.com")).toBe(true);
   });
 
+  it("rejects hosts that do not end in a real top-level domain", () => {
+    expect(isValidUrl("https://docker-compose.yml/")).toBe(false);
+    expect(isValidUrl("https://config.env")).toBe(false);
+    expect(isValidUrl("https://wrangler.toml")).toBe(false);
+    expect(isValidUrl("https://static../app.js")).toBe(false);
+    expect(isValidUrl("https://example.com&format=json")).toBe(false);
+    expect(isValidUrl("https://money.usnews.com./x")).toBe(true);
+    expect(isValidUrl("https://bun.sh")).toBe(true);
+    expect(isValidUrl("https://例子.中国/")).toBe(true);
+    expect(isValidUrl("https://EXAMPLE.COM/")).toBe(true);
+  });
+
   it("rejects invalid URLs", () => {
     expect(isValidUrl("not-a-url")).toBe(false);
     expect(isValidUrl("")).toBe(false);
