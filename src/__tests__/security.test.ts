@@ -198,6 +198,9 @@ describe("isValidUrl", () => {
     expect(isValidUrl("https://money.usnews.com./x")).toBe(true);
     expect(isValidUrl("https://bun.sh")).toBe(true);
     expect(isValidUrl("https://例子.中国/")).toBe(true);
+    expect(isValidUrl("https://пример.рф/")).toBe(true);
+    expect(isValidUrl("https://primer.срб/")).toBe(true);
+    expect(isValidUrl("https://example.xn--/")).toBe(false);
     expect(isValidUrl("https://EXAMPLE.COM/")).toBe(true);
   });
 
