@@ -36,7 +36,7 @@ async function convert(url: string, env = createMockEnv().env, headers: HeadersI
 
 describe("anonymous origin failure cache", () => {
   it("replays an anonymous 404 without a second fetch, and still fetches for other callers", async () => {
-    const target = "https://neg-404.example/missing";
+    const target = "https://neg-404.example.com/missing";
     const fetchMock = vi.fn().mockResolvedValue(page(404, "Not Found"));
     vi.stubGlobal("fetch", fetchMock);
     const { env } = createMockEnv();
@@ -114,19 +114,19 @@ describe("anonymous origin failure cache", () => {
       .mockResolvedValue(page(412, "Precondition Failed"));
     vi.stubGlobal("fetch", fetchMock);
     const { env, mocks } = createMockEnv();
-    const serverError = await convert("https://md.example.com/https://neg-500.example/boom?raw=true", env);
+    const serverError = await convert("https://md.example.com/https://neg-500.example.com/boom?raw=true", env);
     expect(serverError.status).toBe(502);
     expect(serverError.headers.get("Cache-Control")).toBeNull();
     const afterFirst = fetchMock.mock.calls.length;
-    const serverErrorAgain = await convert("https://md.example.com/https://neg-500.example/boom?raw=true", env);
+    const serverErrorAgain = await convert("https://md.example.com/https://neg-500.example.com/boom?raw=true", env);
     expect(serverErrorAgain.status).toBe(502);
     expect(fetchMock.mock.calls.length).toBeGreaterThan(afterFirst);
 
-    const precondition = await convert("https://md.example.com/https://neg-412.example/gone?raw=true", env);
+    const precondition = await convert("https://md.example.com/https://neg-412.example.com/gone?raw=true", env);
     expect(precondition.status).toBe(502);
     expect(precondition.headers.get("Cache-Control")).toBeNull();
     const after412 = fetchMock.mock.calls.length;
-    await convert("https://md.example.com/https://neg-412.example/gone?raw=true", env);
+    await convert("https://md.example.com/https://neg-412.example.com/gone?raw=true", env);
     expect(fetchMock.mock.calls.length).toBeGreaterThan(after412);
     const remembered = mocks.kvPut.mock.calls.filter((call) => String(call[0]).includes("https://md-neg/"));
     expect(remembered).toHaveLength(0);
@@ -310,7 +310,7 @@ describe("anonymous search-page gate", () => {
   });
 
   it("replays an anonymous stream failure as HTTP 200 SSE and does not fetch again", async () => {
-    const target = "https://neg-stream-404.example/missing";
+    const target = "https://neg-stream-404.example.com/missing";
     const fetchMock = vi.fn().mockResolvedValue(page(404, "Not Found"));
     vi.stubGlobal("fetch", fetchMock);
     const { env } = createMockEnv();
