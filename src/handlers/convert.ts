@@ -1985,6 +1985,8 @@ async function tryDirectProxyFetch(
   }
 
   let result: ProxyFetchResult;
+  // Attempts the site answered with 403, 429 or a challenge.
+  let refusals = 0;
   try {
     const headerVariants = [
       { name: "mobile", headers },
@@ -2001,11 +2003,14 @@ async function tryDirectProxyFetch(
       {
         timeoutMs: 25_000,
         signal: abortSignal,
-        acceptResult: (candidate) =>
-          candidate.status >= 200 &&
-          candidate.status < 400 &&
-          candidate.body.length > 1000 &&
-          !isLikelyChallengeHtml(candidate.body),
+        acceptResult: (candidate) => {
+          const challenge = isLikelyChallengeHtml(candidate.body);
+          if (candidate.status >= 200 && candidate.status < 400 && candidate.body.length > 1000 && !challenge) {
+            return true;
+          }
+          if (challenge || ANON_PROXY_STATUSES.includes(candidate.status)) refusals += 1;
+          return false;
+        },
       },
     ));
     fallbacks.add(`direct_proxy_${proxyResult.variant}`);
@@ -2014,12 +2019,8 @@ async function tryDirectProxyFetch(
     console.error("Direct proxy fetch failed:", errorMessage(e));
     // Every attempt reached the site and was turned away. A 404 or a thin page
     // is about this URL, not the host, and a proxy error is about the proxy.
-    const { attempts = 0, rejected = [] } = e as Partial<ProxyPoolError>;
-    if (
-      attempts > 0 &&
-      rejected.length === attempts &&
-      rejected.every((r) => ANON_PROXY_STATUSES.includes(r.status) || isLikelyChallengeHtml(r.body))
-    ) {
+    const attempts = (e as Partial<ProxyPoolError>).attempts ?? 0;
+    if (attempts > 0 && refusals === attempts) {
       await env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", {
         expirationTtl: PROXY_REFUSED_HOST_TTL_S,
       }).catch(() => {});

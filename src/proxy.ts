@@ -31,15 +31,9 @@ export interface ProxyPoolResult extends ProxyFetchResult {
 
 /** What fetchViaProxyPool throws when no attempt is accepted. */
 export interface ProxyPoolError extends Error {
+  /** Every attempt, including those that threw before acceptResult saw a response. */
   attempts: number;
-  /**
-   * The responses acceptResult refused; attempts that threw have none. A body
-   * over REJECTED_BODY_MAX_CHARS is dropped (""), since a challenge page is small.
-   */
-  rejected: ProxyFetchResult[];
 }
-
-const REJECTED_BODY_MAX_CHARS = 64 * 1024;
 
 export interface ProxyPoolOptions {
   timeoutMs?: number;
@@ -347,7 +341,6 @@ export async function fetchViaProxyPool(
     : [{ name: "default", headers: {} }];
 
   const errors: string[] = [];
-  const rejected: ProxyFetchResult[] = [];
   let attempts = 0;
 
   for (let proxyIndex = 0; proxyIndex < proxies.length; proxyIndex++) {
@@ -379,7 +372,6 @@ export async function fetchViaProxyPool(
             errors,
           };
         }
-        rejected.push({ ...result, body: result.body.length <= REJECTED_BODY_MAX_CHARS ? result.body : "" });
         errors.push(
           `proxy[${proxyIndex}]/${variant.name}: rejected status=${result.status} body_bytes=${result.body.length}`,
         );
@@ -393,7 +385,7 @@ export async function fetchViaProxyPool(
 
   const failure: ProxyPoolError = Object.assign(
     new Error(`All proxy attempts failed (${attempts} attempts): ${errors.join(" | ")}`),
-    { attempts, rejected },
+    { attempts },
   );
   throw failure;
 }

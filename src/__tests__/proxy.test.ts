@@ -552,7 +552,7 @@ describe("fetchViaProxy", () => {
     expect(result.errors[0]).toContain("rejected status=429");
   });
 
-  it("reports the responses it refused apart from attempts that failed", async () => {
+  it("reports every attempt when none is accepted, including those that threw", async () => {
     const refused = createSocketFromRawResponse(
       "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\n\r\nblocked",
     );
@@ -568,7 +568,7 @@ describe("fetchViaProxy", () => {
     ).then(() => { throw new Error("expected a failure"); }, (e: ProxyPoolError) => e);
 
     expect(error.attempts).toBe(2);
-    expect(error.rejected.map((r) => [r.status, r.body])).toEqual([[403, "blocked"]]);
+    expect(error.message).toContain("rejected status=403");
   });
 });
 

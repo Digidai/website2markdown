@@ -555,10 +555,19 @@ describe("index mocked branch coverage", () => {
   });
 
   describe("anonymous proxy on a host that refused it", () => {
-    const refusedAll = (status: number, body = "<html>no</html>") => Object.assign(
-      new Error("All proxy attempts failed"),
-      { attempts: 2, rejected: [{ status, headers: {}, body }, { status, headers: {}, body }] },
-    );
+    type Outcome = { status: number; body?: string } | "error";
+    // Passes each response through acceptResult as the pool does; "error" is an attempt that threw.
+    const poolAnswers = (...outcomes: Outcome[]) => async (
+      _url: string, _proxies: unknown, _variants: unknown,
+      options: { acceptResult: (r: unknown, c: unknown) => boolean | Promise<boolean> },
+    ) => {
+      for (const [i, outcome] of outcomes.entries()) {
+        if (outcome === "error") continue;
+        await options.acceptResult({ status: outcome.status, headers: {}, body: outcome.body ?? "<html>no</html>" }, { attempts: i + 1 });
+      }
+      throw Object.assign(new Error("All proxy attempts failed"), { attempts: outcomes.length });
+    };
+    const challenge = { status: 200, body: "<html><title>Just a moment...</title><script>window._cf_chl_opt = {};</script></html>" };
     const setup = () => {
       vi.stubGlobal("fetch", vi.fn().mockImplementation(async () =>
         new Response("forbidden", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } })));
@@ -577,9 +586,7 @@ describe("index mocked branch coverage", () => {
 
     it("skips the proxy for that host for a day after a challenge, and only for that host", async () => {
       const { convert, mocks } = setup();
-      mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValue(
-        refusedAll(200, "<html><title>Just a moment...</title><script>window._cf_chl_opt = {};</script></html>"),
-      );
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers(challenge, challenge) as never);
 
       expect((await convert("https://refused.example.com/a")).status).toBe(502);
       expect(mocks.kvPut).toHaveBeenCalledWith("proxy-refused:refused.example.com", "1", { expirationTtl: 86_400 });
@@ -593,7 +600,7 @@ describe("index mocked branch coverage", () => {
     it("also skips the proxy for a site that always needs a browser", async () => {
       mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
       const { convert } = setup();
-      mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValue(refusedAll(403));
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers({ status: 403 }, { status: 429 }) as never);
 
       await convert("https://browser-only.example.com/a");
       await convert("https://browser-only.example.com/b");
@@ -603,17 +610,13 @@ describe("index mocked branch coverage", () => {
     it("keeps trying the host when the proxy failed or the site only refused one page", async () => {
       const { convert } = setup();
       mocked.proxy.fetchViaProxyPool.mockReset()
-        .mockRejectedValueOnce(Object.assign(new Error("Proxy CONNECT tunnel rejected with status 407"), { attempts: 2, rejected: [] }))
-        .mockRejectedValueOnce(refusedAll(404))
-        .mockRejectedValueOnce(Object.assign(new Error("mixed"), {
-          attempts: 2, rejected: [{ status: 403, headers: {}, body: "no" }],
-        }));
+        .mockImplementationOnce(poolAnswers("error", "error") as never)
+        .mockImplementationOnce(poolAnswers({ status: 404 }, { status: 404 }) as never)
+        .mockImplementationOnce(poolAnswers({ status: 403 }, "error") as never)
+        .mockImplementationOnce(poolAnswers({ status: 403 }, { status: 200, body: "thin" }) as never);
 
-      await convert("https://flaky.example.com/a");
-      await convert("https://flaky.example.com/b");
-      await convert("https://flaky.example.com/c");
-      await convert("https://flaky.example.com/d");
-      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(4);
+      for (const path of ["a", "b", "c", "d", "e"]) await convert(`https://flaky.example.com/${path}`);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(5);
     });
   });
 
