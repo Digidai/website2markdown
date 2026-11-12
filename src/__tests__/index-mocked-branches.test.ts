@@ -590,6 +590,16 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(2);
     });
 
+    it("also skips the proxy for a site that always needs a browser", async () => {
+      mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+      const { convert } = setup();
+      mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValue(refusedAll(403));
+
+      await convert("https://browser-only.example.com/a");
+      await convert("https://browser-only.example.com/b");
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
+    });
+
     it("keeps trying the host when the proxy failed or the site only refused one page", async () => {
       const { convert } = setup();
       mocked.proxy.fetchViaProxyPool.mockReset()

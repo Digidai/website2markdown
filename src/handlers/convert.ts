@@ -1065,7 +1065,7 @@ async function tryFetchAndParse(
         }
       }
     }
-    if (!finalHtml) {
+    if (!finalHtml && (providerApiKeysAllowed || !(await proxyRefusedHost(targetUrl, env, fallbacks)))) {
       const proxyResult = await tryDirectProxyFetch(
         targetUrl, env, fallbacks, abortSignal, progress,
       );
@@ -1594,6 +1594,13 @@ function proxyRefusedHostKey(url: string): string {
   return `proxy-refused:${new URL(url).hostname}`;
 }
 
+/** Whether the site refused the proxy within the last day, so an anonymous request skips it. */
+async function proxyRefusedHost(targetUrl: string, env: Env, fallbacks: Set<string>): Promise<boolean> {
+  if (!(await env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)).catch(() => null))) return false;
+  fallbacks.add("proxy_anon_host_refused");
+  return true;
+}
+
 /**
  * Retries a blocked anonymous request once through the residential proxy,
  * within a site-wide daily budget. Returns null when the budget is spent, the
@@ -1607,10 +1614,7 @@ async function tryAnonymousProxy(
   progress?: StreamProgress,
 ): Promise<string | null> {
   if (!env.PROXY_POOL && !env.PROXY_URL) return null;
-  if (await env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)).catch(() => null)) {
-    fallbacks.add("proxy_anon_host_refused");
-    return null;
-  }
+  if (await proxyRefusedHost(targetUrl, env, fallbacks)) return null;
   const day = new Date().toISOString().slice(0, 10);
   const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
   if (budget.blocked) {
