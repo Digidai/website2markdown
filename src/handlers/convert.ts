@@ -35,6 +35,7 @@ import {
   fetchViaProxy,
   fetchViaProxyPool,
   type ProxyFetchResult,
+  type ProxyPoolError,
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
 import { fetchViaContextDev } from "../context-dev";
@@ -69,7 +70,7 @@ import {
   stripAmpAccessControls,
 } from "../paywall";
 import { recordConversionLatency } from "../observability/metrics";
-import { errorMessage } from "../utils";
+import { errorMessage, withTimeout } from "../utils";
 import { ConvertError, type ConvertDiagnostics, type ConvertErrorPublic } from "../helpers/response";
 import {
   GOV_EMPTY_SHELL_MESSAGE,
@@ -415,6 +416,7 @@ const NOTE_FALLBACKS = new Set([
   "context_dev_skipped_slow_host",
   "context_dev_anon_budget_exhausted",
   "proxy_anon_budget_exhausted",
+  "proxy_anon_host_refused",
   "firecrawl_error_fallthrough",
 ]);
 
@@ -1063,7 +1065,7 @@ async function tryFetchAndParse(
         }
       }
     }
-    if (!finalHtml) {
+    if (!finalHtml && (providerApiKeysAllowed || !(await proxyRefusedHost(targetUrl, env, fallbacks)))) {
       const proxyResult = await tryDirectProxyFetch(
         targetUrl, env, fallbacks, abortSignal, progress,
       );
@@ -1581,9 +1583,35 @@ const ANON_PROXY_STATUSES = [403, 429];
 /** Site-wide daily cap on those retries, to protect the proxy's monthly traffic. */
 const ANON_PROXY_DAILY_LIMIT = 100;
 /**
+ * How long a host the site turned the proxy away from (a challenge page or 429
+ * on every attempt) skips the anonymous proxy. Some bot walls refuse the proxy
+ * every time (Britannica, Merriam-Webster), others let it through, so the first
+ * request still tries.
+ */
+const PROXY_REFUSED_HOST_TTL_S = 86_400;
+/** The record is optional: a slow KV read counts as a miss, a slow write is skipped. */
+const PROXY_REFUSED_KV_TIMEOUT_MS = 1_000;
+
+function proxyRefusedHostKey(url: string): string {
+  return `proxy-refused:${new URL(url).hostname}`;
+}
+
+/** Whether the site refused the proxy within the last day, so an anonymous request skips it. */
+async function proxyRefusedHost(targetUrl: string, env: Env, fallbacks: Set<string>): Promise<boolean> {
+  const refused = await withTimeout(
+    env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)),
+    PROXY_REFUSED_KV_TIMEOUT_MS,
+    "KV read timed out",
+  ).catch(() => null);
+  if (!refused) return false;
+  fallbacks.add("proxy_anon_host_refused");
+  return true;
+}
+
+/**
  * Retries a blocked anonymous request once through the residential proxy,
- * within a site-wide daily budget. Returns null when the budget is spent or
- * the proxy also fails.
+ * within a site-wide daily budget. Returns null when the budget is spent, the
+ * site refused the proxy within the last day, or the proxy also fails.
  */
 async function tryAnonymousProxy(
   targetUrl: string,
@@ -1593,6 +1621,7 @@ async function tryAnonymousProxy(
   progress?: StreamProgress,
 ): Promise<string | null> {
   if (!env.PROXY_POOL && !env.PROXY_URL) return null;
+  if (await proxyRefusedHost(targetUrl, env, fallbacks)) return null;
   const day = new Date().toISOString().slice(0, 10);
   const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
   if (budget.blocked) {
@@ -1963,6 +1992,9 @@ async function tryDirectProxyFetch(
   }
 
   let result: ProxyFetchResult;
+  // Attempts the site answered with a bot-wall challenge or 429, which apply to the
+  // whole host. A plain 403 or a login form may be one restricted page.
+  let refusals = 0;
   try {
     const headerVariants = [
       { name: "mobile", headers },
@@ -1979,17 +2011,35 @@ async function tryDirectProxyFetch(
       {
         timeoutMs: 25_000,
         signal: abortSignal,
-        acceptResult: (candidate) =>
-          candidate.status >= 200 &&
-          candidate.status < 400 &&
-          candidate.body.length > 1000 &&
-          !isLikelyChallengeHtml(candidate.body),
+        acceptResult: (candidate) => {
+          if (
+            candidate.status >= 200 &&
+            candidate.status < 400 &&
+            candidate.body.length > 1000 &&
+            !isLikelyChallengeHtml(candidate.body)
+          ) {
+            return true;
+          }
+          // Only a bot wall: isLikelyChallengeHtml also matches one page's login form.
+          if (candidate.status === 429 || detectChallengePage(candidate.body)) refusals += 1;
+          return false;
+        },
       },
     ));
     fallbacks.add(`direct_proxy_${proxyResult.variant}`);
     result = proxyResult;
   } catch (e) {
     console.error("Direct proxy fetch failed:", errorMessage(e));
+    // Every attempt reached the site and was turned away. A plain 403, a 404 or
+    // a thin page is about this URL, and a proxy error is about the proxy.
+    const attempts = (e as Partial<ProxyPoolError>).attempts ?? 0;
+    if (attempts > 0 && refusals === attempts) {
+      await withTimeout(
+        env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", { expirationTtl: PROXY_REFUSED_HOST_TTL_S }),
+        PROXY_REFUSED_KV_TIMEOUT_MS,
+        "KV write timed out",
+      ).catch(() => {});
+    }
     return null;
   }
   // The site said what it sent; a PDF or image must not be decoded as a page.

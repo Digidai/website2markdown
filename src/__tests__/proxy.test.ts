@@ -17,6 +17,7 @@ import {
   parseProxyUrl,
   parseProxyPool,
   type ProxyConfig,
+  type ProxyPoolError,
 } from "../proxy";
 
 type ProxyReadResult = { value?: Uint8Array; done: boolean };
@@ -549,6 +550,25 @@ describe("fetchViaProxy", () => {
     expect(result.variant).toBe("mobile");
     expect(result.attempts).toBe(2);
     expect(result.errors[0]).toContain("rejected status=429");
+  });
+
+  it("reports every attempt when none is accepted, including those that threw", async () => {
+    const refused = createSocketFromRawResponse(
+      "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\n\r\nblocked",
+    );
+    vi.mocked(connect)
+      .mockReturnValueOnce(refused.socket as never)
+      .mockImplementationOnce(() => { throw new Error("connect failed"); });
+
+    const error: ProxyPoolError = await fetchViaProxyPool(
+      "http://example.com/path",
+      [makeProxyConfig()],
+      [{ name: "mobile", headers: {} }, { name: "desktop", headers: {} }],
+      { acceptResult: (candidate) => candidate.status === 200 },
+    ).then(() => { throw new Error("expected a failure"); }, (e: ProxyPoolError) => e);
+
+    expect(error.attempts).toBe(2);
+    expect(error.message).toContain("rejected status=403");
   });
 });
 

@@ -554,6 +554,84 @@ describe("index mocked branch coverage", () => {
     expect(JSON.stringify(payload)).not.toMatch(/proxy/i);
   });
 
+  describe("anonymous proxy on a host that refused it", () => {
+    type Outcome = { status: number; body?: string } | "error";
+    // Passes each response through acceptResult as the pool does; "error" is an attempt that threw.
+    const poolAnswers = (...outcomes: Outcome[]) => async (
+      _url: string, _proxies: unknown, _variants: unknown,
+      options: { acceptResult: (r: unknown, c: unknown) => boolean | Promise<boolean> },
+    ) => {
+      for (const [i, outcome] of outcomes.entries()) {
+        if (outcome === "error") continue;
+        await options.acceptResult({ status: outcome.status, headers: {}, body: outcome.body ?? "<html>no</html>" }, { attempts: i + 1 });
+      }
+      throw Object.assign(new Error("All proxy attempts failed"), { attempts: outcomes.length });
+    };
+    const challenge = { status: 200, body: "<html><title>Just a moment...</title><script>window._cf_chl_opt = {};</script></html>" };
+    const loginForm = { status: 403, body: "<html><form><input name='login_type' value='password'></form></html>" };
+    const setup = () => {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async () =>
+        new Response("forbidden", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } })));
+      mocked.proxy.parseProxyUrl.mockReturnValue({
+        host: "proxy.example.com", port: 8080, username: "u", password: "p",
+      });
+      const kv = new Map<string, string>();
+      const { env, mocks } = createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" });
+      mocks.kvGet.mockImplementation((async (key: string) => kv.get(key) ?? null) as never);
+      mocks.kvPut.mockImplementation((async (key: string, value: string) => { kv.set(key, value); }) as never);
+      const convert = (url: string) => worker.fetch(new Request(`https://md.example.com/${url}?raw=true`, {
+        headers: { Accept: "application/json" },
+      }), env, mockCtx());
+      return { convert, mocks };
+    };
+
+    it("skips the proxy for that host for a day after a challenge, and only for that host", async () => {
+      const { convert, mocks } = setup();
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers(challenge, challenge) as never);
+
+      expect((await convert("https://refused.example.com/a")).status).toBe(502);
+      expect(mocks.kvPut).toHaveBeenCalledWith("proxy-refused:refused.example.com", "1", { expirationTtl: 86_400 });
+      const second = await convert("https://refused.example.com/b");
+      expect(second.status).toBe(502);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
+      await convert("https://other.example.com/a");
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(2);
+    });
+
+    it("also skips the proxy for a site that always needs a browser", async () => {
+      mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
+      const { convert } = setup();
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers(challenge, { status: 429 }) as never);
+
+      await convert("https://browser-only.example.com/a");
+      await convert("https://browser-only.example.com/b");
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
+    });
+
+    it("still tries the proxy when the KV read hangs", async () => {
+      const { convert, mocks } = setup();
+      mocks.kvGet.mockImplementation((() => new Promise(() => {})) as never);
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers(challenge, challenge) as never);
+
+      expect((await convert("https://slow-kv.example.com/a")).status).toBe(502);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    });
+
+    it("keeps trying the host after proxy errors, plain 403s, login forms, 404s or mixed results", async () => {
+      const { convert } = setup();
+      mocked.proxy.fetchViaProxyPool.mockReset()
+        .mockImplementationOnce(poolAnswers("error", "error") as never)
+        .mockImplementationOnce(poolAnswers({ status: 404 }, { status: 404 }) as never)
+        .mockImplementationOnce(poolAnswers({ status: 403 }, { status: 403 }) as never)
+        .mockImplementationOnce(poolAnswers(loginForm, loginForm) as never)
+        .mockImplementationOnce(poolAnswers(challenge, "error") as never)
+        .mockImplementationOnce(poolAnswers(challenge, { status: 200, body: "thin" }) as never);
+
+      for (const path of ["a", "b", "c", "d", "e", "f", "g"]) await convert(`https://flaky.example.com/${path}`);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(7);
+    });
+  });
+
   it("retries through proxy and succeeds after PROXY_RETRY signal", async () => {
     mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
     mocked.browser.fetchWithBrowser.mockRejectedValueOnce(

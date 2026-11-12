@@ -29,6 +29,12 @@ export interface ProxyPoolResult extends ProxyFetchResult {
   errors: string[];
 }
 
+/** What fetchViaProxyPool throws when no attempt is accepted. */
+export interface ProxyPoolError extends Error {
+  /** Every attempt, including those that threw before acceptResult saw a response. */
+  attempts: number;
+}
+
 export interface ProxyPoolOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -377,9 +383,11 @@ export async function fetchViaProxyPool(
     }
   }
 
-  throw new Error(
-    `All proxy attempts failed (${attempts} attempts): ${errors.join(" | ")}`,
+  const failure: ProxyPoolError = Object.assign(
+    new Error(`All proxy attempts failed (${attempts} attempts): ${errors.join(" | ")}`),
+    { attempts },
   );
+  throw failure;
 }
 
 function concatUint8Arrays(chunks: Uint8Array[], total: number): Uint8Array {
