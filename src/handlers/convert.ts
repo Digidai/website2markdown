@@ -1583,7 +1583,7 @@ const ANON_PROXY_STATUSES = [403, 429];
 /** Site-wide daily cap on those retries, to protect the proxy's monthly traffic. */
 const ANON_PROXY_DAILY_LIMIT = 100;
 /**
- * How long a host the site turned the proxy away from (403, 429 or a challenge
+ * How long a host the site turned the proxy away from (a challenge page or 429
  * on every attempt) skips the anonymous proxy. Some bot walls refuse the proxy
  * every time (Britannica, Merriam-Webster), others let it through, so the first
  * request still tries.
@@ -1985,7 +1985,8 @@ async function tryDirectProxyFetch(
   }
 
   let result: ProxyFetchResult;
-  // Attempts the site answered with 403, 429 or a challenge.
+  // Attempts the site answered with a challenge page or 429, which apply to the
+  // whole host. A plain 403 may be one restricted page, so it does not count.
   let refusals = 0;
   try {
     const headerVariants = [
@@ -2008,7 +2009,7 @@ async function tryDirectProxyFetch(
           if (candidate.status >= 200 && candidate.status < 400 && candidate.body.length > 1000 && !challenge) {
             return true;
           }
-          if (challenge || ANON_PROXY_STATUSES.includes(candidate.status)) refusals += 1;
+          if (challenge || candidate.status === 429) refusals += 1;
           return false;
         },
       },
@@ -2017,8 +2018,8 @@ async function tryDirectProxyFetch(
     result = proxyResult;
   } catch (e) {
     console.error("Direct proxy fetch failed:", errorMessage(e));
-    // Every attempt reached the site and was turned away. A 404 or a thin page
-    // is about this URL, not the host, and a proxy error is about the proxy.
+    // Every attempt reached the site and was turned away. A plain 403, a 404 or
+    // a thin page is about this URL, and a proxy error is about the proxy.
     const attempts = (e as Partial<ProxyPoolError>).attempts ?? 0;
     if (attempts > 0 && refusals === attempts) {
       await env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", {

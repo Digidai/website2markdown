@@ -600,23 +600,24 @@ describe("index mocked branch coverage", () => {
     it("also skips the proxy for a site that always needs a browser", async () => {
       mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
       const { convert } = setup();
-      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers({ status: 403 }, { status: 429 }) as never);
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers(challenge, { status: 429 }) as never);
 
       await convert("https://browser-only.example.com/a");
       await convert("https://browser-only.example.com/b");
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
     });
 
-    it("keeps trying the host when the proxy failed or the site only refused one page", async () => {
+    it("keeps trying the host after proxy errors, plain 403s, 404s or mixed results", async () => {
       const { convert } = setup();
       mocked.proxy.fetchViaProxyPool.mockReset()
         .mockImplementationOnce(poolAnswers("error", "error") as never)
         .mockImplementationOnce(poolAnswers({ status: 404 }, { status: 404 }) as never)
-        .mockImplementationOnce(poolAnswers({ status: 403 }, "error") as never)
-        .mockImplementationOnce(poolAnswers({ status: 403 }, { status: 200, body: "thin" }) as never);
+        .mockImplementationOnce(poolAnswers({ status: 403 }, { status: 403 }) as never)
+        .mockImplementationOnce(poolAnswers(challenge, "error") as never)
+        .mockImplementationOnce(poolAnswers(challenge, { status: 200, body: "thin" }) as never);
 
-      for (const path of ["a", "b", "c", "d", "e"]) await convert(`https://flaky.example.com/${path}`);
-      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(5);
+      for (const path of ["a", "b", "c", "d", "e", "f"]) await convert(`https://flaky.example.com/${path}`);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(6);
     });
   });
 
