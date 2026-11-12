@@ -608,6 +608,15 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
     });
 
+    it("still tries the proxy when the KV read hangs", async () => {
+      const { convert, mocks } = setup();
+      mocks.kvGet.mockImplementation((() => new Promise(() => {})) as never);
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(poolAnswers(challenge, challenge) as never);
+
+      expect((await convert("https://slow-kv.example.com/a")).status).toBe(502);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    });
+
     it("keeps trying the host after proxy errors, plain 403s, login forms, 404s or mixed results", async () => {
       const { convert } = setup();
       mocked.proxy.fetchViaProxyPool.mockReset()

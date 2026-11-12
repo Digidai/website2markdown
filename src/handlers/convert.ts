@@ -70,7 +70,7 @@ import {
   stripAmpAccessControls,
 } from "../paywall";
 import { recordConversionLatency } from "../observability/metrics";
-import { errorMessage } from "../utils";
+import { errorMessage, withTimeout } from "../utils";
 import { ConvertError, type ConvertDiagnostics, type ConvertErrorPublic } from "../helpers/response";
 import {
   GOV_EMPTY_SHELL_MESSAGE,
@@ -1589,6 +1589,8 @@ const ANON_PROXY_DAILY_LIMIT = 100;
  * request still tries.
  */
 const PROXY_REFUSED_HOST_TTL_S = 86_400;
+/** The record is optional: a slow KV read counts as a miss, a slow write is skipped. */
+const PROXY_REFUSED_KV_TIMEOUT_MS = 1_000;
 
 function proxyRefusedHostKey(url: string): string {
   return `proxy-refused:${new URL(url).hostname}`;
@@ -1596,7 +1598,12 @@ function proxyRefusedHostKey(url: string): string {
 
 /** Whether the site refused the proxy within the last day, so an anonymous request skips it. */
 async function proxyRefusedHost(targetUrl: string, env: Env, fallbacks: Set<string>): Promise<boolean> {
-  if (!(await env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)).catch(() => null))) return false;
+  const refused = await withTimeout(
+    env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)),
+    PROXY_REFUSED_KV_TIMEOUT_MS,
+    "KV read timed out",
+  ).catch(() => null);
+  if (!refused) return false;
   fallbacks.add("proxy_anon_host_refused");
   return true;
 }
@@ -2027,9 +2034,11 @@ async function tryDirectProxyFetch(
     // a thin page is about this URL, and a proxy error is about the proxy.
     const attempts = (e as Partial<ProxyPoolError>).attempts ?? 0;
     if (attempts > 0 && refusals === attempts) {
-      await env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", {
-        expirationTtl: PROXY_REFUSED_HOST_TTL_S,
-      }).catch(() => {});
+      await withTimeout(
+        env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", { expirationTtl: PROXY_REFUSED_HOST_TTL_S }),
+        PROXY_REFUSED_KV_TIMEOUT_MS,
+        "KV write timed out",
+      ).catch(() => {});
     }
     return null;
   }
