@@ -35,6 +35,7 @@ import {
   fetchViaProxy,
   fetchViaProxyPool,
   type ProxyFetchResult,
+  type ProxyPoolError,
 } from "../proxy";
 import { fetchViaBrowserUse } from "../browser-use";
 import { fetchViaContextDev } from "../context-dev";
@@ -415,6 +416,7 @@ const NOTE_FALLBACKS = new Set([
   "context_dev_skipped_slow_host",
   "context_dev_anon_budget_exhausted",
   "proxy_anon_budget_exhausted",
+  "proxy_anon_host_refused",
   "firecrawl_error_fallthrough",
 ]);
 
@@ -1581,9 +1583,21 @@ const ANON_PROXY_STATUSES = [403, 429];
 /** Site-wide daily cap on those retries, to protect the proxy's monthly traffic. */
 const ANON_PROXY_DAILY_LIMIT = 100;
 /**
+ * How long a host the site turned the proxy away from (403, 429 or a challenge
+ * on every attempt) skips the anonymous proxy. Some bot walls refuse the proxy
+ * every time (Britannica, Merriam-Webster), others let it through, so the first
+ * request still tries.
+ */
+const PROXY_REFUSED_HOST_TTL_S = 86_400;
+
+function proxyRefusedHostKey(url: string): string {
+  return `proxy-refused:${new URL(url).hostname}`;
+}
+
+/**
  * Retries a blocked anonymous request once through the residential proxy,
- * within a site-wide daily budget. Returns null when the budget is spent or
- * the proxy also fails.
+ * within a site-wide daily budget. Returns null when the budget is spent, the
+ * site refused the proxy within the last day, or the proxy also fails.
  */
 async function tryAnonymousProxy(
   targetUrl: string,
@@ -1593,6 +1607,10 @@ async function tryAnonymousProxy(
   progress?: StreamProgress,
 ): Promise<string | null> {
   if (!env.PROXY_POOL && !env.PROXY_URL) return null;
+  if (await env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)).catch(() => null)) {
+    fallbacks.add("proxy_anon_host_refused");
+    return null;
+  }
   const day = new Date().toISOString().slice(0, 10);
   const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
   if (budget.blocked) {
@@ -1990,6 +2008,18 @@ async function tryDirectProxyFetch(
     result = proxyResult;
   } catch (e) {
     console.error("Direct proxy fetch failed:", errorMessage(e));
+    // Every attempt reached the site and was turned away. A 404 or a thin page
+    // is about this URL, not the host, and a proxy error is about the proxy.
+    const { attempts = 0, rejected = [] } = e as Partial<ProxyPoolError>;
+    if (
+      attempts > 0 &&
+      rejected.length === attempts &&
+      rejected.every((r) => ANON_PROXY_STATUSES.includes(r.status) || isLikelyChallengeHtml(r.body))
+    ) {
+      await env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", {
+        expirationTtl: PROXY_REFUSED_HOST_TTL_S,
+      }).catch(() => {});
+    }
     return null;
   }
   // The site said what it sent; a PDF or image must not be decoded as a page.

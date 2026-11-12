@@ -554,6 +554,59 @@ describe("index mocked branch coverage", () => {
     expect(JSON.stringify(payload)).not.toMatch(/proxy/i);
   });
 
+  describe("anonymous proxy on a host that refused it", () => {
+    const refusedAll = (status: number, body = "<html>no</html>") => Object.assign(
+      new Error("All proxy attempts failed"),
+      { attempts: 2, rejected: [{ status, headers: {}, body }, { status, headers: {}, body }] },
+    );
+    const setup = () => {
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async () =>
+        new Response("forbidden", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } })));
+      mocked.proxy.parseProxyUrl.mockReturnValue({
+        host: "proxy.example.com", port: 8080, username: "u", password: "p",
+      });
+      const kv = new Map<string, string>();
+      const { env, mocks } = createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" });
+      mocks.kvGet.mockImplementation((async (key: string) => kv.get(key) ?? null) as never);
+      mocks.kvPut.mockImplementation((async (key: string, value: string) => { kv.set(key, value); }) as never);
+      const convert = (url: string) => worker.fetch(new Request(`https://md.example.com/${url}?raw=true`, {
+        headers: { Accept: "application/json" },
+      }), env, mockCtx());
+      return { convert, mocks };
+    };
+
+    it("skips the proxy for that host for a day after a challenge, and only for that host", async () => {
+      const { convert, mocks } = setup();
+      mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValue(
+        refusedAll(200, "<html><title>Just a moment...</title><script>window._cf_chl_opt = {};</script></html>"),
+      );
+
+      expect((await convert("https://refused.example.com/a")).status).toBe(502);
+      expect(mocks.kvPut).toHaveBeenCalledWith("proxy-refused:refused.example.com", "1", { expirationTtl: 86_400 });
+      const second = await convert("https://refused.example.com/b");
+      expect(second.status).toBe(502);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
+      await convert("https://other.example.com/a");
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps trying the host when the proxy failed or the site only refused one page", async () => {
+      const { convert } = setup();
+      mocked.proxy.fetchViaProxyPool.mockReset()
+        .mockRejectedValueOnce(Object.assign(new Error("Proxy CONNECT tunnel rejected with status 407"), { attempts: 2, rejected: [] }))
+        .mockRejectedValueOnce(refusedAll(404))
+        .mockRejectedValueOnce(Object.assign(new Error("mixed"), {
+          attempts: 2, rejected: [{ status: 403, headers: {}, body: "no" }],
+        }));
+
+      await convert("https://flaky.example.com/a");
+      await convert("https://flaky.example.com/b");
+      await convert("https://flaky.example.com/c");
+      await convert("https://flaky.example.com/d");
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(4);
+    });
+  });
+
   it("retries through proxy and succeeds after PROXY_RETRY signal", async () => {
     mocked.browser.alwaysNeedsBrowser.mockReturnValue(true);
     mocked.browser.fetchWithBrowser.mockRejectedValueOnce(

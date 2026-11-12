@@ -29,6 +29,13 @@ export interface ProxyPoolResult extends ProxyFetchResult {
   errors: string[];
 }
 
+/** What fetchViaProxyPool throws when no attempt is accepted. */
+export interface ProxyPoolError extends Error {
+  attempts: number;
+  /** The responses acceptResult refused; attempts that threw have none. */
+  rejected: ProxyFetchResult[];
+}
+
 export interface ProxyPoolOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -335,6 +342,7 @@ export async function fetchViaProxyPool(
     : [{ name: "default", headers: {} }];
 
   const errors: string[] = [];
+  const rejected: ProxyFetchResult[] = [];
   let attempts = 0;
 
   for (let proxyIndex = 0; proxyIndex < proxies.length; proxyIndex++) {
@@ -366,6 +374,7 @@ export async function fetchViaProxyPool(
             errors,
           };
         }
+        rejected.push(result);
         errors.push(
           `proxy[${proxyIndex}]/${variant.name}: rejected status=${result.status} body_bytes=${result.body.length}`,
         );
@@ -377,9 +386,11 @@ export async function fetchViaProxyPool(
     }
   }
 
-  throw new Error(
-    `All proxy attempts failed (${attempts} attempts): ${errors.join(" | ")}`,
+  const failure: ProxyPoolError = Object.assign(
+    new Error(`All proxy attempts failed (${attempts} attempts): ${errors.join(" | ")}`),
+    { attempts, rejected },
   );
+  throw failure;
 }
 
 function concatUint8Arrays(chunks: Uint8Array[], total: number): Uint8Array {
