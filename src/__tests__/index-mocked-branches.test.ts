@@ -568,6 +568,7 @@ describe("index mocked branch coverage", () => {
       throw Object.assign(new Error("All proxy attempts failed"), { attempts: outcomes.length });
     };
     const challenge = { status: 200, body: "<html><title>Just a moment...</title><script>window._cf_chl_opt = {};</script></html>" };
+    const loginForm = { status: 403, body: "<html><form><input name='login_type' value='password'></form></html>" };
     const setup = () => {
       vi.stubGlobal("fetch", vi.fn().mockImplementation(async () =>
         new Response("forbidden", { status: 403, statusText: "Forbidden", headers: { "Content-Type": "text/html" } })));
@@ -607,17 +608,18 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
     });
 
-    it("keeps trying the host after proxy errors, plain 403s, 404s or mixed results", async () => {
+    it("keeps trying the host after proxy errors, plain 403s, login forms, 404s or mixed results", async () => {
       const { convert } = setup();
       mocked.proxy.fetchViaProxyPool.mockReset()
         .mockImplementationOnce(poolAnswers("error", "error") as never)
         .mockImplementationOnce(poolAnswers({ status: 404 }, { status: 404 }) as never)
         .mockImplementationOnce(poolAnswers({ status: 403 }, { status: 403 }) as never)
+        .mockImplementationOnce(poolAnswers(loginForm, loginForm) as never)
         .mockImplementationOnce(poolAnswers(challenge, "error") as never)
         .mockImplementationOnce(poolAnswers(challenge, { status: 200, body: "thin" }) as never);
 
-      for (const path of ["a", "b", "c", "d", "e", "f"]) await convert(`https://flaky.example.com/${path}`);
-      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(6);
+      for (const path of ["a", "b", "c", "d", "e", "f", "g"]) await convert(`https://flaky.example.com/${path}`);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(7);
     });
   });
 

@@ -1985,8 +1985,8 @@ async function tryDirectProxyFetch(
   }
 
   let result: ProxyFetchResult;
-  // Attempts the site answered with a challenge page or 429, which apply to the
-  // whole host. A plain 403 may be one restricted page, so it does not count.
+  // Attempts the site answered with a bot-wall challenge or 429, which apply to the
+  // whole host. A plain 403 or a login form may be one restricted page.
   let refusals = 0;
   try {
     const headerVariants = [
@@ -2005,11 +2005,16 @@ async function tryDirectProxyFetch(
         timeoutMs: 25_000,
         signal: abortSignal,
         acceptResult: (candidate) => {
-          const challenge = isLikelyChallengeHtml(candidate.body);
-          if (candidate.status >= 200 && candidate.status < 400 && candidate.body.length > 1000 && !challenge) {
+          if (
+            candidate.status >= 200 &&
+            candidate.status < 400 &&
+            candidate.body.length > 1000 &&
+            !isLikelyChallengeHtml(candidate.body)
+          ) {
             return true;
           }
-          if (challenge || candidate.status === 429) refusals += 1;
+          // Only a bot wall: isLikelyChallengeHtml also matches one page's login form.
+          if (candidate.status === 429 || detectChallengePage(candidate.body)) refusals += 1;
           return false;
         },
       },
