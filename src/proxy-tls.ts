@@ -108,14 +108,18 @@ export async function startProxyTls(
 
   // Ciphertext received but not yet taken by the engine.
   let pending = early;
+  /** Hands the engine what it has room for; how many bytes it took. */
   const feed = () => {
+    let total = 0;
     while (pending.byteLength > 0) {
       const len = Math.min(pending.byteLength, SCRATCH_BYTES);
       m.HEAPU8.set(pending.subarray(0, len), scratch);
       const taken = m._tls_feed(session, scratch, len);
-      if (taken <= 0) return;
+      if (taken <= 0) break;
       pending = pending.subarray(taken);
+      total += taken;
     }
+    return total;
   };
   const flush = async () => {
     let size: number;
@@ -128,7 +132,12 @@ export async function startProxyTls(
   };
   /** Waits for more ciphertext; false when the tunnel closed. */
   const receive = async () => {
-    if (pending.byteLength > 0) return true;
+    if (pending.byteLength > 0) {
+      // Room may have freed since the last feed. If the engine still takes nothing while
+      // asking for more, looping would spin on resolved promises past the deadline.
+      if (feed() > 0) return true;
+      throw new Error("TLS engine stopped taking input");
+    }
     const chunk = await networkRead();
     if (!chunk) return false;
     pending = chunk;
