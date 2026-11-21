@@ -78,6 +78,48 @@ function describeError(m: TlsEngineModule, code: number): string {
   return `${text} (${code})`;
 }
 
+/** One DER element at `at`: its tag and where its content starts and ends. */
+function readDer(der: Uint8Array, at: number) {
+  if (at + 2 > der.byteLength) throw new Error("Truncated certificate");
+  const tag = der[at];
+  let length = der[at + 1];
+  let start = at + 2;
+  if (length & 0x80) {
+    const bytes = length & 0x7f;
+    if (bytes < 1 || bytes > 3) throw new Error("Unsupported certificate length");
+    length = 0;
+    for (let i = 0; i < bytes; i++) length = length * 256 + der[start++];
+  }
+  const end = start + length;
+  if (end > der.byteLength) throw new Error("Truncated certificate");
+  return { tag, start, end };
+}
+
+const SUBJECT_ALT_NAME_OID = [0x55, 0x1d, 0x11]; // 2.5.29.17
+
+/** Whether a DER certificate carries a subjectAltName extension. */
+function hasSubjectAltName(der: Uint8Array): boolean {
+  try {
+    const tbs = readDer(der, readDer(der, 0).start);
+    for (let at = tbs.start; at < tbs.end;) {
+      const field = readDer(der, at);
+      at = field.end;
+      if (field.tag !== 0xa3) continue; // [3] extensions
+      const extensions = readDer(der, field.start);
+      for (let e = extensions.start; e < extensions.end;) {
+        const extension = readDer(der, e);
+        e = extension.end;
+        const oid = readDer(der, extension.start);
+        if (oid.tag === 0x06 && oid.end - oid.start === 3 &&
+          SUBJECT_ALT_NAME_OID.every((byte, i) => der[oid.start + i] === byte)) return true;
+      }
+    }
+  } catch {
+    // A certificate this cannot read counts as having none.
+  }
+  return false;
+}
+
 /**
  * Run a TLS 1.2 or 1.3 client handshake with `host` over a tunnel, verifying its certificate
  * chain against Mozilla's roots (Mbed TLS builds the chain from what the server sends, in any
@@ -106,8 +148,27 @@ export async function startProxyTls(
     m._free(scratch);
   };
 
+  // Where the ciphertext stream stands in TLS's record framing: a 5-byte header, then the
+  // length it gives. A tunnel that closes anywhere but between records cut a record short.
+  const header = new Uint8Array(5);
+  let inHeader = true;
+  let need = 5;
+  const track = (bytes: Uint8Array) => {
+    for (let at = 0; at < bytes.byteLength;) {
+      const n = Math.min(need, bytes.byteLength - at);
+      if (inHeader) header.set(bytes.subarray(at, at + n), 5 - need);
+      need -= n;
+      at += n;
+      if (need > 0) continue;
+      inHeader = !inHeader || ((header[3] << 8) | header[4]) === 0;
+      need = inHeader ? 5 : (header[3] << 8) | header[4];
+    }
+  };
+  const betweenRecords = () => inHeader && need === 5;
+
   // Ciphertext received but not yet taken by the engine.
   let pending = early;
+  track(early);
   /** Hands the engine what it has room for; how many bytes it took. */
   const feed = () => {
     let total = 0;
@@ -139,7 +200,11 @@ export async function startProxyTls(
       throw new Error("TLS engine stopped taking input");
     }
     const chunk = await networkRead();
-    if (!chunk) return false;
+    if (!chunk) {
+      if (!betweenRecords()) throw new Error("TLS connection ended in the middle of a record");
+      return false;
+    }
+    track(chunk);
     pending = chunk;
     return true;
   };
@@ -161,6 +226,12 @@ export async function startProxyTls(
       }
       if (!(await receive())) throw new Error(`TLS handshake with ${host} failed: the tunnel closed`);
     }
+    // Mbed TLS falls back to the Common Name when the leaf has no subjectAltName; browsers
+    // refuse such certificates, and so does this path.
+    const leafLength = m._tls_peer_der(session, 0, scratch, SCRATCH_BYTES);
+    if (leafLength <= 0 || !hasSubjectAltName(m.HEAPU8.slice(scratch, scratch + leafLength))) {
+      throw new Error(`TLS handshake with ${host} failed: the certificate names no host in a subjectAltName`);
+    }
   } catch (error) {
     close();
     throw error;
@@ -175,7 +246,7 @@ export async function startProxyTls(
         if (n === -1) return undefined;
         if (n < 0) throw new Error(`TLS read failed: ${describeError(m, n)}`);
         await flush();
-        // Many servers close the connection without a close_notify; treat that as the end.
+        // Many servers close without a close_notify; between records that is the end.
         if (!(await receive())) return undefined;
       }
       return undefined;

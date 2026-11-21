@@ -240,12 +240,12 @@ export async function fetchViaProxy(
       }
 
       const early = buffered.subarray(headerEnd + HEADER_SEPARATOR_BYTES.length);
-      const session = await withDeadline(startProxyTls(
-        url.hostname,
-        early,
-        readSocket,
-        (data) => withDeadline(writer.write(data)),
-      ));
+      const handshake = startProxyTls(url.hostname, early, readSocket, (data) => withDeadline(writer.write(data)));
+      const session = await withDeadline(handshake).catch((error) => {
+        // The deadline or an abort can win while the handshake still completes: free that session.
+        handshake.then((late) => late.close(), () => {});
+        throw error;
+      });
       tls = session;
       readChunk = () => withDeadline(session.read());
       send = (data) => withDeadline(session.write(data));

@@ -479,14 +479,18 @@ describe("fetchViaProxy", () => {
 
   /**
    * A proxy that answers CONNECT and then relays to a local TLS server offering only `version`.
-   * The server answers every request with "secure-content" and records what it received.
+   * The server answers every request with `body` and records what it received. `cert` names the
+   * fixture it presents; with `cutAfterBytes` the tunnel drops after relaying that many bytes.
    */
-  async function tunnelToTlsServer(version: SecureVersion) {
+  async function tunnelToTlsServer(
+    version: SecureVersion,
+    { body = "secure-content", cert = "proxy-test.example", cutAfterBytes = Infinity } = {},
+  ) {
     const seen = { request: "", protocol: "" };
     const server = createTlsServer(
       {
-        key: tlsFixture("proxy-test.example.key"),
-        cert: tlsFixture("proxy-test.example.pem"),
+        key: tlsFixture(`${cert}.key`),
+        cert: tlsFixture(`${cert}.pem`),
         minVersion: version,
         maxVersion: version,
       },
@@ -495,7 +499,7 @@ describe("fetchViaProxy", () => {
         socket.on("data", (chunk) => {
           seen.request += chunk.toString();
           if (seen.request.includes("\r\n\r\n")) {
-            socket.end("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 14\r\n\r\nsecure-content");
+            socket.end(`HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${body.length}\r\n\r\n${body}`);
           }
         });
       },
@@ -510,7 +514,15 @@ describe("fetchViaProxy", () => {
       const inbox: Uint8Array[] = [];
       let ended = false;
       let wake = () => {};
-      tcp.on("data", (chunk: Buffer) => { inbox.push(new Uint8Array(chunk)); wake(); });
+      let relayed = 0;
+      tcp.on("data", (chunk: Buffer) => {
+        if (ended) return;
+        const room = cutAfterBytes - relayed;
+        relayed += chunk.byteLength;
+        if (room > 0) inbox.push(new Uint8Array(chunk.subarray(0, room)));
+        if (relayed >= cutAfterBytes) { ended = true; tcp.destroy(); }
+        wake();
+      });
       tcp.on("close", () => { ended = true; wake(); });
       tcp.on("error", () => {});
       let tunnelOpen = false;
@@ -577,6 +589,40 @@ describe("fetchViaProxy", () => {
     try {
       const result = await fetchViaProxy("https://proxy-test.example./path", makeProxyConfig(), {}, 5000);
       expect(result.body).toBe("secure-content");
+    } finally {
+      await tunnel.close();
+    }
+  });
+
+  it("refuses a certificate that names the host only in its Common Name", async () => {
+    const tunnel = await tunnelToTlsServer("TLSv1.2", { cert: "proxy-test.example-no-san" });
+    try {
+      await expect(fetchViaProxy("https://proxy-test.example/path", makeProxyConfig(), {}, 5000))
+        .rejects.toThrow(/TLS handshake with proxy-test\.example failed: .*subjectAltName/);
+      expect(tunnel.seen.request).toBe("");
+    } finally {
+      await tunnel.close();
+    }
+  });
+
+  it("returns a body that spans several TLS records whole", async () => {
+    const body = "x".repeat(64 * 1024);
+    const tunnel = await tunnelToTlsServer("TLSv1.2", { body });
+    try {
+      const result = await fetchViaProxy("https://proxy-test.example/big", makeProxyConfig(), {}, 5000);
+      expect(result.body).toBe(body);
+    } finally {
+      await tunnel.close();
+    }
+  });
+
+  it("rejects a response whose tunnel drops in the middle of a TLS record", async () => {
+    // The handshake takes about 1-2 KB and records carry 16 KB each, so 20,000 bytes ends
+    // inside the second record of the 64 KB body.
+    const tunnel = await tunnelToTlsServer("TLSv1.2", { body: "x".repeat(64 * 1024), cutAfterBytes: 20_000 });
+    try {
+      await expect(fetchViaProxy("https://proxy-test.example/big", makeProxyConfig(), {}, 5000))
+        .rejects.toThrow(/TLS connection ended in the middle of a record/);
     } finally {
       await tunnel.close();
     }
