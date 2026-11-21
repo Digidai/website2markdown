@@ -1292,12 +1292,13 @@ describe("index mocked branch coverage", () => {
 
     it("converts the recovered page when the proxy stats write stalls", async () => {
       proxyAnswers(govHtml);
-      // The budget row answers; the proxy_pool provider_attempts write never does.
+      // The budget row answers; the mainland proxies' own provider_attempts write never does.
+      let statsRows = 0;
       const db = {
         prepare: vi.fn(() => {
           let statsRow = false;
           const stmt = {
-            bind: vi.fn((...args: unknown[]) => { statsRow ||= args[1] === "proxy_pool"; return stmt; }),
+            bind: vi.fn((...args: unknown[]) => { if (args[1] === "proxy_pool_mainland") { statsRow = true; statsRows += 1; } return stmt; }),
             first: vi.fn(async () => ({ count: 1, expires_at: "2099-01-01T00:00:00.000Z" })),
             all: vi.fn(async () => ({ results: [] })),
             run: vi.fn(() => (statsRow ? new Promise(() => {}) : Promise.resolve({ success: true }))),
@@ -1307,6 +1308,8 @@ describe("index mocked branch coverage", () => {
       } as unknown as D1Database;
       const res = await convertAfterTimeout(createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL, AUTH_DB: db }).env);
       expect(res.status).toBe(200);
+      // Counted apart from the general proxy, so one pool's failures do not hide in the other's rate.
+      expect(statsRows).toBe(1);
     });
 
     it("keeps a long proxy page over a shorter render past 10,000 characters", async () => {
@@ -1515,7 +1518,7 @@ describe("index mocked branch coverage", () => {
 
     it("retries a redirect target outside mainland China through the general proxy, not the mainland one", async () => {
       // The pool that fits the hop that timed out: the first request recovers, the second fails.
-      const convertRedirected = async () => {
+      const convertRedirected = async (timeoutError: Error = new DOMException("aborted", "AbortError")) => {
         mocked.paywall.getPaywallRule.mockReturnValue(null);
         parsesOnlyMainlandPool();
         vi.useFakeTimers();
@@ -1523,7 +1526,7 @@ describe("index mocked branch coverage", () => {
           const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).includes("example.gov.cn")
             ? Promise.resolve(new Response(null, { status: 302, headers: { Location: "https://www.example.com/b.html" } }))
             : new Promise<Response>((_resolve, reject) => {
-              init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+              init?.signal?.addEventListener("abort", () => reject(timeoutError));
             }));
           vi.stubGlobal("fetch", fetchMock);
           const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
@@ -1542,7 +1545,8 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([generalProxy]);
 
       mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValueOnce(Object.assign(new Error("All proxy attempts failed"), { attempts: 2 }));
-      const failed = await convertRedirected();
+      // The 10 s can run out mid retry backoff, whose error does not read as a timeout.
+      const failed = await convertRedirected(new Error("Retry backoff aborted."));
       const payload = await failed.json() as { message?: string };
       expect(failed.status).toBe(504);
       expect(payload).toMatchObject({ code: "target_timeout" });
@@ -1602,7 +1606,7 @@ describe("index mocked branch coverage", () => {
         expect(settled).toBe(true);
         expect((await pending).status).toBe(504);
         // Recorded as a failed proxy attempt, not skipped as a cancellation.
-        expect(binds.some((args) => args[1] === "proxy_pool" && args[2] === 1)).toBe(true);
+        expect(binds.some((args) => args[1] === "proxy_pool_mainland" && args[2] === 1)).toBe(true);
       } finally {
         vi.useRealTimers();
       }

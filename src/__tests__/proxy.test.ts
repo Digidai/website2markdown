@@ -496,6 +496,17 @@ describe("fetchViaProxy", () => {
     expect(tlsWrites[0]).not.toContain("Proxy-Authorization");
   });
 
+  it("checks the certificate against the host without its root dot", async () => {
+    const mock = createSocketFromRawResponse("HTTP/1.1 200 Connection established\r\n\r\n");
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+    const replies = [new TextEncoder().encode("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok")];
+    vi.mocked(startTls).mockReset().mockImplementation(async () => ({ read: async () => replies.shift(), write: async () => {} }) as never);
+
+    await fetchViaProxy("https://example.com./path", makeProxyConfig(), {}, 1000);
+
+    expect(vi.mocked(startTls).mock.calls[0][0]).toBe("example.com");
+  });
+
   it("rotates proxies until an accepted response is found", async () => {
     const firstSocket = createSocketFromRawResponse(
       "HTTP/1.1 403 Forbidden\r\nContent-Type: text/html\r\n\r\nblocked",

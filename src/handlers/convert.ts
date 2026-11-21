@@ -206,6 +206,17 @@ export async function readTextWithLimit(
   return new TextDecoder().decode(bytes);
 }
 
+function fetchTimeoutError(): ConvertError {
+  return new ConvertError(
+    "Fetch Timeout",
+    `Fetching the target URL timed out after ${Math.round(BROWSER_TIMEOUT / 1000)} seconds.`,
+    504,
+    undefined,
+    false,
+    { code: "target_timeout" },
+  );
+}
+
 export function asFetchConvertError(error: unknown): ConvertError {
   const message = errorMessage(error);
   if (message.includes("SSRF")) {
@@ -218,16 +229,7 @@ export function asFetchConvertError(error: unknown): ConvertError {
       { code: "blocked_address" },
     );
   }
-  if (isTimeoutLikeError(error)) {
-    return new ConvertError(
-      "Fetch Timeout",
-      `Fetching the target URL timed out after ${Math.round(BROWSER_TIMEOUT / 1000)} seconds.`,
-      504,
-      undefined,
-      false,
-      { code: "target_timeout" },
-    );
-  }
+  if (isTimeoutLikeError(error)) return fetchTimeoutError();
   // The thrown message is internal (it can name a provider); callers get target_unreadable.
   return new ConvertError(
     "Fetch Failed",
@@ -2028,7 +2030,7 @@ async function tryDirectProxyFetch(
       },
     ];
 
-    const proxyResult = await trackProvider(env, "proxy_pool", abortSignal, () => fetchViaProxyPool(
+    const proxyResult = await trackProvider(env, mainland ? "proxy_pool_mainland" : "proxy_pool", abortSignal, () => fetchViaProxyPool(
       targetUrl,
       pooledConfigs,
       headerVariants,
@@ -2249,8 +2251,10 @@ async function tryStaticFetch(
           sourceContentType,
         };
       }
-      // The mainland explanation fits only a mainland host.
-      if (viaMainland) throw new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE });
+      // Still a timeout, even when it fired mid retry backoff. The mainland explanation fits only a mainland host.
+      throw viaMainland
+        ? new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE })
+        : fetchTimeoutError();
     }
     throw asFetchConvertError(e);
   } finally {
