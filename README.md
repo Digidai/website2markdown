@@ -676,8 +676,6 @@ wrangler secret put PROXY_POOL
 wrangler secret put PROXY_POOL_MAINLAND
 ```
 
-Without `PROXY_POOL_MAINLAND`, the plain var `PROXY_MAINLAND_ZONE` (for example `"CN"`) reuses the general proxies for mainland sites: the exit zone in each proxy username (`..._zone_US`) is switched to that zone, and a username without a zone gets `_custom_zone_<zone>` appended.
-
 Optional KV-driven paywall rule source:
 
 - Set `PAYWALL_RULES_KV_KEY` (plain env var) to a KV key that stores JSON paywall rules.
