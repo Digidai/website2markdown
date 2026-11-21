@@ -2200,12 +2200,11 @@ async function tryStaticFetch(
           };
           try {
             // The recovered URL, so the HTML and the URL its links resolve against match.
-            // The outer timeout also bounds trackProvider's stats write, which has none of its own.
-            const rendered = await withTimeout(trackProvider(env, "browser", abortSignal, () => withTimeout(
+            const rendered = await trackProvider(env, "browser", abortSignal, () => withTimeout(
               fetchWithBrowser(resolvedUrl, env, host, renderDeadline.signal, { sessionProfileScope }),
               MAINLAND_RENDER_DEADLINE,
               "Browser render deadline exceeded",
-            ), (html) => (usable = isUsableRender(html))), MAINLAND_RENDER_DEADLINE + 2_000, "Browser render deadline exceeded");
+            ), (html) => (usable = isUsableRender(html)));
             if (usable) {
               recoveredHtml = rendered;
               recoveredMethod = "browser+readability+turndown";

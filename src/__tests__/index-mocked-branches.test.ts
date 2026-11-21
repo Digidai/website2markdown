@@ -1110,7 +1110,8 @@ describe("index mocked branch coverage", () => {
         }), env, mockCtx());
         // Signed-in requests check their token first; the 10 seconds start when the fetch does.
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
-        await vi.advanceTimersByTimeAsync(10_500);
+        // The 10 s timeout, then up to 2 s for a stalled stats write.
+        await vi.advanceTimersByTimeAsync(13_500);
         return await pending;
       } finally {
         vi.useRealTimers();
@@ -1262,6 +1263,25 @@ describe("index mocked branch coverage", () => {
       expect(res.status).toBe(200);
       expect(mocked.browser.fetchWithBrowser).toHaveBeenCalledOnce();
       expect(await res.text()).toContain("通知正文");
+    });
+
+    it("converts the recovered page when the proxy stats write stalls", async () => {
+      proxyAnswers(govHtml);
+      // The budget row answers; the proxy_pool provider_attempts write never does.
+      const db = {
+        prepare: vi.fn(() => {
+          let statsRow = false;
+          const stmt = {
+            bind: vi.fn((...args: unknown[]) => { statsRow ||= args[1] === "proxy_pool"; return stmt; }),
+            first: vi.fn(async () => ({ count: 1, expires_at: "2099-01-01T00:00:00.000Z" })),
+            all: vi.fn(async () => ({ results: [] })),
+            run: vi.fn(() => (statsRow ? new Promise(() => {}) : Promise.resolve({ success: true }))),
+          };
+          return stmt;
+        }),
+      } as unknown as D1Database;
+      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", AUTH_DB: db }).env);
+      expect(res.status).toBe(200);
     });
 
     it("returns the proxy page on time when the browser stats write stalls", async () => {
