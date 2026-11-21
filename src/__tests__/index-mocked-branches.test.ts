@@ -1166,6 +1166,38 @@ describe("index mocked branch coverage", () => {
       expect(String(mocked.converter.htmlToMarkdown.mock.calls[0][0])).toContain("通知正文");
     });
 
+    it("stops waiting for the browser 25 seconds after the proxy recovers the page", async () => {
+      proxyAnswers(govHtml);
+      mocked.browser.fetchWithBrowser.mockImplementationOnce(((
+        _url: string, _env: unknown, _host: string, signal?: AbortSignal,
+      ) => new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new Error("Browser navigation aborted")));
+      })) as never);
+      mocked.paywall.getPaywallRule.mockReturnValue(null);
+      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      vi.useFakeTimers();
+      try {
+        const hang = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }));
+        vi.stubGlobal("fetch", hang);
+        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html?force_browser=true&raw=true", {
+          headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
+        }), createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        let settled = false;
+        void pending.then(() => { settled = true; });
+        await vi.waitFor(() => expect(hang).toHaveBeenCalled());
+        await vi.advanceTimersByTimeAsync(10_500 + 24_000);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(settled).toBe(true);
+        expect((await pending).status).toBe(200);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(String(mocked.converter.htmlToMarkdown.mock.calls[0][0])).toContain("通知正文");
+    });
+
     it("asks the proxy for the redirect target that timed out", async () => {
       proxyAnswers(govHtml);
       mocked.paywall.getPaywallRule.mockReturnValue(null);

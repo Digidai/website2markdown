@@ -248,6 +248,8 @@ export function asFetchConvertError(error: unknown): ConvertError {
 const MAINLAND_FETCH_TIMEOUT = 10_000;
 /** Deadline for that proxy retry, so the whole request ends within about 30 seconds. */
 const MAINLAND_PROXY_DEADLINE = 20_000;
+/** Browser deadline after the proxy recovers a page: 10 + 20 + 25 s stays under the MCP client's 60 s. */
+const MAINLAND_RENDER_DEADLINE = 25_000;
 /** Hosts outside .cn that timed out from every overseas location we tested. */
 const MAINLAND_ONLY_HOSTS = new Set(["www.tsrcw.com", "tsrcw.com"]);
 export const MAINLAND_TIMEOUT_MESSAGE =
@@ -2153,12 +2155,14 @@ async function tryStaticFetch(
         // which sometimes reaches these sites; the proxy page stays if it does not.
         if (browserAllowed && (forceBrowser || needsBrowserRendering(viaProxy, resolvedUrl) || detectChallengePage(viaProxy))) {
           await progress("browser", "Rendering with browser");
+          // Only the render sees the deadline; trackProvider keeps the caller's signal, so an expiry counts as a failure.
+          const renderDeadline = createTimeoutSignal(MAINLAND_RENDER_DEADLINE, abortSignal);
           try {
             recoveredHtml = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
               targetUrl,
               env,
               host,
-              abortSignal,
+              renderDeadline.signal,
               { sessionProfileScope },
             ));
             recoveredMethod = "browser+readability+turndown";
@@ -2167,6 +2171,8 @@ async function tryStaticFetch(
           } catch (error) {
             if (abortSignal?.aborted) throw new RequestAbortedError();
             console.error("Browser rendering failed, using proxy HTML:", errorMessage(error));
+          } finally {
+            renderDeadline.cleanup();
           }
         }
         return {
