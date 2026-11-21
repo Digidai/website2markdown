@@ -670,6 +670,10 @@ wrangler secret put PROXY_URL
 
 # Optional: proxy pool for rotation/fallback (comma or newline separated)
 wrangler secret put PROXY_POOL
+
+# Optional: proxies that exit in mainland China (same format). A mainland
+# site that does not answer the direct fetch is retried through these only.
+wrangler secret put PROXY_POOL_MAINLAND
 ```
 
 Optional KV-driven paywall rule source:

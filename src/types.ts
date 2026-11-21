@@ -17,6 +17,8 @@ export interface Env {
   PROXY_URL?: string;
   /** Optional proxy pool. Accepts comma/newline separated proxy URLs. */
   PROXY_POOL?: string;
+  /** Optional proxies that exit in mainland China, same format. A mainland host that times out is retried through these only. */
+  PROXY_POOL_MAINLAND?: string;
   /** Browser Use Cloud API key for remote browser fetching */
   BROWSER_USE_API_KEY?: string;
   /** Cloudflare Account ID for REST API calls */
