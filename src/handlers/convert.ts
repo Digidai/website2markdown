@@ -79,7 +79,7 @@ import {
   anonymousBlockMessage,
 } from "../policy/anonymous-guards";
 import { formatOutput, markdownBodyChars } from "../helpers/format";
-import { recordProviderAttempt, trackProvider } from "../observability/provider-attempts";
+import { trackProvider } from "../observability/provider-attempts";
 
 // ─── 错误类 ──────────────────────────────────────────────────
 
@@ -123,9 +123,10 @@ export function isTimeoutLikeError(error: unknown): boolean {
 export function createTimeoutSignal(
   timeoutMs: number,
   parentSignal?: AbortSignal,
+  timeoutReason?: unknown,
 ): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(timeoutReason), timeoutMs);
 
   const onParentAbort = () => controller.abort();
   if (parentSignal) {
@@ -250,6 +251,9 @@ const MAINLAND_FETCH_TIMEOUT = 10_000;
 const MAINLAND_PROXY_DEADLINE = 20_000;
 /** Browser deadline after the proxy recovers a page: 10 + 20 + 25 s stays under the MCP client's 60 s. */
 const MAINLAND_RENDER_DEADLINE = 25_000;
+const MAINLAND_PROXY_TIMEOUT_MESSAGE = "Proxy retry deadline exceeded";
+/** Abort reason of those deadlines; trackProvider records attempts they end as failures. */
+const mainlandDeadlineReason = () => new DOMException("Mainland retry deadline timed out", "TimeoutError");
 /** Hosts outside .cn that timed out from every overseas location we tested. */
 const MAINLAND_ONLY_HOSTS = new Set(["www.tsrcw.com", "tsrcw.com"]);
 export const MAINLAND_TIMEOUT_MESSAGE =
@@ -2017,9 +2021,10 @@ async function tryDirectProxyFetch(
         timeoutMs: 25_000,
         signal: abortSignal,
         acceptResult: (candidate) => {
+          // 2xx only: the proxy does not follow redirects, and a 3xx body is not the page.
           if (
             candidate.status >= 200 &&
-            candidate.status < 400 &&
+            candidate.status < 300 &&
             candidate.body.length > 1000 &&
             !isLikelyChallengeHtml(candidate.body)
           ) {
@@ -2115,6 +2120,7 @@ async function tryStaticFetch(
 
   let response: Response;
   let cleanupFetchSignal = () => {};
+  let fetchSignal: AbortSignal | undefined;
   const mainlandOnly = isLikelyMainlandOnlyHost(targetUrl);
   try {
     const { signal, cleanup } = createTimeoutSignal(
@@ -2122,6 +2128,7 @@ async function tryStaticFetch(
       abortSignal,
     );
     cleanupFetchSignal = cleanup;
+    fetchSignal = signal;
     const result = await fetchWithSafeRedirects(targetUrl, {
       headers: fetchHeaders,
       signal,
@@ -2130,24 +2137,31 @@ async function tryStaticFetch(
     resolvedUrl = result.finalUrl;
   } catch (e) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
-    if (mainlandOnly && isTimeoutLikeError(e)) {
+    // The caller did not cancel, so an ended signal means the timeout fired (also mid retry backoff).
+    if (mainlandOnly && (isTimeoutLikeError(e) || fetchSignal?.aborted)) {
       // The site dropped our datacenter address; a residential one often gets an answer.
       // The proxy does not follow redirects, so it asks for the hop that timed out.
       resolvedUrl = (e as { url?: string }).url ?? targetUrl;
-      const deadline = createTimeoutSignal(MAINLAND_PROXY_DEADLINE, abortSignal);
+      const deadline = createTimeoutSignal(MAINLAND_PROXY_DEADLINE, abortSignal, mainlandDeadlineReason());
       let viaProxy: string | null;
       try {
-        viaProxy = providerApiKeysAllowed
-          ? await tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress)
-          : await tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress);
+        // The anonymous budget check does not watch the signal, so the timeout bounds the wait.
+        viaProxy = await withTimeout(
+          providerApiKeysAllowed
+            ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress)
+            : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress),
+          MAINLAND_PROXY_DEADLINE,
+          MAINLAND_PROXY_TIMEOUT_MESSAGE,
+        );
+      } catch (error) {
+        if (abortSignal?.aborted) throw new RequestAbortedError();
+        // The deadline, not the caller, ended it (an aborted signal throws RequestAbortedError): a timeout.
+        if (!deadline.signal.aborted && errorMessage(error) !== MAINLAND_PROXY_TIMEOUT_MESSAGE) throw error;
+        viaProxy = null;
       } finally {
         deadline.cleanup();
       }
       if (abortSignal?.aborted) throw new RequestAbortedError();
-      // trackProvider skips attempts its signal ended, as if the caller cancelled; this one failed.
-      if (!viaProxy && deadline.signal.aborted) {
-        await recordProviderAttempt(env, "proxy_pool", false, "Proxy retry deadline exceeded");
-      }
       if (viaProxy) {
         let recoveredHtml = viaProxy;
         let recoveredMethod: ConvertMethod = "proxy+readability+turndown";
@@ -2158,14 +2172,21 @@ async function tryStaticFetch(
           // Only the render sees the deadline; trackProvider keeps the caller's signal, so an expiry counts as a failure.
           // Launch and page setup ignore the signal, so the timeout bounds the wait and the signal stops what is left.
           const renderDeadline = createTimeoutSignal(MAINLAND_RENDER_DEADLINE, abortSignal);
+          // The browser's datacenter address can get a bot wall or a soft 404 where the proxy got the page.
+          let usable = false;
+          const isUsableRender = (html: string) => {
+            if (detectChallengePage(html)) return false;
+            const { markdown, title } = htmlToMarkdown(html, resolvedUrl);
+            return !isGovEmptyShell(targetUrl, resolvedUrl, markdown, title);
+          };
           try {
+            // The recovered URL, so the HTML and the URL its links resolve against match.
             const rendered = await trackProvider(env, "browser", abortSignal, () => withTimeout(
-              fetchWithBrowser(targetUrl, env, host, renderDeadline.signal, { sessionProfileScope }),
+              fetchWithBrowser(resolvedUrl, env, host, renderDeadline.signal, { sessionProfileScope }),
               MAINLAND_RENDER_DEADLINE,
               "Browser render deadline exceeded",
-            ));
-            // The browser's datacenter address can get a bot wall the proxy got past.
-            if (!detectChallengePage(rendered)) {
+            ), (html) => (usable = isUsableRender(html)));
+            if (usable) {
               recoveredHtml = rendered;
               recoveredMethod = "browser+readability+turndown";
               browserRendered = true;

@@ -1208,6 +1208,107 @@ describe("index mocked branch coverage", () => {
       expect(String(mocked.converter.htmlToMarkdown.mock.calls[0][0])).toContain("通知正文");
     });
 
+    it("keeps the proxy page when the forced browser render is a soft 404", async () => {
+      proxyAnswers(govHtml);
+      mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><head><title>页面不存在</title></head><body>页面不存在</body></html>");
+      mocked.converter.htmlToMarkdown.mockImplementation((html: string) => html.includes("页面不存在")
+        ? { markdown: "页面不存在", title: "页面不存在", contentHtml: "<p>页面不存在</p>" }
+        : { markdown: "# 通知\n\n" + "通知正文。".repeat(50), title: "通知", contentHtml: "<article>通知正文</article>" });
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true",
+      );
+      expect(res.status).toBe(200);
+      expect(mocked.browser.fetchWithBrowser).toHaveBeenCalledOnce();
+      expect(await res.text()).toContain("通知正文");
+    });
+
+    it("does not take a redirect from the proxy as the page", async () => {
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementationOnce((async (
+        _url: string, _proxies: unknown, _variants: unknown,
+        options: { acceptResult?: (c: { status: number; headers: Record<string, string>; body: string }) => boolean },
+      ) => {
+        const candidate = { status: 302, headers: { location: "/moved.html", "content-type": "text/html" }, body: govHtml };
+        if (options.acceptResult && !options.acceptResult(candidate)) {
+          throw Object.assign(new Error("No proxy attempt was accepted"), { attempts: 1 });
+        }
+        return { ...candidate, proxyIndex: 0, proxy: { host: "proxy.example.com", port: 8080, username: "u", password: "p" }, variant: "mobile", attempts: 1, errors: [] };
+      }) as never);
+      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env);
+      expect(res.status).toBe(504);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    });
+
+    it("ends with the timeout error when the anonymous budget check stalls", async () => {
+      proxyAnswers(govHtml);
+      mocked.paywall.getPaywallRule.mockReturnValue(null);
+      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      // Only the proxy budget row stalls; every other D1 read answers.
+      const db = {
+        prepare: vi.fn(() => {
+          let budget = false;
+          const answer = <T>(value: T) => (budget ? new Promise<T>(() => {}) : Promise.resolve(value));
+          const stmt = {
+            bind: vi.fn((...args: unknown[]) => {
+              budget ||= args.some((a) => String(a).startsWith("proxy-anon:"));
+              return stmt;
+            }),
+            first: vi.fn(() => answer({ count: 1, expires_at: "2099-01-01T00:00:00.000Z" })),
+            all: vi.fn(() => answer({ results: [] })),
+            run: vi.fn(() => answer({ success: true })),
+          };
+          return stmt;
+        }),
+      } as unknown as D1Database;
+      vi.useFakeTimers();
+      try {
+        const hang = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }));
+        vi.stubGlobal("fetch", hang);
+        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+          headers: { Accept: "application/json" },
+        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", AUTH_DB: db }).env, mockCtx());
+        let settled = false;
+        void pending.then(() => { settled = true; });
+        await vi.waitFor(() => expect(hang).toHaveBeenCalled());
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(settled).toBe(true);
+        const res = await pending;
+        expect(res.status).toBe(504);
+        expect(await res.json()).toMatchObject({ code: "target_timeout" });
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
+    });
+
+    it("retries through the proxy when the timeout fires during a retry backoff", async () => {
+      proxyAnswers(govHtml);
+      mocked.paywall.getPaywallRule.mockReturnValue(null);
+      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      vi.useFakeTimers();
+      try {
+        // A 503 just before the 10 seconds end; the first backoff (80 ms) spans the timeout.
+        const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => fetchMock.mock.calls.length === 1
+          ? new Promise<Response>((resolve) => setTimeout(() => resolve(new Response("busy", { status: 503 })), 9_960))
+          : new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }));
+        vi.stubGlobal("fetch", fetchMock);
+        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+          headers: { Accept: "application/json" },
+        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+        await vi.advanceTimersByTimeAsync(10_500);
+        expect((await pending).status).toBe(200);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    });
+
     it("asks the proxy for the redirect target that timed out", async () => {
       proxyAnswers(govHtml);
       mocked.paywall.getPaywallRule.mockReturnValue(null);

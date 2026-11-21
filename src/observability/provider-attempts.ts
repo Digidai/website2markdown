@@ -30,7 +30,8 @@ const RETENTION_DAYS = 90;
  * Runs one provider call and records whether it produced a usable result.
  * A call counts as failed when it throws or when `succeeded` rejects its value.
  * Failures caused by the caller aborting the request are not recorded, because
- * they say nothing about the provider.
+ * they say nothing about the provider. A signal aborted with a TimeoutError
+ * reason is a deadline, so those failures are recorded.
  */
 export async function trackProvider<T>(
   env: Env,
@@ -39,15 +40,17 @@ export async function trackProvider<T>(
   run: () => Promise<T>,
   succeeded: (value: T) => boolean = () => true,
 ): Promise<T> {
+  // A signal that ended with a TimeoutError hit a deadline: that is the provider's failure, not a cancellation.
+  const cancelled = () => Boolean(signal?.aborted) && (signal?.reason as { name?: string } | undefined)?.name !== "TimeoutError";
   let value: T;
   try {
     value = await run();
   } catch (error) {
-    if (!signal?.aborted) await recordProviderAttempt(env, path, false, sanitizeErrorMessage(error));
+    if (!cancelled()) await recordProviderAttempt(env, path, false, sanitizeErrorMessage(error));
     throw error;
   }
   const ok = succeeded(value);
-  if (ok || !signal?.aborted) {
+  if (ok || !cancelled()) {
     await recordProviderAttempt(env, path, ok, ok ? "" : "empty or unusable result");
   }
   return value;
