@@ -597,6 +597,9 @@ describe("index mocked branch coverage", () => {
       const second = await convert("https://refused.example.com/b");
       expect(second.status).toBe(502);
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
+      // The same host written with its root dot.
+      await convert("https://refused.example.com./c");
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
       await convert("https://other.example.com/a");
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(2);
     });
@@ -1084,7 +1087,7 @@ describe("index mocked branch coverage", () => {
       const res = await pending;
       const payload = await res.json() as { message?: string };
       expect(res.status).toBe(504);
-      expect(payload.message).toContain("do not answer requests from cloud servers");
+      expect(payload.message).toContain("only answer visitors inside mainland China");
 
       const other = worker.fetch(new Request("https://md.example.com/https://www.example.com/a.html", {
         headers: { Accept: "application/json" },
@@ -1098,10 +1101,18 @@ describe("index mocked branch coverage", () => {
   });
 
   describe("mainland China host that drops the direct fetch", () => {
+    const MAINLAND_POOL = "u:p@cn.proxy.example.com:8080";
+    const mainlandProxy = { host: "cn.proxy.example.com", port: 8080, username: "u", password: "p" };
+    const generalProxy = { host: "proxy.example.com", port: 8080, username: "u", password: "p" };
+    // The general proxy parses too, so a test passes only when the retry asks for the mainland one.
+    const parsesOnlyMainlandPool = () => {
+      mocked.proxy.parseProxyUrl.mockReturnValue(generalProxy);
+      mocked.proxy.parseProxyPool.mockImplementation((raw: string) => raw === MAINLAND_POOL ? [mainlandProxy] : []);
+    };
     const govHtml = `<html><body><article>${"通知正文。".repeat(300)}</article></body></html>`;
     const convertAfterTimeout = async (env: ReturnType<typeof createMockEnv>["env"], headers: Record<string, string> = {}, query = "") => {
       mocked.paywall.getPaywallRule.mockReturnValue(null);
-      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      parsesOnlyMainlandPool();
       vi.useFakeTimers();
       try {
         const hang = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -1136,20 +1147,34 @@ describe("index mocked branch coverage", () => {
       ? { markdown: "# 通知\n\n" + "通知正文。".repeat(50), title: "通知", contentHtml: "<article>通知正文</article>" }
       : { markdown: "", title: "", contentHtml: "" });
 
-    it("retries an anonymous request once through the proxy and converts the page", async () => {
+    it("retries an anonymous request once through the mainland proxy and converts the page", async () => {
       proxyAnswers(govHtml);
-      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env);
+      // The general proxy is configured too and must stay out of it.
+      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env);
       expect(res.status).toBe(200);
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
       expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][0]).toBe("https://www.example.gov.cn/a.html");
+      expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([mainlandProxy]);
       // Each attempt gets 9 s, so a silent proxy leaves time for the next one within the 20 s.
       expect((mocked.proxy.fetchViaProxyPool.mock.calls[0][3] as { timeoutMs: number }).timeoutMs).toBe(9_000);
+    });
+
+    it("does not retry through a proxy that exits abroad", async () => {
+      for (const headers of [{}, { Authorization: "Bearer test-token" }] as Record<string, string>[]) {
+        const res = await convertAfterTimeout(
+          createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080", PROXY_POOL: "u:p@proxy.example.com:8080" }).env,
+          headers,
+        );
+        expect(res.status).toBe(504);
+        expect(await res.json()).toMatchObject({ code: "target_timeout" });
+      }
+      expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
     });
 
     it("retries a signed-in request through the proxy too", async () => {
       proxyAnswers(govHtml);
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
       );
       expect(res.status).toBe(200);
@@ -1161,7 +1186,7 @@ describe("index mocked branch coverage", () => {
       mocked.browser.fetchWithBrowser.mockResolvedValueOnce(govHtml);
       convertsArticleOnly();
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true",
       );
@@ -1174,7 +1199,7 @@ describe("index mocked branch coverage", () => {
       proxyAnswers(govHtml);
       mocked.browser.fetchWithBrowser.mockRejectedValueOnce(new Error("Navigation timeout"));
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true",
       );
@@ -1187,7 +1212,7 @@ describe("index mocked branch coverage", () => {
       proxyAnswers(govHtml);
       mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true",
       );
@@ -1201,7 +1226,7 @@ describe("index mocked branch coverage", () => {
       // Stalls like a browser launch, which does not watch the signal.
       mocked.browser.fetchWithBrowser.mockImplementationOnce(() => new Promise(() => {}));
       mocked.paywall.getPaywallRule.mockReturnValue(null);
-      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      parsesOnlyMainlandPool();
       vi.useFakeTimers();
       try {
         const hang = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -1210,7 +1235,7 @@ describe("index mocked branch coverage", () => {
         vi.stubGlobal("fetch", hang);
         const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html?force_browser=true&raw=true", {
           headers: { Accept: "text/markdown", Authorization: "Bearer test-token" },
-        }), createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        }), createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env, mockCtx());
         let settled = false;
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
@@ -1232,7 +1257,7 @@ describe("index mocked branch coverage", () => {
         ? { markdown: "页面不存在", title: "页面不存在", contentHtml: "<p>页面不存在</p>" }
         : { markdown: "# 通知\n\n" + "通知正文。".repeat(50), title: "通知", contentHtml: "<article>通知正文</article>" });
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true",
       );
@@ -1243,14 +1268,14 @@ describe("index mocked branch coverage", () => {
 
     it("does not take a redirect from the proxy as the page", async () => {
       proxyAnswers(govHtml, 302);
-      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env);
+      const res = await convertAfterTimeout(createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL }).env);
       expect(res.status).toBe(504);
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
     });
 
     it("refuses a proxy response the static path would not convert either", async () => {
       proxyAnswers(govHtml, 200, "text/css");
-      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env);
+      const res = await convertAfterTimeout(createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL }).env);
       expect(res.status).toBe(415);
     });
 
@@ -1259,7 +1284,7 @@ describe("index mocked branch coverage", () => {
       mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body></body></html>");
       convertsArticleOnly();
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true",
       );
@@ -1270,12 +1295,13 @@ describe("index mocked branch coverage", () => {
 
     it("converts the recovered page when the proxy stats write stalls", async () => {
       proxyAnswers(govHtml);
-      // The budget row answers; the proxy_pool provider_attempts write never does.
+      // The budget row answers; the mainland proxies' own provider_attempts write never does.
+      let statsRows = 0;
       const db = {
         prepare: vi.fn(() => {
           let statsRow = false;
           const stmt = {
-            bind: vi.fn((...args: unknown[]) => { statsRow ||= args[1] === "proxy_pool"; return stmt; }),
+            bind: vi.fn((...args: unknown[]) => { if (args[1] === "proxy_pool_mainland") { statsRow = true; statsRows += 1; } return stmt; }),
             first: vi.fn(async () => ({ count: 1, expires_at: "2099-01-01T00:00:00.000Z" })),
             all: vi.fn(async () => ({ results: [] })),
             run: vi.fn(() => (statsRow ? new Promise(() => {}) : Promise.resolve({ success: true }))),
@@ -1283,8 +1309,10 @@ describe("index mocked branch coverage", () => {
           return stmt;
         }),
       } as unknown as D1Database;
-      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", AUTH_DB: db }).env);
+      const res = await convertAfterTimeout(createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL, AUTH_DB: db }).env);
       expect(res.status).toBe(200);
+      // Counted apart from the general proxy, so one pool's failures do not hide in the other's rate.
+      expect(statsRows).toBe(1);
     });
 
     it("keeps a long proxy page over a shorter render past 10,000 characters", async () => {
@@ -1295,7 +1323,7 @@ describe("index mocked branch coverage", () => {
         ? { markdown: "# 通知\n\n" + "通知正文。".repeat(4_000), title: "通知", contentHtml: "<article>通知正文</article>" }
         : { markdown: "# 页面\n\n" + "渲染文字。".repeat(2_200), title: "页面", contentHtml: "<article>渲染文字</article>" });
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true",
       );
@@ -1314,7 +1342,7 @@ describe("index mocked branch coverage", () => {
           : { markdown: "# 页面\n\n" + "导航文字。".repeat(100), title: "页面", contentHtml: "<article>x</article>" };
       });
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true&selector=article",
       );
@@ -1330,7 +1358,7 @@ describe("index mocked branch coverage", () => {
         ? { markdown: "# 通知\n\n" + "导航和正文。".repeat(100), title: "通知", contentHtml: "<article>x</article>" }
         : { markdown: "# 页面\n\n" + "渲染正文。".repeat(20), title: "页面", contentHtml: "<div>x</div>" });
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true&selector=%23app",
       );
@@ -1345,7 +1373,7 @@ describe("index mocked branch coverage", () => {
         ? { markdown: "# 通知\n\n" + "通知正文。".repeat(50), title: "通知", contentHtml: "<article>x</article>" }
         : { markdown: "# Access Denied\n\n" + "You don't have permission to access this server. ".repeat(60), title: "Access Denied", contentHtml: "<p>x</p>" });
       const res = await convertAfterTimeout(
-        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        createMockEnv({ API_TOKEN: "test-token", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env,
         { Authorization: "Bearer test-token" },
         "?force_browser=true&raw=true",
       );
@@ -1357,7 +1385,7 @@ describe("index mocked branch coverage", () => {
       proxyAnswers(govHtml);
       mocked.browser.fetchWithBrowser.mockImplementationOnce(() => new Promise(() => {}));
       mocked.paywall.getPaywallRule.mockReturnValue(null);
-      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      parsesOnlyMainlandPool();
       // A signed-in key whose provider_attempts write for the browser stalls.
       const auth = createApiKeyAuthD1();
       const db = {
@@ -1381,7 +1409,7 @@ describe("index mocked branch coverage", () => {
         vi.stubGlobal("fetch", hang);
         const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html?force_browser=true&raw=true", {
           headers: { Accept: "text/markdown", Authorization: "Bearer mk_valid_test_key" },
-        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", AUTH_DB: db }).env, mockCtx());
+        }), createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL, AUTH_DB: db }).env, mockCtx());
         let settled = false;
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
@@ -1399,7 +1427,7 @@ describe("index mocked branch coverage", () => {
     it("ends with the timeout error when the anonymous budget check stalls", async () => {
       proxyAnswers(govHtml);
       mocked.paywall.getPaywallRule.mockReturnValue(null);
-      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      parsesOnlyMainlandPool();
       // Only the proxy budget row stalls; every other D1 read answers.
       const db = {
         prepare: vi.fn(() => {
@@ -1425,7 +1453,7 @@ describe("index mocked branch coverage", () => {
         vi.stubGlobal("fetch", hang);
         const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
           headers: { Accept: "application/json" },
-        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", AUTH_DB: db }).env, mockCtx());
+        }), createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL, AUTH_DB: db }).env, mockCtx());
         let settled = false;
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
@@ -1445,7 +1473,7 @@ describe("index mocked branch coverage", () => {
     it("retries through the proxy when the timeout fires during a retry backoff", async () => {
       proxyAnswers(govHtml);
       mocked.paywall.getPaywallRule.mockReturnValue(null);
-      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      parsesOnlyMainlandPool();
       vi.useFakeTimers();
       try {
         // A 503 just before the 10 seconds end; the first backoff (80 ms) spans the timeout.
@@ -1457,7 +1485,7 @@ describe("index mocked branch coverage", () => {
         vi.stubGlobal("fetch", fetchMock);
         const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
           headers: { Accept: "application/json" },
-        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        }), createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL }).env, mockCtx());
         await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
         await vi.advanceTimersByTimeAsync(10_500);
         expect((await pending).status).toBe(200);
@@ -1470,7 +1498,7 @@ describe("index mocked branch coverage", () => {
     it("asks the proxy for the redirect target that timed out", async () => {
       proxyAnswers(govHtml);
       mocked.paywall.getPaywallRule.mockReturnValue(null);
-      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      parsesOnlyMainlandPool();
       vi.useFakeTimers();
       try {
         const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/a.html")
@@ -1481,7 +1509,7 @@ describe("index mocked branch coverage", () => {
         vi.stubGlobal("fetch", fetchMock);
         const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
           headers: { Accept: "application/json" },
-        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        }), createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL }).env, mockCtx());
         await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
         await vi.advanceTimersByTimeAsync(10_500);
         expect((await pending).status).toBe(200);
@@ -1491,6 +1519,58 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][0]).toBe("https://www.example.gov.cn/moved/b.html");
     });
 
+    it("retries a redirect target outside mainland China through the general proxy, not the mainland one", async () => {
+      // The pool that fits the hop that timed out: the first request recovers, the second fails.
+      const convertRedirected = async (timeoutError: Error = new DOMException("aborted", "AbortError")) => {
+        mocked.paywall.getPaywallRule.mockReturnValue(null);
+        parsesOnlyMainlandPool();
+        vi.useFakeTimers();
+        try {
+          const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).includes("example.gov.cn")
+            ? Promise.resolve(new Response(null, { status: 302, headers: { Location: "https://www.example.com/b.html" } }))
+            : new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => reject(timeoutError));
+            }));
+          vi.stubGlobal("fetch", fetchMock);
+          const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+            headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+          }), createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env, mockCtx());
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+          await vi.advanceTimersByTimeAsync(13_500);
+          return await pending;
+        } finally {
+          vi.useRealTimers();
+        }
+      };
+      proxyAnswers(govHtml);
+      expect((await convertRedirected()).status).toBe(200);
+      expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][0]).toBe("https://www.example.com/b.html");
+      expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([generalProxy]);
+
+      mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValueOnce(Object.assign(new Error("All proxy attempts failed"), { attempts: 2 }));
+      // The 10 s can run out mid retry backoff, whose error does not read as a timeout.
+      const failed = await convertRedirected(new Error("Retry backoff aborted."));
+      const payload = await failed.json() as { message?: string };
+      expect(failed.status).toBe(504);
+      expect(payload).toMatchObject({ code: "target_timeout" });
+      expect(payload.message).not.toContain("mainland China");
+    });
+
+    it("keeps the mainland proxy's refused hosts apart from the general proxy's", async () => {
+      const kv = new Map([["proxy-refused:www.example.gov.cn", "1"]]);
+      const { env, mocks } = createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL });
+      mocks.kvGet.mockImplementation((async (key: string) => kv.get(key) ?? null) as never);
+      mocks.kvPut.mockImplementation((async (key: string, value: string) => { kv.set(key, value); }) as never);
+      // The site refused the general proxy today; the mainland one still gets its try and its own record.
+      proxyAnswers("<html><title>Just a moment...</title><script>window._cf_chl_opt = {};</script></html>");
+      expect((await convertAfterTimeout(env)).status).toBe(504);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+      expect(mocks.kvPut).toHaveBeenCalledWith("proxy-refused-mainland:www.example.gov.cn", "1", { expirationTtl: 86_400 });
+
+      expect((await convertAfterTimeout(env)).status).toBe(504);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    });
+
     it("gives up on a proxy that does not answer within 20 more seconds", async () => {
       mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(((
         _url: string, _proxies: unknown, _variants: unknown, options: { signal?: AbortSignal },
@@ -1498,7 +1578,7 @@ describe("index mocked branch coverage", () => {
         options.signal?.addEventListener("abort", () => reject(new Error("Proxy request aborted")));
       })) as never);
       mocked.paywall.getPaywallRule.mockReturnValue(null);
-      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      parsesOnlyMainlandPool();
       vi.useFakeTimers();
       try {
         const hang = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -1519,7 +1599,7 @@ describe("index mocked branch coverage", () => {
         } as unknown as D1Database;
         const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
           headers: { Accept: "application/json" },
-        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", AUTH_DB: db }).env, mockCtx());
+        }), createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL, AUTH_DB: db }).env, mockCtx());
         let settled = false;
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
@@ -1529,7 +1609,7 @@ describe("index mocked branch coverage", () => {
         expect(settled).toBe(true);
         expect((await pending).status).toBe(504);
         // Recorded as a failed proxy attempt, not skipped as a cancellation.
-        expect(binds.some((args) => args[1] === "proxy_pool" && args[2] === 1)).toBe(true);
+        expect(binds.some((args) => args[1] === "proxy_pool_mainland" && args[2] === 1)).toBe(true);
       } finally {
         vi.useRealTimers();
       }
@@ -1539,7 +1619,7 @@ describe("index mocked branch coverage", () => {
       mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValueOnce(
         Object.assign(new Error("Proxy response timed out after 25000ms"), { attempts: 2 }),
       );
-      const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env);
+      const res = await convertAfterTimeout(createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL }).env);
       const payload = await res.json() as Record<string, unknown>;
       expect(res.status).toBe(504);
       expect(payload).toMatchObject({ code: "target_timeout" });

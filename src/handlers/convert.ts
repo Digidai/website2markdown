@@ -206,6 +206,17 @@ export async function readTextWithLimit(
   return new TextDecoder().decode(bytes);
 }
 
+function fetchTimeoutError(): ConvertError {
+  return new ConvertError(
+    "Fetch Timeout",
+    `Fetching the target URL timed out after ${Math.round(BROWSER_TIMEOUT / 1000)} seconds.`,
+    504,
+    undefined,
+    false,
+    { code: "target_timeout" },
+  );
+}
+
 export function asFetchConvertError(error: unknown): ConvertError {
   const message = errorMessage(error);
   if (message.includes("SSRF")) {
@@ -218,16 +229,7 @@ export function asFetchConvertError(error: unknown): ConvertError {
       { code: "blocked_address" },
     );
   }
-  if (isTimeoutLikeError(error)) {
-    return new ConvertError(
-      "Fetch Timeout",
-      `Fetching the target URL timed out after ${Math.round(BROWSER_TIMEOUT / 1000)} seconds.`,
-      504,
-      undefined,
-      false,
-      { code: "target_timeout" },
-    );
-  }
+  if (isTimeoutLikeError(error)) return fetchTimeoutError();
   // The thrown message is internal (it can name a provider); callers get target_unreadable.
   return new ConvertError(
     "Fetch Failed",
@@ -241,10 +243,12 @@ export function asFetchConvertError(error: unknown): ConvertError {
 
 /**
  * Sites hosted in mainland China, government and university sites above all,
- * often drop connections from datacenter addresses while answering a home
- * connection abroad within a second. Waiting the full 30 seconds only delays
- * the same timeout, so those hosts get a shorter wait, one retry through the
- * residential proxy, and an error that says why when both fail.
+ * often answer only addresses inside mainland China: of 45 such hosts that
+ * timed out in November 2026, 30 dropped connections from nearly every
+ * location abroad. A proxy that exits abroad timed out on all six tried.
+ * Waiting the full 30 seconds only delays the same timeout, so those hosts get
+ * a shorter wait, one retry through a proxy that exits in mainland China when
+ * PROXY_POOL_MAINLAND names one, and an error that says why.
  */
 const MAINLAND_FETCH_TIMEOUT = 10_000;
 /** Deadline for that proxy retry, so the whole request ends within about 30 seconds. */
@@ -261,7 +265,7 @@ const mainlandDeadlineReason = () => new DOMException("Mainland retry deadline t
 /** Hosts outside .cn that timed out from every overseas location we tested. */
 const MAINLAND_ONLY_HOSTS = new Set(["www.tsrcw.com", "tsrcw.com"]);
 export const MAINLAND_TIMEOUT_MESSAGE =
-  "The site did not answer. Many sites hosted in mainland China, especially government and university sites, do not answer requests from cloud servers.";
+  "The site did not answer. Many sites hosted in mainland China, especially government and university sites, only answer visitors inside mainland China.";
 
 /** Caller-facing reasons that several failure sites share. */
 const WECHAT_VERIFICATION: ConvertErrorPublic = {
@@ -292,7 +296,8 @@ function unsupportedContent(contentType: string): ConvertErrorPublic {
 export function isLikelyMainlandOnlyHost(raw: string): boolean {
   let host = "";
   try {
-    host = new URL(raw).hostname.toLowerCase();
+    // A redirect may name the host with its root dot ("www.example.gov.cn.").
+    host = new URL(raw).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return false;
   }
@@ -1605,14 +1610,16 @@ const PROXY_REFUSED_HOST_TTL_S = 86_400;
 /** The record is optional: a slow KV read counts as a miss, a slow write is skipped. */
 const PROXY_REFUSED_KV_TIMEOUT_MS = 1_000;
 
-function proxyRefusedHostKey(url: string): string {
-  return `proxy-refused:${new URL(url).hostname}`;
+/** Per pool: a site that turns away an address abroad may still answer a mainland one. */
+function proxyRefusedHostKey(url: string, mainland = false): string {
+  // Without the root dot, so "example.com." shares example.com's record.
+  return `proxy-refused${mainland ? "-mainland" : ""}:${new URL(url).hostname.replace(/\.$/, "")}`;
 }
 
 /** Whether the site refused the proxy within the last day, so an anonymous request skips it. */
-async function proxyRefusedHost(targetUrl: string, env: Env, fallbacks: Set<string>): Promise<boolean> {
+async function proxyRefusedHost(targetUrl: string, env: Env, fallbacks: Set<string>, mainland = false): Promise<boolean> {
   const refused = await withTimeout(
-    env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)),
+    env.CACHE_KV.get(proxyRefusedHostKey(targetUrl, mainland)),
     PROXY_REFUSED_KV_TIMEOUT_MS,
     "KV read timed out",
   ).catch(() => null);
@@ -1633,16 +1640,18 @@ async function tryAnonymousProxy(
   abortSignal?: AbortSignal,
   progress?: StreamProgress,
   attemptTimeoutMs?: number,
+  mainland = false,
 ): Promise<string | null> {
-  if (!env.PROXY_POOL && !env.PROXY_URL) return null;
-  if (await proxyRefusedHost(targetUrl, env, fallbacks)) return null;
+  // Checked before the budget: a request no proxy can serve must not spend it.
+  if (mainland ? parseProxyPool(env.PROXY_POOL_MAINLAND ?? "").length === 0 : !env.PROXY_POOL && !env.PROXY_URL) return null;
+  if (await proxyRefusedHost(targetUrl, env, fallbacks, mainland)) return null;
   const day = new Date().toISOString().slice(0, 10);
   const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
   if (budget.blocked) {
     fallbacks.add("proxy_anon_budget_exhausted");
     return null;
   }
-  return tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress, attemptTimeoutMs);
+  return tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress, attemptTimeoutMs, mainland);
 }
 
 /**
@@ -1979,10 +1988,13 @@ async function tryDirectProxyFetch(
   abortSignal?: AbortSignal,
   progress?: StreamProgress,
   attemptTimeoutMs = 25_000,
+  /** Use only the proxies that exit in mainland China (PROXY_POOL_MAINLAND). */
+  mainland = false,
 ): Promise<string | null> {
   const _progress = progress || (() => {});
-  const pooledConfigs = env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
-  const fallbackProxy = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
+  const pool = mainland ? env.PROXY_POOL_MAINLAND : env.PROXY_POOL;
+  const pooledConfigs = pool ? parseProxyPool(pool) : [];
+  const fallbackProxy = !mainland && env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
   if (pooledConfigs.length === 0 && fallbackProxy) {
     pooledConfigs.push(fallbackProxy);
   }
@@ -2019,7 +2031,7 @@ async function tryDirectProxyFetch(
       },
     ];
 
-    const proxyResult = await trackProvider(env, "proxy_pool", abortSignal, () => fetchViaProxyPool(
+    const proxyResult = await trackProvider(env, mainland ? "proxy_pool_mainland" : "proxy_pool", abortSignal, () => fetchViaProxyPool(
       targetUrl,
       pooledConfigs,
       headerVariants,
@@ -2051,7 +2063,7 @@ async function tryDirectProxyFetch(
     const attempts = (e as Partial<ProxyPoolError>).attempts ?? 0;
     if (attempts > 0 && refusals === attempts) {
       await withTimeout(
-        env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", { expirationTtl: PROXY_REFUSED_HOST_TTL_S }),
+        env.CACHE_KV.put(proxyRefusedHostKey(targetUrl, mainland), "1", { expirationTtl: PROXY_REFUSED_HOST_TTL_S }),
         PROXY_REFUSED_KV_TIMEOUT_MS,
         "KV write timed out",
       ).catch(() => {});
@@ -2156,17 +2168,20 @@ async function tryStaticFetch(
     if (abortSignal?.aborted) throw new RequestAbortedError();
     // The caller did not cancel, so an ended signal means the timeout fired (also mid retry backoff).
     if (mainlandOnly && (isTimeoutLikeError(e) || fetchSignal?.aborted)) {
-      // The site dropped our datacenter address; a residential one often gets an answer.
       // The proxy does not follow redirects, so it asks for the hop that timed out.
       resolvedUrl = (e as { url?: string }).url ?? targetUrl;
+      // A mainland host did not answer an address abroad, and the general proxy exits abroad too:
+      // only the mainland proxies retry it (none configured: no retry). A redirect target
+      // elsewhere keeps the general proxy.
+      const viaMainland = isLikelyMainlandOnlyHost(resolvedUrl);
       const deadline = createTimeoutSignal(MAINLAND_PROXY_DEADLINE, abortSignal, mainlandDeadlineReason());
       let viaProxy: string | null;
       try {
         // The anonymous budget check does not watch the signal, so the timeout bounds the wait.
         viaProxy = await withTimeout(
           providerApiKeysAllowed
-            ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT)
-            : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT),
+            ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, viaMainland)
+            : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, viaMainland),
           // The proxy stops at the deadline; the extra time lets a late answer's stats write finish.
           MAINLAND_PROXY_DEADLINE + STATS_WRITE_ALLOWANCE,
           MAINLAND_PROXY_TIMEOUT_MESSAGE,
@@ -2237,7 +2252,10 @@ async function tryStaticFetch(
           sourceContentType,
         };
       }
-      throw new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE });
+      // Still a timeout, even when it fired mid retry backoff. The mainland explanation fits only a mainland host.
+      throw viaMainland
+        ? new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE })
+        : fetchTimeoutError();
     }
     throw asFetchConvertError(e);
   } finally {

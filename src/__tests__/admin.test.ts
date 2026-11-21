@@ -200,6 +200,14 @@ describe("admin report", () => {
     // Substack's retry has its own card and does not roll into the proxy card.
     expect(byId.get("substack_proxy")?.health).toMatchObject({ attempts: 5, failures: 0 });
     expect(byId.get("jina")?.health).toBeNull();
+    // The mainland-exit proxies have their own card and counts, off until configured.
+    expect(byId.get("proxy_mainland")).toMatchObject({ status: "disabled", testable: false });
+    const mainland = new Map(listChannels(
+      { ...env, PROXY_POOL_MAINLAND: "u:pw@cn.example.com:1" } as Env,
+      [{ path: "proxy_pool_mainland", attempts: 4, failures: 3, lastError: "timed out", lastFailureAt: "2026-09-29T10:00:00.000Z" }],
+    ).map((c) => [c.id, c]));
+    expect(mainland.get("proxy_mainland")).toMatchObject({ status: "active", health: { attempts: 4, failures: 3 } });
+    expect(mainland.get("proxy")?.health).toBeNull();
     // Status comes from presence only; secret values never reach the page model.
     expect(JSON.stringify(channels)).not.toContain(":pw@");
 

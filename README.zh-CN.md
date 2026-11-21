@@ -628,6 +628,9 @@ wrangler secret put PROXY_URL
 
 # 可选：代理池轮换/回退（逗号或换行分隔）
 wrangler secret put PROXY_POOL
+
+# 可选：出口在中国大陆的代理（格式同上）。直连无响应的大陆站点只经这组代理重试一次。
+wrangler secret put PROXY_POOL_MAINLAND
 ```
 
 可选 KV 规则源：

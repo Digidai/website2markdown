@@ -247,7 +247,8 @@ export async function fetchViaProxy(
       if (early.byteLength > 0) tunnel.enqueue(early);
       proxyRootCerts ??= TrustedCert.databaseFromPEM(PROXY_ROOTS_PEM);
       const tls = await withDeadline(startTls(
-        url.hostname,
+        // Certificates name the host without the root dot ("example.com." is the same host).
+        url.hostname.replace(/\.$/, ""),
         await proxyRootCerts,
         tunnel.read.bind(tunnel) as (bytes: number) => Promise<Uint8Array | undefined>,
         (data) => { writer.write(data).catch(() => {}); },
