@@ -480,7 +480,8 @@ export async function fetchWithSafeRedirects(
         normalizedRetryOptions,
       );
     } catch (error) {
-      throw normalizeFetchFailure(error, currentUrl);
+      // url: the hop that failed, which differs from the request after a redirect.
+      throw Object.assign(normalizeFetchFailure(error, currentUrl), { url: currentUrl });
     }
 
     if (!REDIRECT_STATUS_CODES.has(response.status)) {

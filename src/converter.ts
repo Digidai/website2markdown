@@ -131,6 +131,15 @@ function clampRegexInput(input: string): string {
  * Convert HTML to Markdown using Readability + Turndown.
  * Optionally scope extraction to a CSS selector.
  */
+/** True when selector matches an element of html; htmlToMarkdown converts the whole page otherwise. */
+export function selectorMatches(html: string, selector: string): boolean {
+  try {
+    return Boolean(parseHTML(html.includes("<html") ? html : `<html><body>${html}</body></html>`).document.querySelector(selector));
+  } catch {
+    return false;
+  }
+}
+
 export function htmlToMarkdown(
   html: string,
   url: string,

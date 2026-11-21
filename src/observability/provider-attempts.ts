@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { logMetric } from "../runtime-state";
 import { sanitizeErrorMessage } from "./conversion-events";
 import { sendEmail } from "../helpers/email";
+import { withTimeout } from "../utils";
 import { ALERT_FAILURE_RATE, ALERT_MIN_ATTEMPTS, type ProviderPathHealth } from "../../web/contract";
 
 /**
@@ -25,12 +26,15 @@ export type ProviderPath =
 export type { ProviderPathHealth };
 export { ALERT_FAILURE_RATE, ALERT_MIN_ATTEMPTS };
 const RETENTION_DAYS = 90;
+/** Stats are best effort: a slow write must not hold the conversion that is waiting on it. */
+const ATTEMPT_WRITE_TIMEOUT_MS = 2_000;
 
 /**
  * Runs one provider call and records whether it produced a usable result.
  * A call counts as failed when it throws or when `succeeded` rejects its value.
  * Failures caused by the caller aborting the request are not recorded, because
- * they say nothing about the provider.
+ * they say nothing about the provider. A signal aborted with a TimeoutError
+ * reason is a deadline, so those failures are recorded.
  */
 export async function trackProvider<T>(
   env: Env,
@@ -39,15 +43,17 @@ export async function trackProvider<T>(
   run: () => Promise<T>,
   succeeded: (value: T) => boolean = () => true,
 ): Promise<T> {
+  // A signal that ended with a TimeoutError hit a deadline: that is the provider's failure, not a cancellation.
+  const cancelled = () => Boolean(signal?.aborted) && (signal?.reason as { name?: string } | undefined)?.name !== "TimeoutError";
   let value: T;
   try {
     value = await run();
   } catch (error) {
-    if (!signal?.aborted) await recordProviderAttempt(env, path, false, sanitizeErrorMessage(error));
+    if (!cancelled()) await recordProviderAttempt(env, path, false, sanitizeErrorMessage(error));
     throw error;
   }
   const ok = succeeded(value);
-  if (ok || !signal?.aborted) {
+  if (ok || !cancelled()) {
     await recordProviderAttempt(env, path, ok, ok ? "" : "empty or unusable result");
   }
   return value;
@@ -63,7 +69,7 @@ export async function recordProviderAttempt(
   if (!env.AUTH_DB) return;
   const now = new Date().toISOString();
   try {
-    await env.AUTH_DB.prepare(`
+    await withTimeout(env.AUTH_DB.prepare(`
       INSERT INTO provider_attempts_daily (date, path, attempts, failures, last_error, last_failure_at, updated_at)
       VALUES (?, ?, 1, ?, ?, ?, ?)
       ON CONFLICT (date, path) DO UPDATE SET
@@ -72,7 +78,7 @@ export async function recordProviderAttempt(
         last_error = CASE WHEN excluded.failures > 0 THEN excluded.last_error ELSE last_error END,
         last_failure_at = CASE WHEN excluded.failures > 0 THEN excluded.last_failure_at ELSE last_failure_at END,
         updated_at = excluded.updated_at
-    `).bind(now.slice(0, 10), path, ok ? 0 : 1, ok ? "" : error, ok ? "" : now, now).run();
+    `).bind(now.slice(0, 10), path, ok ? 0 : 1, ok ? "" : error, ok ? "" : now, now).run(), ATTEMPT_WRITE_TIMEOUT_MS, "Provider attempt write timed out");
   } catch (dbError) {
     console.error("Provider attempt write failed:", sanitizeErrorMessage(dbError));
   }

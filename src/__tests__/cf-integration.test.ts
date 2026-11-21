@@ -87,6 +87,7 @@ vi.mock("../converter", () => ({
   htmlToMarkdown: mocked.converter.htmlToMarkdown,
   htmlToText: mocked.converter.htmlToText,
   proxyImageUrls: mocked.converter.proxyImageUrls,
+  selectorMatches: vi.fn(() => true),
 }));
 
 vi.mock("../cache", () => ({

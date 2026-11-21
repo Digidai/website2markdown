@@ -243,6 +243,19 @@ describe("fetchViaProxy", () => {
     expect(result.body).toBe("你好");
   });
 
+  it("gives up on a proxy connection that never opens within the timeout", async () => {
+    const mock = createMockSocket(() => new Promise(() => {}));
+    mock.writer.write.mockImplementation(() => new Promise(() => {}));
+    mock.writer.close.mockImplementation(() => new Promise(() => {}));
+    mock.reader.cancel.mockImplementation(() => new Promise(() => {}));
+    vi.mocked(connect).mockReturnValue(mock.socket as never);
+
+    await expect(
+      fetchViaProxy("https://example.com/path", makeProxyConfig(), {}, 50),
+    ).rejects.toThrow("Proxy response timed out after 50ms");
+    expect(mock.socket.close).toHaveBeenCalled();
+  });
+
   it("rejects malformed chunked encoding", async () => {
     const responseText =
       "HTTP/1.1 200 OK\r\n" +
