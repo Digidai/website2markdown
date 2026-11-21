@@ -57,6 +57,11 @@ enabled = true
 [[send_email]]
 name = "EMAIL"
 
+[vars]
+# Mainland China hosts that time out are retried through the general proxy with
+# the exit zone in its username switched to this one (see PROXY_POOL_MAINLAND).
+PROXY_MAINLAND_ZONE = "CN"
+
 [triggers]
 crons = ["17 3 * * *"]
 

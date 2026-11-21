@@ -208,6 +208,7 @@ describe("admin report", () => {
     ).map((c) => [c.id, c]));
     expect(mainland.get("proxy_mainland")).toMatchObject({ status: "active", health: { attempts: 4, failures: 3 } });
     expect(mainland.get("proxy")?.health).toBeNull();
+    expect(new Map(listChannels({ ...env, PROXY_MAINLAND_ZONE: "CN" } as Env, []).map((c) => [c.id, c])).get("proxy_mainland")?.status).toBe("active");
     // Status comes from presence only; secret values never reach the page model.
     expect(JSON.stringify(channels)).not.toContain(":pw@");
 
