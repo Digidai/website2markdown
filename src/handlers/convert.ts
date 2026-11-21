@@ -1607,14 +1607,15 @@ const PROXY_REFUSED_HOST_TTL_S = 86_400;
 /** The record is optional: a slow KV read counts as a miss, a slow write is skipped. */
 const PROXY_REFUSED_KV_TIMEOUT_MS = 1_000;
 
-function proxyRefusedHostKey(url: string): string {
-  return `proxy-refused:${new URL(url).hostname}`;
+/** Per pool: a site that turns away an address abroad may still answer a mainland one. */
+function proxyRefusedHostKey(url: string, mainland = false): string {
+  return `proxy-refused${mainland ? "-mainland" : ""}:${new URL(url).hostname}`;
 }
 
 /** Whether the site refused the proxy within the last day, so an anonymous request skips it. */
-async function proxyRefusedHost(targetUrl: string, env: Env, fallbacks: Set<string>): Promise<boolean> {
+async function proxyRefusedHost(targetUrl: string, env: Env, fallbacks: Set<string>, mainland = false): Promise<boolean> {
   const refused = await withTimeout(
-    env.CACHE_KV.get(proxyRefusedHostKey(targetUrl)),
+    env.CACHE_KV.get(proxyRefusedHostKey(targetUrl, mainland)),
     PROXY_REFUSED_KV_TIMEOUT_MS,
     "KV read timed out",
   ).catch(() => null);
@@ -1635,17 +1636,17 @@ async function tryAnonymousProxy(
   abortSignal?: AbortSignal,
   progress?: StreamProgress,
   attemptTimeoutMs?: number,
-  pool?: string,
+  mainland = false,
 ): Promise<string | null> {
-  if (!pool && !env.PROXY_POOL && !env.PROXY_URL) return null;
-  if (await proxyRefusedHost(targetUrl, env, fallbacks)) return null;
+  if (!(mainland ? env.PROXY_POOL_MAINLAND : env.PROXY_POOL || env.PROXY_URL)) return null;
+  if (await proxyRefusedHost(targetUrl, env, fallbacks, mainland)) return null;
   const day = new Date().toISOString().slice(0, 10);
   const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
   if (budget.blocked) {
     fallbacks.add("proxy_anon_budget_exhausted");
     return null;
   }
-  return tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress, attemptTimeoutMs, pool);
+  return tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress, attemptTimeoutMs, mainland);
 }
 
 /**
@@ -1982,11 +1983,13 @@ async function tryDirectProxyFetch(
   abortSignal?: AbortSignal,
   progress?: StreamProgress,
   attemptTimeoutMs = 25_000,
-  pool = env.PROXY_POOL,
+  /** Use only the proxies that exit in mainland China (PROXY_POOL_MAINLAND). */
+  mainland = false,
 ): Promise<string | null> {
   const _progress = progress || (() => {});
+  const pool = mainland ? env.PROXY_POOL_MAINLAND : env.PROXY_POOL;
   const pooledConfigs = pool ? parseProxyPool(pool) : [];
-  const fallbackProxy = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
+  const fallbackProxy = !mainland && env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
   if (pooledConfigs.length === 0 && fallbackProxy) {
     pooledConfigs.push(fallbackProxy);
   }
@@ -2055,7 +2058,7 @@ async function tryDirectProxyFetch(
     const attempts = (e as Partial<ProxyPoolError>).attempts ?? 0;
     if (attempts > 0 && refusals === attempts) {
       await withTimeout(
-        env.CACHE_KV.put(proxyRefusedHostKey(targetUrl), "1", { expirationTtl: PROXY_REFUSED_HOST_TTL_S }),
+        env.CACHE_KV.put(proxyRefusedHostKey(targetUrl, mainland), "1", { expirationTtl: PROXY_REFUSED_HOST_TTL_S }),
         PROXY_REFUSED_KV_TIMEOUT_MS,
         "KV write timed out",
       ).catch(() => {});
@@ -2161,20 +2164,20 @@ async function tryStaticFetch(
     // The caller did not cancel, so an ended signal means the timeout fired (also mid retry backoff).
     if (mainlandOnly && (isTimeoutLikeError(e) || fetchSignal?.aborted)) {
       const mainlandTimeout = () => new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE });
-      // The site did not answer an address abroad, and the general proxy exits abroad too:
-      // only a mainland exit is worth the extra 20 seconds.
-      const mainlandPool = env.PROXY_POOL_MAINLAND;
-      if (!mainlandPool || parseProxyPool(mainlandPool).length === 0) throw mainlandTimeout();
       // The proxy does not follow redirects, so it asks for the hop that timed out.
-      resolvedUrl = (e as { url?: string }).url ?? targetUrl;
+      const hop = (e as { url?: string }).url ?? targetUrl;
+      // The site did not answer an address abroad, and the general proxy exits abroad too. Only the
+      // mainland proxies retry (none configured: no retry), and only a hop that is itself a mainland host.
+      if (!isLikelyMainlandOnlyHost(hop)) throw mainlandTimeout();
+      resolvedUrl = hop;
       const deadline = createTimeoutSignal(MAINLAND_PROXY_DEADLINE, abortSignal, mainlandDeadlineReason());
       let viaProxy: string | null;
       try {
         // The anonymous budget check does not watch the signal, so the timeout bounds the wait.
         viaProxy = await withTimeout(
           providerApiKeysAllowed
-            ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, mainlandPool)
-            : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, mainlandPool),
+            ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, true)
+            : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, true),
           // The proxy stops at the deadline; the extra time lets a late answer's stats write finish.
           MAINLAND_PROXY_DEADLINE + STATS_WRITE_ALLOWANCE,
           MAINLAND_PROXY_TIMEOUT_MESSAGE,

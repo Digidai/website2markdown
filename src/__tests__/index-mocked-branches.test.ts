@@ -1513,6 +1513,44 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][0]).toBe("https://www.example.gov.cn/moved/b.html");
     });
 
+    it("does not send a redirect target outside mainland China to the mainland proxy", async () => {
+      mocked.paywall.getPaywallRule.mockReturnValue(null);
+      parsesOnlyMainlandPool();
+      vi.useFakeTimers();
+      try {
+        const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/a.html")
+          ? Promise.resolve(new Response(null, { status: 302, headers: { Location: "https://www.example.com/b.html" } }))
+          : new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }));
+        vi.stubGlobal("fetch", fetchMock);
+        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+          headers: { Accept: "application/json" },
+        }), createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL }).env, mockCtx());
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        await vi.advanceTimersByTimeAsync(10_500);
+        expect((await pending).status).toBe(504);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
+    });
+
+    it("keeps the mainland proxy's refused hosts apart from the general proxy's", async () => {
+      const kv = new Map([["proxy-refused:www.example.gov.cn", "1"]]);
+      const { env, mocks } = createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL });
+      mocks.kvGet.mockImplementation((async (key: string) => kv.get(key) ?? null) as never);
+      mocks.kvPut.mockImplementation((async (key: string, value: string) => { kv.set(key, value); }) as never);
+      // The site refused the general proxy today; the mainland one still gets its try and its own record.
+      proxyAnswers("<html><title>Just a moment...</title><script>window._cf_chl_opt = {};</script></html>");
+      expect((await convertAfterTimeout(env)).status).toBe(504);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+      expect(mocks.kvPut).toHaveBeenCalledWith("proxy-refused-mainland:www.example.gov.cn", "1", { expirationTtl: 86_400 });
+
+      expect((await convertAfterTimeout(env)).status).toBe(504);
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    });
+
     it("gives up on a proxy that does not answer within 20 more seconds", async () => {
       mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(((
         _url: string, _proxies: unknown, _variants: unknown, options: { signal?: AbortSignal },
