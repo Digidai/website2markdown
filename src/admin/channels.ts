@@ -69,7 +69,7 @@ const CHANNELS: ChannelSpec[] = [
     name: "Swiftproxy 代理",
     role: "匿名用户访问必须渲染的站点，以及浏览器被拦后的代理重试。",
     paths: ["proxy_pool", "proxy"],
-    env: [...PROXY_ENV, { name: "PROXY_POOL_MAINLAND", required: false }],
+    env: PROXY_ENV,
     status: proxyStatus,
     test: (env) => diagnoseProxy(env),
   },

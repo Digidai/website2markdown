@@ -1513,27 +1513,40 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][0]).toBe("https://www.example.gov.cn/moved/b.html");
     });
 
-    it("does not send a redirect target outside mainland China to the mainland proxy", async () => {
-      mocked.paywall.getPaywallRule.mockReturnValue(null);
-      parsesOnlyMainlandPool();
-      vi.useFakeTimers();
-      try {
-        const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/a.html")
-          ? Promise.resolve(new Response(null, { status: 302, headers: { Location: "https://www.example.com/b.html" } }))
-          : new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
-          }));
-        vi.stubGlobal("fetch", fetchMock);
-        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
-          headers: { Accept: "application/json" },
-        }), createMockEnv({ PROXY_POOL_MAINLAND: MAINLAND_POOL }).env, mockCtx());
-        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-        await vi.advanceTimersByTimeAsync(10_500);
-        expect((await pending).status).toBe(504);
-      } finally {
-        vi.useRealTimers();
-      }
-      expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
+    it("retries a redirect target outside mainland China through the general proxy, not the mainland one", async () => {
+      // The pool that fits the hop that timed out: the first request recovers, the second fails.
+      const convertRedirected = async () => {
+        mocked.paywall.getPaywallRule.mockReturnValue(null);
+        parsesOnlyMainlandPool();
+        vi.useFakeTimers();
+        try {
+          const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).includes("example.gov.cn")
+            ? Promise.resolve(new Response(null, { status: 302, headers: { Location: "https://www.example.com/b.html" } }))
+            : new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+            }));
+          vi.stubGlobal("fetch", fetchMock);
+          const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+            headers: { Accept: "application/json", Authorization: "Bearer test-token" },
+          }), createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080", PROXY_POOL_MAINLAND: MAINLAND_POOL }).env, mockCtx());
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+          await vi.advanceTimersByTimeAsync(13_500);
+          return await pending;
+        } finally {
+          vi.useRealTimers();
+        }
+      };
+      proxyAnswers(govHtml);
+      expect((await convertRedirected()).status).toBe(200);
+      expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][0]).toBe("https://www.example.com/b.html");
+      expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([generalProxy]);
+
+      mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValueOnce(Object.assign(new Error("All proxy attempts failed"), { attempts: 2 }));
+      const failed = await convertRedirected();
+      const payload = await failed.json() as { message?: string };
+      expect(failed.status).toBe(504);
+      expect(payload).toMatchObject({ code: "target_timeout" });
+      expect(payload.message).not.toContain("mainland China");
     });
 
     it("keeps the mainland proxy's refused hosts apart from the general proxy's", async () => {

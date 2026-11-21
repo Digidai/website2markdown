@@ -294,7 +294,8 @@ function unsupportedContent(contentType: string): ConvertErrorPublic {
 export function isLikelyMainlandOnlyHost(raw: string): boolean {
   let host = "";
   try {
-    host = new URL(raw).hostname.toLowerCase();
+    // A redirect may name the host with its root dot ("www.example.gov.cn.").
+    host = new URL(raw).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return false;
   }
@@ -1638,7 +1639,8 @@ async function tryAnonymousProxy(
   attemptTimeoutMs?: number,
   mainland = false,
 ): Promise<string | null> {
-  if (!(mainland ? env.PROXY_POOL_MAINLAND : env.PROXY_POOL || env.PROXY_URL)) return null;
+  // Checked before the budget: a request no proxy can serve must not spend it.
+  if (mainland ? parseProxyPool(env.PROXY_POOL_MAINLAND ?? "").length === 0 : !env.PROXY_POOL && !env.PROXY_URL) return null;
   if (await proxyRefusedHost(targetUrl, env, fallbacks, mainland)) return null;
   const day = new Date().toISOString().slice(0, 10);
   const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
@@ -2163,21 +2165,20 @@ async function tryStaticFetch(
     if (abortSignal?.aborted) throw new RequestAbortedError();
     // The caller did not cancel, so an ended signal means the timeout fired (also mid retry backoff).
     if (mainlandOnly && (isTimeoutLikeError(e) || fetchSignal?.aborted)) {
-      const mainlandTimeout = () => new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE });
       // The proxy does not follow redirects, so it asks for the hop that timed out.
-      const hop = (e as { url?: string }).url ?? targetUrl;
-      // The site did not answer an address abroad, and the general proxy exits abroad too. Only the
-      // mainland proxies retry (none configured: no retry), and only a hop that is itself a mainland host.
-      if (!isLikelyMainlandOnlyHost(hop)) throw mainlandTimeout();
-      resolvedUrl = hop;
+      resolvedUrl = (e as { url?: string }).url ?? targetUrl;
+      // A mainland host did not answer an address abroad, and the general proxy exits abroad too:
+      // only the mainland proxies retry it (none configured: no retry). A redirect target
+      // elsewhere keeps the general proxy.
+      const viaMainland = isLikelyMainlandOnlyHost(resolvedUrl);
       const deadline = createTimeoutSignal(MAINLAND_PROXY_DEADLINE, abortSignal, mainlandDeadlineReason());
       let viaProxy: string | null;
       try {
         // The anonymous budget check does not watch the signal, so the timeout bounds the wait.
         viaProxy = await withTimeout(
           providerApiKeysAllowed
-            ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, true)
-            : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, true),
+            ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, viaMainland)
+            : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT, viaMainland),
           // The proxy stops at the deadline; the extra time lets a late answer's stats write finish.
           MAINLAND_PROXY_DEADLINE + STATS_WRITE_ALLOWANCE,
           MAINLAND_PROXY_TIMEOUT_MESSAGE,
@@ -2248,7 +2249,8 @@ async function tryStaticFetch(
           sourceContentType,
         };
       }
-      throw mainlandTimeout();
+      // The mainland explanation fits only a mainland host.
+      if (viaMainland) throw new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE });
     }
     throw asFetchConvertError(e);
   } finally {
