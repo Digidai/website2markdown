@@ -13,7 +13,7 @@ import {
   needsBrowserRendering,
   fetchWithSafeRedirects,
 } from "../security";
-import { htmlToMarkdown, proxyImageUrls } from "../converter";
+import { htmlToMarkdown, proxyImageUrls, selectorMatches } from "../converter";
 import {
   fetchWithBrowser,
   alwaysNeedsBrowser,
@@ -2201,8 +2201,11 @@ async function tryStaticFetch(
             // A denial title is how convertUrl spots a block page the HTML rules missed.
             if (!selector && isDenialHeading(title)) return false;
             const chars = bodyChars(markdown);
-            return chars > 0
-              && chars >= bodyChars(htmlToMarkdown(viaProxy, resolvedUrl, selector).markdown)
+            // A selector the proxy page lacks (built by scripts) would compare its whole page: no baseline then.
+            const proxyChars = selector && !selectorMatches(viaProxy, selector)
+              ? 0
+              : bodyChars(htmlToMarkdown(viaProxy, resolvedUrl, selector).markdown);
+            return chars > 0 && chars >= proxyChars
               && !isGovEmptyShell(targetUrl, resolvedUrl, markdown, title);
           };
           try {

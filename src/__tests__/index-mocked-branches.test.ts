@@ -22,6 +22,7 @@ const mocked = vi.hoisted(() => ({
     htmlToMarkdown: vi.fn(),
     htmlToText: vi.fn(),
     proxyImageUrls: vi.fn(),
+    selectorMatches: vi.fn(),
   },
   cache: {
     getCached: vi.fn(),
@@ -67,6 +68,7 @@ vi.mock("../converter", () => ({
   htmlToMarkdown: mocked.converter.htmlToMarkdown,
   htmlToText: mocked.converter.htmlToText,
   proxyImageUrls: mocked.converter.proxyImageUrls,
+  selectorMatches: mocked.converter.selectorMatches,
 }));
 
 vi.mock("../cache", () => ({
@@ -128,6 +130,7 @@ beforeEach(() => {
   mocked.paywall.extractAmpLink.mockReturnValue(null);
   mocked.paywall.stripAmpAccessControls.mockImplementation((html: string) => html);
 
+  mocked.converter.selectorMatches.mockReturnValue(true);
   mocked.converter.htmlToMarkdown.mockReturnValue({
     markdown: "# md body",
     title: "Title",
@@ -1317,6 +1320,22 @@ describe("index mocked branch coverage", () => {
       );
       expect(res.status).toBe(200);
       expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
+    });
+
+    it("takes the render when the selected element exists only after scripts run", async () => {
+      proxyAnswers(govHtml);
+      mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><div id=\"app\">rendered</div></body></html>");
+      mocked.converter.selectorMatches.mockImplementation((html: string) => !html.includes("通知正文"));
+      mocked.converter.htmlToMarkdown.mockImplementation((html: string) => html.includes("通知正文")
+        ? { markdown: "# 通知\n\n" + "导航和正文。".repeat(100), title: "通知", contentHtml: "<article>x</article>" }
+        : { markdown: "# 页面\n\n" + "渲染正文。".repeat(20), title: "页面", contentHtml: "<div>x</div>" });
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true&selector=%23app",
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-Markdown-Method")).toBe("browser+readability+turndown");
     });
 
     it("keeps the proxy page when the render's title is a denial", async () => {
