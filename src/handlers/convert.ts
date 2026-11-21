@@ -2147,9 +2147,31 @@ async function tryStaticFetch(
         await recordProviderAttempt(env, "proxy_pool", false, "Proxy retry deadline exceeded");
       }
       if (viaProxy) {
+        let recoveredHtml = viaProxy;
+        let recoveredMethod: ConvertMethod = "proxy+readability+turndown";
+        // The proxy runs no scripts. A forced or needed render still goes to the browser,
+        // which sometimes reaches these sites; the proxy page stays if it does not.
+        if (browserAllowed && (forceBrowser || needsBrowserRendering(viaProxy, resolvedUrl) || detectChallengePage(viaProxy))) {
+          await progress("browser", "Rendering with browser");
+          try {
+            recoveredHtml = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
+              targetUrl,
+              env,
+              host,
+              abortSignal,
+              { sessionProfileScope },
+            ));
+            recoveredMethod = "browser+readability+turndown";
+            browserRendered = true;
+            fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
+          } catch (error) {
+            if (abortSignal?.aborted) throw new RequestAbortedError();
+            console.error("Browser rendering failed, using proxy HTML:", errorMessage(error));
+          }
+        }
         return {
-          finalHtml: viaProxy,
-          method: "proxy+readability+turndown",
+          finalHtml: recoveredHtml,
+          method: recoveredMethod,
           resolvedUrl,
           browserRendered,
           paywallDetected,

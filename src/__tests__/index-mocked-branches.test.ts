@@ -1096,7 +1096,7 @@ describe("index mocked branch coverage", () => {
 
   describe("mainland China host that drops the direct fetch", () => {
     const govHtml = `<html><body><article>${"通知正文。".repeat(300)}</article></body></html>`;
-    const convertAfterTimeout = async (env: ReturnType<typeof createMockEnv>["env"], headers: Record<string, string> = {}) => {
+    const convertAfterTimeout = async (env: ReturnType<typeof createMockEnv>["env"], headers: Record<string, string> = {}, query = "") => {
       mocked.paywall.getPaywallRule.mockReturnValue(null);
       mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
       vi.useFakeTimers();
@@ -1105,7 +1105,7 @@ describe("index mocked branch coverage", () => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
         }));
         vi.stubGlobal("fetch", hang);
-        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+        const pending = worker.fetch(new Request(`https://md.example.com/https://www.example.gov.cn/a.html${query}`, {
           headers: { Accept: "application/json", ...headers },
         }), env, mockCtx());
         // Signed-in requests check their token first; the 10 seconds start when the fetch does.
@@ -1138,6 +1138,32 @@ describe("index mocked branch coverage", () => {
       );
       expect(res.status).toBe(200);
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
+    });
+
+    it("still renders a forced request in the browser after the proxy recovers the page", async () => {
+      proxyAnswers("<html><body><div id=\"app\"></div></body></html>");
+      mocked.browser.fetchWithBrowser.mockResolvedValueOnce(govHtml);
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true",
+      );
+      expect(res.status).toBe(200);
+      expect(mocked.browser.fetchWithBrowser).toHaveBeenCalledOnce();
+      expect(res.headers.get("X-Markdown-Method")).toBe("browser+readability+turndown");
+    });
+
+    it("keeps the proxy page when the forced browser render fails", async () => {
+      proxyAnswers(govHtml);
+      mocked.browser.fetchWithBrowser.mockRejectedValueOnce(new Error("Navigation timeout"));
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true",
+      );
+      expect(res.status).toBe(200);
+      expect(mocked.browser.fetchWithBrowser).toHaveBeenCalledOnce();
+      expect(String(mocked.converter.htmlToMarkdown.mock.calls[0][0])).toContain("通知正文");
     });
 
     it("asks the proxy for the redirect target that timed out", async () => {
