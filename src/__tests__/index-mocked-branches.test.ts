@@ -1180,11 +1180,11 @@ describe("index mocked branch coverage", () => {
         expect((await convertAfterTimeout(env())).status).toBe(200);
         expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([{ ...generalProxy, username: "u_custom_zone_CN" }]);
 
-        // A username that names no zone gets the mainland one appended.
+        // A username that names no zone has no exit to switch: no retry, and no budget spent on one.
         generalUsername = "u";
-        proxyAnswers(govHtml);
-        expect((await convertAfterTimeout(env())).status).toBe(200);
-        expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([{ ...generalProxy, username: "u_custom_zone_CN" }]);
+        mocked.proxy.fetchViaProxyPool.mockReset();
+        expect((await convertAfterTimeout(env())).status).toBe(504);
+        expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
       } finally {
         generalUsername = generalProxy.username;
       }

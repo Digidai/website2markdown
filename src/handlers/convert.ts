@@ -299,8 +299,8 @@ const PROXY_USERNAME_ZONE = /(_zone_)[A-Za-z]{2,}/;
 
 /**
  * Proxies that exit in mainland China: the ones PROXY_POOL_MAINLAND names, or else the general
- * proxies with the zone in their username set to PROXY_MAINLAND_ZONE. A username that names
- * no zone exits anywhere, and gets the zone appended.
+ * proxies with the zone in their username switched to PROXY_MAINLAND_ZONE. A username without a
+ * zone has no exit to switch, so that proxy is left out.
  */
 export function mainlandProxies(env: Env): ProxyConfig[] {
   const named = parseProxyPool(env.PROXY_POOL_MAINLAND ?? "");
@@ -309,12 +309,9 @@ export function mainlandProxies(env: Env): ProxyConfig[] {
   const general = parseProxyPool(env.PROXY_POOL ?? "");
   const single = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
   if (general.length === 0 && single) general.push(single);
-  return general.map((proxy) => ({
-    ...proxy,
-    username: PROXY_USERNAME_ZONE.test(proxy.username)
-      ? proxy.username.replace(PROXY_USERNAME_ZONE, `$1${zone}`)
-      : `${proxy.username}_custom_zone_${zone}`,
-  }));
+  return general
+    .filter((proxy) => PROXY_USERNAME_ZONE.test(proxy.username))
+    .map((proxy) => ({ ...proxy, username: proxy.username.replace(PROXY_USERNAME_ZONE, `$1${zone}`) }));
 }
 
 export function isLikelyMainlandOnlyHost(raw: string): boolean {
