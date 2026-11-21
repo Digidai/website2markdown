@@ -19,6 +19,8 @@ export interface Env {
   PROXY_POOL?: string;
   /** Optional proxies that exit in mainland China, same format. A mainland host that times out is retried through these only. */
   PROXY_POOL_MAINLAND?: string;
+  /** Optional exit zone, such as "CN". Without PROXY_POOL_MAINLAND, the general proxies are used for mainland hosts with the zone in their username switched to this one. */
+  PROXY_MAINLAND_ZONE?: string;
   /** Browser Use Cloud API key for remote browser fetching */
   BROWSER_USE_API_KEY?: string;
   /** Cloudflare Account ID for REST API calls */
