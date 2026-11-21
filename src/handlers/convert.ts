@@ -2156,18 +2156,21 @@ async function tryStaticFetch(
         if (browserAllowed && (forceBrowser || needsBrowserRendering(viaProxy, resolvedUrl) || detectChallengePage(viaProxy))) {
           await progress("browser", "Rendering with browser");
           // Only the render sees the deadline; trackProvider keeps the caller's signal, so an expiry counts as a failure.
+          // Launch and page setup ignore the signal, so the timeout bounds the wait and the signal stops what is left.
           const renderDeadline = createTimeoutSignal(MAINLAND_RENDER_DEADLINE, abortSignal);
           try {
-            recoveredHtml = await trackProvider(env, "browser", abortSignal, () => fetchWithBrowser(
-              targetUrl,
-              env,
-              host,
-              renderDeadline.signal,
-              { sessionProfileScope },
+            const rendered = await trackProvider(env, "browser", abortSignal, () => withTimeout(
+              fetchWithBrowser(targetUrl, env, host, renderDeadline.signal, { sessionProfileScope }),
+              MAINLAND_RENDER_DEADLINE,
+              "Browser render deadline exceeded",
             ));
-            recoveredMethod = "browser+readability+turndown";
-            browserRendered = true;
-            fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
+            // The browser's datacenter address can get a bot wall the proxy got past.
+            if (!detectChallengePage(rendered)) {
+              recoveredHtml = rendered;
+              recoveredMethod = "browser+readability+turndown";
+              browserRendered = true;
+              fallbacks.add(forceBrowser ? "browser_forced" : "browser_auto");
+            }
           } catch (error) {
             if (abortSignal?.aborted) throw new RequestAbortedError();
             console.error("Browser rendering failed, using proxy HTML:", errorMessage(error));

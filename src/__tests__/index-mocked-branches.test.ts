@@ -1166,13 +1166,23 @@ describe("index mocked branch coverage", () => {
       expect(String(mocked.converter.htmlToMarkdown.mock.calls[0][0])).toContain("通知正文");
     });
 
+    it("keeps the proxy page when the forced browser render gets a bot wall", async () => {
+      proxyAnswers(govHtml);
+      mocked.browser.fetchWithBrowser.mockResolvedValueOnce(AKAMAI_DENIAL);
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true",
+      );
+      expect(res.status).toBe(200);
+      expect(mocked.browser.fetchWithBrowser).toHaveBeenCalledOnce();
+      expect(String(mocked.converter.htmlToMarkdown.mock.calls[0][0])).toContain("通知正文");
+    });
+
     it("stops waiting for the browser 25 seconds after the proxy recovers the page", async () => {
       proxyAnswers(govHtml);
-      mocked.browser.fetchWithBrowser.mockImplementationOnce(((
-        _url: string, _env: unknown, _host: string, signal?: AbortSignal,
-      ) => new Promise((_resolve, reject) => {
-        signal?.addEventListener("abort", () => reject(new Error("Browser navigation aborted")));
-      })) as never);
+      // Stalls like a browser launch, which does not watch the signal.
+      mocked.browser.fetchWithBrowser.mockImplementationOnce(() => new Promise(() => {}));
       mocked.paywall.getPaywallRule.mockReturnValue(null);
       mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
       vi.useFakeTimers();
