@@ -240,15 +240,16 @@ export function asFetchConvertError(error: unknown): ConvertError {
 
 /**
  * Sites hosted in mainland China, government and university sites above all,
- * often drop connections from outside China. Cloudflare has no mainland egress,
- * so waiting the full 30 seconds only delays the same timeout. Those hosts get
- * a shorter wait and an error that says why.
+ * often drop connections from datacenter addresses while answering a home
+ * connection abroad within a second. Waiting the full 30 seconds only delays
+ * the same timeout, so those hosts get a shorter wait, one retry through the
+ * residential proxy, and an error that says why when both fail.
  */
 const MAINLAND_FETCH_TIMEOUT = 10_000;
 /** Hosts outside .cn that timed out from every overseas location we tested. */
 const MAINLAND_ONLY_HOSTS = new Set(["www.tsrcw.com", "tsrcw.com"]);
 export const MAINLAND_TIMEOUT_MESSAGE =
-  "The site did not answer within 10 seconds. Many sites hosted in mainland China, especially government and university sites, refuse connections from outside China, and this service fetches from outside China.";
+  "The site did not answer. Many sites hosted in mainland China, especially government and university sites, do not answer requests from cloud servers.";
 
 /** Caller-facing reasons that several failure sites share. */
 const WECHAT_VERIFICATION: ConvertErrorPublic = {
@@ -2126,6 +2127,20 @@ async function tryStaticFetch(
   } catch (e) {
     if (abortSignal?.aborted) throw new RequestAbortedError();
     if (mainlandOnly && isTimeoutLikeError(e)) {
+      // The site dropped our datacenter address; a residential one often gets an answer.
+      const viaProxy = providerApiKeysAllowed
+        ? await tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress)
+        : await tryAnonymousProxy(targetUrl, env, fallbacks, abortSignal, progress);
+      if (viaProxy) {
+        return {
+          finalHtml: viaProxy,
+          method: "proxy+readability+turndown",
+          resolvedUrl,
+          browserRendered,
+          paywallDetected,
+          sourceContentType,
+        };
+      }
       throw new ConvertError("Fetch Timeout", MAINLAND_TIMEOUT_MESSAGE, 504, undefined, false, { code: "target_timeout", publicMessage: MAINLAND_TIMEOUT_MESSAGE });
     }
     throw asFetchConvertError(e);
