@@ -249,8 +249,10 @@ export function asFetchConvertError(error: unknown): ConvertError {
 const MAINLAND_FETCH_TIMEOUT = 10_000;
 /** Deadline for that proxy retry, so the whole request ends within about 30 seconds. */
 const MAINLAND_PROXY_DEADLINE = 20_000;
-/** Browser deadline after the proxy recovers a page: 10 + 20 + 25 (+2 for its stats write) s stays under the MCP client's 60 s. */
-const MAINLAND_RENDER_DEADLINE = 25_000;
+/** Browser deadline after the proxy recovers a page: 10 + 22 + 23 + 2 (stats write) s stays under the MCP client's 60 s. */
+const MAINLAND_RENDER_DEADLINE = 23_000;
+/** What a provider's stats write may add after it answers (ATTEMPT_WRITE_TIMEOUT_MS in provider-attempts). */
+const STATS_WRITE_ALLOWANCE = 2_000;
 const MAINLAND_PROXY_TIMEOUT_MESSAGE = "Proxy retry deadline exceeded";
 /** Per proxy attempt in that retry, so a proxy that does not answer leaves time for the next one. */
 const MAINLAND_PROXY_ATTEMPT_TIMEOUT = 9_000;
@@ -2165,7 +2167,8 @@ async function tryStaticFetch(
           providerApiKeysAllowed
             ? tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT)
             : tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress, MAINLAND_PROXY_ATTEMPT_TIMEOUT),
-          MAINLAND_PROXY_DEADLINE,
+          // The proxy stops at the deadline; the extra time lets a late answer's stats write finish.
+          MAINLAND_PROXY_DEADLINE + STATS_WRITE_ALLOWANCE,
           MAINLAND_PROXY_TIMEOUT_MESSAGE,
         );
       } catch (error) {
@@ -2190,12 +2193,16 @@ async function tryStaticFetch(
           // The browser's datacenter address can get a bot wall, a soft 404 or a blank page where
           // the proxy got the page; it replaces the proxy page only with at least as much text.
           let usable = false;
+          // Compared the way the page is finally converted: same selector, full length (no billing cap).
+          const bodyChars = (markdown: string) => markdownBodyChars(markdown, Number.POSITIVE_INFINITY);
           const isUsableRender = (html: string) => {
             if (detectChallengePage(html)) return false;
-            const { markdown, title } = htmlToMarkdown(html, resolvedUrl);
-            const chars = markdownBodyChars(markdown);
+            const { markdown, title } = htmlToMarkdown(html, resolvedUrl, selector);
+            // A denial title is how convertUrl spots a block page the HTML rules missed.
+            if (!selector && isDenialHeading(title)) return false;
+            const chars = bodyChars(markdown);
             return chars > 0
-              && chars >= markdownBodyChars(htmlToMarkdown(viaProxy, resolvedUrl).markdown)
+              && chars >= bodyChars(htmlToMarkdown(viaProxy, resolvedUrl, selector).markdown)
               && !isGovEmptyShell(targetUrl, resolvedUrl, markdown, title);
           };
           try {

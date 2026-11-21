@@ -1193,7 +1193,7 @@ describe("index mocked branch coverage", () => {
       expect(String(mocked.converter.htmlToMarkdown.mock.calls[0][0])).toContain("通知正文");
     });
 
-    it("stops waiting for the browser 25 seconds after the proxy recovers the page", async () => {
+    it("stops waiting for the browser 23 seconds after the proxy recovers the page", async () => {
       proxyAnswers(govHtml);
       // Stalls like a browser launch, which does not watch the signal.
       mocked.browser.fetchWithBrowser.mockImplementationOnce(() => new Promise(() => {}));
@@ -1211,7 +1211,7 @@ describe("index mocked branch coverage", () => {
         let settled = false;
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
-        await vi.advanceTimersByTimeAsync(10_500 + 24_000);
+        await vi.advanceTimersByTimeAsync(10_500 + 22_000);
         expect(settled).toBe(false);
         await vi.advanceTimersByTimeAsync(1_500);
         expect(settled).toBe(true);
@@ -1284,6 +1284,56 @@ describe("index mocked branch coverage", () => {
       expect(res.status).toBe(200);
     });
 
+    it("keeps a long proxy page over a shorter render past 10,000 characters", async () => {
+      const longHtml = `<html><body><article>${"通知正文。".repeat(4_000)}</article></body></html>`;
+      proxyAnswers(longHtml);
+      mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body>rendered</body></html>");
+      mocked.converter.htmlToMarkdown.mockImplementation((html: string) => html.includes("通知正文")
+        ? { markdown: "# 通知\n\n" + "通知正文。".repeat(4_000), title: "通知", contentHtml: "<article>通知正文</article>" }
+        : { markdown: "# 页面\n\n" + "渲染文字。".repeat(2_200), title: "页面", contentHtml: "<article>渲染文字</article>" });
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true",
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
+    });
+
+    it("compares the proxy page and the render on the requested selector", async () => {
+      proxyAnswers(govHtml);
+      mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body><nav>long nav</nav><article>summary</article></body></html>");
+      mocked.converter.htmlToMarkdown.mockImplementation((html: string, _url: string, selector?: string) => {
+        if (html.includes("通知正文")) return { markdown: "# 通知\n\n" + "通知正文。".repeat(50), title: "通知", contentHtml: "<article>x</article>" };
+        // The render has more text overall, but only a summary in the selected element.
+        return selector
+          ? { markdown: "# 页面\n\n摘要。", title: "页面", contentHtml: "<article>x</article>" }
+          : { markdown: "# 页面\n\n" + "导航文字。".repeat(100), title: "页面", contentHtml: "<article>x</article>" };
+      });
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true&selector=article",
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-Markdown-Method")).toBe("readability+turndown");
+    });
+
+    it("keeps the proxy page when the render's title is a denial", async () => {
+      proxyAnswers(govHtml);
+      mocked.browser.fetchWithBrowser.mockResolvedValueOnce("<html><body>denied</body></html>");
+      mocked.converter.htmlToMarkdown.mockImplementation((html: string) => html.includes("通知正文")
+        ? { markdown: "# 通知\n\n" + "通知正文。".repeat(50), title: "通知", contentHtml: "<article>x</article>" }
+        : { markdown: "# Access Denied\n\n" + "You don't have permission to access this server. ".repeat(60), title: "Access Denied", contentHtml: "<p>x</p>" });
+      const res = await convertAfterTimeout(
+        createMockEnv({ API_TOKEN: "test-token", PROXY_URL: "u:p@proxy.example.com:8080" }).env,
+        { Authorization: "Bearer test-token" },
+        "?force_browser=true&raw=true",
+      );
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain("通知正文");
+    });
+
     it("returns the proxy page on time when the browser stats write stalls", async () => {
       proxyAnswers(govHtml);
       mocked.browser.fetchWithBrowser.mockImplementationOnce(() => new Promise(() => {}));
@@ -1316,9 +1366,10 @@ describe("index mocked branch coverage", () => {
         let settled = false;
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
-        await vi.advanceTimersByTimeAsync(10_500 + 26_000);
+        // 23 s render, then at most 2 s for its stats write.
+        await vi.advanceTimersByTimeAsync(10_500 + 24_000);
         expect(settled).toBe(false);
-        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.advanceTimersByTimeAsync(1_500);
         expect(settled).toBe(true);
         expect((await pending).status).toBe(200);
       } finally {
@@ -1360,6 +1411,8 @@ describe("index mocked branch coverage", () => {
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
         await vi.advanceTimersByTimeAsync(31_000);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1_500);
         expect(settled).toBe(true);
         const res = await pending;
         expect(res.status).toBe(504);
