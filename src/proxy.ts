@@ -216,7 +216,8 @@ export async function fetchViaProxy(
       : url.hostname;
 
     let readChunk = readSocket;
-    let send = (data: Uint8Array): Promise<void> => writer.write(data);
+    // A connection that never opens leaves writes pending; they count against the deadline too.
+    let send = (data: Uint8Array): Promise<void> => withDeadline(writer.write(data));
     let httpReq: string;
 
     if (isHttps) {
@@ -252,7 +253,7 @@ export async function fetchViaProxy(
         (data) => { writer.write(data).catch(() => {}); },
       ));
       readChunk = () => withDeadline(tls.read());
-      send = (data) => tls.write(data);
+      send = (data) => withDeadline(tls.write(data));
       httpReq = `GET ${(url.pathname || "/") + url.search} HTTP/1.1\r\nHost: ${hostHeader}\r\n`;
     } else {
       httpReq = `GET ${targetUrl} HTTP/1.1\r\nHost: ${hostHeader}\r\n`;
@@ -313,9 +314,10 @@ export async function fetchViaProxy(
     const body = decoder.decode(bodyBytes);
     return { status, headers: respHeaders, body };
   } finally {
-    try { await writer.close(); } catch {}
+    // Not awaited: on a stalled connection these never settle, and socket.close() below ends it anyway.
+    try { writer.close().catch(() => {}); } catch {}
     try { writer.releaseLock(); } catch {}
-    try { await reader.cancel(); } catch {}
+    try { reader.cancel().catch(() => {}); } catch {}
     try { reader.releaseLock(); } catch {}
     try { socket.close(); } catch (e) {
       console.error("Proxy socket close failed:", errorMessage(e));
