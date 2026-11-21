@@ -1,6 +1,5 @@
 import { connect } from "cloudflare:sockets";
-import { LazyReadFunctionReadQueue, startTls, TrustedCert } from "subtls";
-import { PROXY_ROOTS_PEM } from "./proxy-roots";
+import { startProxyTls, type ProxyTlsSession } from "./proxy-tls";
 import { errorMessage } from "./utils";
 
 export interface ProxyConfig {
@@ -165,15 +164,12 @@ export function parseProxyPool(raw: string): ProxyConfig[] {
   return configs;
 }
 
-let proxyRootCerts: ReturnType<typeof TrustedCert.databaseFromPEM> | undefined;
-
 /**
  * Fetch a URL through an HTTP forward proxy over Cloudflare Workers TCP sockets.
  * HTTP targets go to the proxy as absolute URIs. HTTPS targets get a CONNECT
- * tunnel with TLS done in JS by subtls: Workers' socket.startTls() closes as
- * soon as it is used inside a tunnel, and proxies that accept absolute https
- * URIs may fetch them over plain HTTP. subtls speaks TLS 1.3 only, so targets
- * without it fail here and fall through to other fetch paths.
+ * tunnel with TLS 1.2 or 1.3 done in Wasm (proxy-tls.ts): Workers'
+ * socket.startTls() closes as soon as it is used inside a tunnel, and proxies
+ * that accept absolute https URIs may fetch them over plain HTTP.
  */
 export async function fetchViaProxy(
   targetUrl: string,
@@ -208,6 +204,7 @@ export async function fetchViaProxy(
     return done ? undefined : value;
   };
 
+  let tls: ProxyTlsSession | undefined;
   try {
     const authBase64 = btoa(`${proxy.username}:${proxy.password}`);
     const hostHeader = url.port &&
@@ -242,19 +239,16 @@ export async function fetchViaProxy(
         throw new Error(`Proxy CONNECT tunnel rejected with status ${statusCode}: ${statusLine}`);
       }
 
-      const tunnel = new LazyReadFunctionReadQueue(readSocket);
       const early = buffered.subarray(headerEnd + HEADER_SEPARATOR_BYTES.length);
-      if (early.byteLength > 0) tunnel.enqueue(early);
-      proxyRootCerts ??= TrustedCert.databaseFromPEM(PROXY_ROOTS_PEM);
-      const tls = await withDeadline(startTls(
-        // Certificates name the host without the root dot ("example.com." is the same host).
-        url.hostname.replace(/\.$/, ""),
-        await proxyRootCerts,
-        tunnel.read.bind(tunnel) as (bytes: number) => Promise<Uint8Array | undefined>,
-        (data) => { writer.write(data).catch(() => {}); },
+      const session = await withDeadline(startProxyTls(
+        url.hostname,
+        early,
+        readSocket,
+        (data) => withDeadline(writer.write(data)),
       ));
-      readChunk = () => withDeadline(tls.read());
-      send = (data) => withDeadline(tls.write(data));
+      tls = session;
+      readChunk = () => withDeadline(session.read());
+      send = (data) => withDeadline(session.write(data));
       httpReq = `GET ${(url.pathname || "/") + url.search} HTTP/1.1\r\nHost: ${hostHeader}\r\n`;
     } else {
       httpReq = `GET ${targetUrl} HTTP/1.1\r\nHost: ${hostHeader}\r\n`;
@@ -315,6 +309,7 @@ export async function fetchViaProxy(
     const body = decoder.decode(bodyBytes);
     return { status, headers: respHeaders, body };
   } finally {
+    tls?.close();
     // Not awaited: on a stalled connection these never settle, and socket.close() below ends it anyway.
     try { writer.close().catch(() => {}); } catch {}
     try { writer.releaseLock(); } catch {}

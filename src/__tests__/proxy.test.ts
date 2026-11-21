@@ -1,16 +1,24 @@
+import { readFileSync } from "node:fs";
+import { connect as connectTcp } from "node:net";
+import { fileURLToPath } from "node:url";
+import { createServer as createTlsServer, type SecureVersion } from "node:tls";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// A test-only CA (valid until 2126) and a certificate it signed for proxy-test.example.
+const tlsFixture = (name: string) =>
+  readFileSync(fileURLToPath(new URL(`./fixtures/proxy-tls/${name}`, import.meta.url).href), "utf8");
 
 vi.mock("cloudflare:sockets", () => ({
   connect: vi.fn(),
 }));
-vi.mock("subtls", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("subtls")>()),
-  startTls: vi.fn(),
-  TrustedCert: { databaseFromPEM: vi.fn(async () => ({ index: { offsets: [], subjects: {} }, data: new Uint8Array() })) },
+vi.mock("../proxy-roots", async () => ({
+  PROXY_ROOTS_PEM: (await import("node:fs")).readFileSync(
+    (await import("node:url")).fileURLToPath(new URL("./fixtures/proxy-tls/ca.pem", import.meta.url).href),
+    "utf8",
+  ),
 }));
 
 import { connect } from "cloudflare:sockets";
-import { startTls } from "subtls";
 import {
   fetchViaProxy,
   fetchViaProxyPool,
@@ -469,42 +477,120 @@ describe("fetchViaProxy", () => {
     expect(mock.socket.close).toHaveBeenCalledTimes(1);
   });
 
-  it("tunnels HTTPS through CONNECT and speaks HTTP inside subtls", async () => {
-    // The proxy's CONNECT answer arrives in the same chunk as the first TLS bytes.
-    const mock = createSocketFromRawResponse("HTTP/1.1 200 Connection established\r\n\r\nEARLY");
-    vi.mocked(connect).mockReturnValue(mock.socket as never);
-    const tlsWrites: string[] = [];
-    const replies = [new TextEncoder().encode("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nsecure-content")];
-    let earlyBytes = "";
-    vi.mocked(startTls).mockImplementation(async (_host, _roots, networkRead) => {
-      earlyBytes = new TextDecoder().decode(await networkRead(5));
+  /**
+   * A proxy that answers CONNECT and then relays to a local TLS server offering only `version`.
+   * The server answers every request with "secure-content" and records what it received.
+   */
+  async function tunnelToTlsServer(version: SecureVersion) {
+    const seen = { request: "", protocol: "" };
+    const server = createTlsServer(
+      {
+        key: tlsFixture("proxy-test.example.key"),
+        cert: tlsFixture("proxy-test.example.pem"),
+        minVersion: version,
+        maxVersion: version,
+      },
+      (socket) => {
+        seen.protocol = socket.getProtocol() ?? "";
+        socket.on("data", (chunk) => {
+          seen.request += chunk.toString();
+          if (seen.request.includes("\r\n\r\n")) {
+            socket.end("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 14\r\n\r\nsecure-content");
+          }
+        });
+      },
+    );
+    server.on("tlsClientError", () => {});
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+
+    const connectPayloads: string[] = [];
+    vi.mocked(connect).mockImplementation(() => {
+      const tcp = connectTcp(port, "127.0.0.1");
+      const inbox: Uint8Array[] = [];
+      let ended = false;
+      let wake = () => {};
+      tcp.on("data", (chunk: Buffer) => { inbox.push(new Uint8Array(chunk)); wake(); });
+      tcp.on("close", () => { ended = true; wake(); });
+      tcp.on("error", () => {});
+      let tunnelOpen = false;
       return {
-        read: async () => replies.shift(),
-        write: async (data: Uint8Array) => { tlsWrites.push(new TextDecoder().decode(data)); },
+        writable: {
+          getWriter: () => ({
+            write: async (chunk: Uint8Array) => {
+              if (!tunnelOpen) {
+                // The first write is the CONNECT request: answer it as the proxy would.
+                tunnelOpen = true;
+                connectPayloads.push(new TextDecoder().decode(chunk));
+                inbox.push(new TextEncoder().encode("HTTP/1.1 200 Connection established\r\n\r\n"));
+                wake();
+                return;
+              }
+              await new Promise<void>((resolve) => tcp.write(chunk, () => resolve()));
+            },
+            close: async () => {},
+            releaseLock: () => {},
+          }),
+        },
+        readable: {
+          getReader: () => ({
+            read: async () => {
+              while (inbox.length === 0 && !ended) await new Promise<void>((resolve) => { wake = resolve; });
+              const value = inbox.shift();
+              return value ? { done: false, value } : { done: true };
+            },
+            cancel: async () => {},
+            releaseLock: () => {},
+          }),
+        },
+        close: () => tcp.destroy(),
       } as never;
     });
 
-    const result = await fetchViaProxy("https://example.com/secure-path?q=1", makeProxyConfig(), { "User-Agent": "test-agent" }, 1000);
+    return {
+      seen,
+      connectPayloads,
+      close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    };
+  }
 
-    expect(result.body).toBe("secure-content");
-    expect(earlyBytes).toBe("EARLY");
-    expect(vi.mocked(startTls).mock.calls[0][0]).toBe("example.com");
-    const connectPayload = new TextDecoder().decode(mock.writtenChunks[0]);
-    expect(connectPayload).toMatch(/^CONNECT example\.com:443 HTTP\/1\.1\r\n/);
-    expect(connectPayload).toContain("Proxy-Authorization: Basic ");
-    expect(tlsWrites[0]).toMatch(/^GET \/secure-path\?q=1 HTTP\/1\.1\r\nHost: example\.com\r\n/);
-    expect(tlsWrites[0]).not.toContain("Proxy-Authorization");
+  it.each(["TLSv1.2", "TLSv1.3"] as const)("tunnels HTTPS through CONNECT to a %s server and verifies it", async (version) => {
+    const tunnel = await tunnelToTlsServer(version);
+    try {
+      const result = await fetchViaProxy("https://proxy-test.example/secure-path?q=1", makeProxyConfig(), { "User-Agent": "test-agent" }, 5000);
+
+      expect(result.status).toBe(200);
+      expect(result.body).toBe("secure-content");
+      expect(tunnel.seen.protocol).toBe(version);
+      expect(tunnel.connectPayloads[0]).toMatch(/^CONNECT proxy-test\.example:443 HTTP\/1\.1\r\n/);
+      expect(tunnel.connectPayloads[0]).toContain("Proxy-Authorization: Basic ");
+      expect(tunnel.seen.request).toMatch(/^GET \/secure-path\?q=1 HTTP\/1\.1\r\nHost: proxy-test\.example\r\n/);
+      expect(tunnel.seen.request).toContain("User-Agent: test-agent\r\n");
+      expect(tunnel.seen.request).not.toContain("Proxy-Authorization");
+    } finally {
+      await tunnel.close();
+    }
   });
 
   it("checks the certificate against the host without its root dot", async () => {
-    const mock = createSocketFromRawResponse("HTTP/1.1 200 Connection established\r\n\r\n");
-    vi.mocked(connect).mockReturnValue(mock.socket as never);
-    const replies = [new TextEncoder().encode("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok")];
-    vi.mocked(startTls).mockReset().mockImplementation(async () => ({ read: async () => replies.shift(), write: async () => {} }) as never);
+    const tunnel = await tunnelToTlsServer("TLSv1.2");
+    try {
+      const result = await fetchViaProxy("https://proxy-test.example./path", makeProxyConfig(), {}, 5000);
+      expect(result.body).toBe("secure-content");
+    } finally {
+      await tunnel.close();
+    }
+  });
 
-    await fetchViaProxy("https://example.com./path", makeProxyConfig(), {}, 1000);
-
-    expect(vi.mocked(startTls).mock.calls[0][0]).toBe("example.com");
+  it("refuses a server whose certificate names another host", async () => {
+    const tunnel = await tunnelToTlsServer("TLSv1.2");
+    try {
+      await expect(fetchViaProxy("https://other.example/path", makeProxyConfig(), {}, 5000))
+        .rejects.toThrow(/TLS handshake with other\.example failed: .*Certificate verification failed/);
+      expect(tunnel.seen.request).toBe("");
+    } finally {
+      await tunnel.close();
+    }
   });
 
   it("rotates proxies until an accepted response is found", async () => {
