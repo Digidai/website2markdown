@@ -597,6 +597,9 @@ describe("index mocked branch coverage", () => {
       const second = await convert("https://refused.example.com/b");
       expect(second.status).toBe(502);
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
+      // The same host written with its root dot.
+      await convert("https://refused.example.com./c");
+      expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(1);
       await convert("https://other.example.com/a");
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledTimes(2);
     });

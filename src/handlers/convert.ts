@@ -1612,7 +1612,8 @@ const PROXY_REFUSED_KV_TIMEOUT_MS = 1_000;
 
 /** Per pool: a site that turns away an address abroad may still answer a mainland one. */
 function proxyRefusedHostKey(url: string, mainland = false): string {
-  return `proxy-refused${mainland ? "-mainland" : ""}:${new URL(url).hostname}`;
+  // Without the root dot, so "example.com." shares example.com's record.
+  return `proxy-refused${mainland ? "-mainland" : ""}:${new URL(url).hostname.replace(/\.$/, "")}`;
 }
 
 /** Whether the site refused the proxy within the last day, so an anonymous request skips it. */
