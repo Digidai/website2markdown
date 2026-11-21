@@ -1178,9 +1178,21 @@ describe("index mocked branch coverage", () => {
           init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
         }));
         vi.stubGlobal("fetch", hang);
+        const binds: unknown[][] = [];
+        const db = {
+          prepare: vi.fn(() => {
+            const stmt = {
+              bind: vi.fn((...args: unknown[]) => { binds.push(args); return stmt; }),
+              first: vi.fn(async () => ({ count: 1, expires_at: "2099-01-01T00:00:00.000Z" })),
+              all: vi.fn(async () => ({ results: [] })),
+              run: vi.fn(async () => ({ success: true })),
+            };
+            return stmt;
+          }),
+        } as unknown as D1Database;
         const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
           headers: { Accept: "application/json" },
-        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080", AUTH_DB: db }).env, mockCtx());
         let settled = false;
         void pending.then(() => { settled = true; });
         await vi.waitFor(() => expect(hang).toHaveBeenCalled());
@@ -1189,6 +1201,8 @@ describe("index mocked branch coverage", () => {
         await vi.advanceTimersByTimeAsync(1_500);
         expect(settled).toBe(true);
         expect((await pending).status).toBe(504);
+        // Recorded as a failed proxy attempt, not skipped as a cancellation.
+        expect(binds.some((args) => args[1] === "proxy_pool" && args[2] === 1)).toBe(true);
       } finally {
         vi.useRealTimers();
       }

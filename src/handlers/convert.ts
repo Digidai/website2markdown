@@ -79,7 +79,7 @@ import {
   anonymousBlockMessage,
 } from "../policy/anonymous-guards";
 import { formatOutput, markdownBodyChars } from "../helpers/format";
-import { trackProvider } from "../observability/provider-attempts";
+import { recordProviderAttempt, trackProvider } from "../observability/provider-attempts";
 
 // ─── 错误类 ──────────────────────────────────────────────────
 
@@ -2142,6 +2142,10 @@ async function tryStaticFetch(
         deadline.cleanup();
       }
       if (abortSignal?.aborted) throw new RequestAbortedError();
+      // trackProvider skips attempts its signal ended, as if the caller cancelled; this one failed.
+      if (!viaProxy && deadline.signal.aborted) {
+        await recordProviderAttempt(env, "proxy_pool", false, "Proxy retry deadline exceeded");
+      }
       if (viaProxy) {
         return {
           finalHtml: viaProxy,
