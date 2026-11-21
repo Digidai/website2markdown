@@ -78,10 +78,8 @@ const CHANNELS: ChannelSpec[] = [
     name: "大陆出口代理",
     role: "直连超时的大陆站点（.cn）只经这组代理重试一次；未配置时不重试。",
     paths: ["proxy_pool_mainland"],
-    env: [{ name: "PROXY_POOL_MAINLAND", required: false }, { name: "PROXY_MAINLAND_ZONE", required: false }],
-    status: (env) => (env.PROXY_POOL_MAINLAND || env.PROXY_MAINLAND_ZONE
-      ? null
-      : { status: "disabled", note: "未配置 PROXY_POOL_MAINLAND 或 PROXY_MAINLAND_ZONE，大陆站点超时后不重试。" }),
+    env: [{ name: "PROXY_POOL_MAINLAND", required: false }],
+    status: (env) => (env.PROXY_POOL_MAINLAND ? null : { status: "disabled", note: "未配置 PROXY_POOL_MAINLAND，大陆站点超时后不重试。" }),
   },
   {
     id: "substack_proxy",

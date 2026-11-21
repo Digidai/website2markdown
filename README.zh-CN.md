@@ -633,8 +633,6 @@ wrangler secret put PROXY_POOL
 wrangler secret put PROXY_POOL_MAINLAND
 ```
 
-没有 `PROXY_POOL_MAINLAND` 时，可用普通变量 `PROXY_MAINLAND_ZONE`（例如 `"CN"`）复用通用代理访问大陆站点：把每个代理用户名里的出口地区（`..._zone_US`）换成该地区；用户名里没有地区的代理不参与。
-
 可选 KV 规则源：
 
 - 通过普通 env 变量 `PAYWALL_RULES_KV_KEY` 指向 KV 中保存 paywall 规则 JSON 的 key。

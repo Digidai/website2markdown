@@ -34,7 +34,6 @@ import {
   parseProxyPool,
   fetchViaProxy,
   fetchViaProxyPool,
-  type ProxyConfig,
   type ProxyFetchResult,
   type ProxyPoolError,
 } from "../proxy";
@@ -249,7 +248,7 @@ export function asFetchConvertError(error: unknown): ConvertError {
  * location abroad. A proxy that exits abroad timed out on all six tried.
  * Waiting the full 30 seconds only delays the same timeout, so those hosts get
  * a shorter wait, one retry through a proxy that exits in mainland China when
- * one is configured (mainlandProxies), and an error that says why.
+ * PROXY_POOL_MAINLAND names one, and an error that says why.
  */
 const MAINLAND_FETCH_TIMEOUT = 10_000;
 /** Deadline for that proxy retry, so the whole request ends within about 30 seconds. */
@@ -292,26 +291,6 @@ function unsupportedContent(contentType: string): ConvertErrorPublic {
     publicMessage: `This URL returns ${type || "content"} rather than a web page. Only HTML and plain-text pages can be converted.`,
     ...(DOCUMENT_TYPE.test(type) ? { publicHint: DOCPARSE_HINT } : {}),
   };
-}
-
-/** The exit zone a proxy username carries, as in "name_custom_zone_US". */
-const PROXY_USERNAME_ZONE = /(_zone_)[A-Za-z]{2,}/;
-
-/**
- * Proxies that exit in mainland China: the ones PROXY_POOL_MAINLAND names, or else the general
- * proxies with the zone in their username switched to PROXY_MAINLAND_ZONE. A username without a
- * zone has no exit to switch, so that proxy is left out.
- */
-export function mainlandProxies(env: Env): ProxyConfig[] {
-  const named = parseProxyPool(env.PROXY_POOL_MAINLAND ?? "");
-  const zone = env.PROXY_MAINLAND_ZONE?.trim() ?? "";
-  if (named.length > 0 || !/^[A-Za-z]{2,}$/.test(zone)) return named;
-  const general = parseProxyPool(env.PROXY_POOL ?? "");
-  const single = env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
-  if (general.length === 0 && single) general.push(single);
-  return general
-    .filter((proxy) => PROXY_USERNAME_ZONE.test(proxy.username))
-    .map((proxy) => ({ ...proxy, username: proxy.username.replace(PROXY_USERNAME_ZONE, `$1${zone}`) }));
 }
 
 export function isLikelyMainlandOnlyHost(raw: string): boolean {
@@ -1664,7 +1643,7 @@ async function tryAnonymousProxy(
   mainland = false,
 ): Promise<string | null> {
   // Checked before the budget: a request no proxy can serve must not spend it.
-  if (mainland ? mainlandProxies(env).length === 0 : !env.PROXY_POOL && !env.PROXY_URL) return null;
+  if (mainland ? parseProxyPool(env.PROXY_POOL_MAINLAND ?? "").length === 0 : !env.PROXY_POOL && !env.PROXY_URL) return null;
   if (await proxyRefusedHost(targetUrl, env, fallbacks, mainland)) return null;
   const day = new Date().toISOString().slice(0, 10);
   const budget = await bumpLimit(env, `proxy-anon:${day}`, ANON_PROXY_DAILY_LIMIT, 86_400);
@@ -2009,11 +1988,12 @@ async function tryDirectProxyFetch(
   abortSignal?: AbortSignal,
   progress?: StreamProgress,
   attemptTimeoutMs = 25_000,
-  /** Use only the proxies that exit in mainland China (mainlandProxies). */
+  /** Use only the proxies that exit in mainland China (PROXY_POOL_MAINLAND). */
   mainland = false,
 ): Promise<string | null> {
   const _progress = progress || (() => {});
-  const pooledConfigs = mainland ? mainlandProxies(env) : env.PROXY_POOL ? parseProxyPool(env.PROXY_POOL) : [];
+  const pool = mainland ? env.PROXY_POOL_MAINLAND : env.PROXY_POOL;
+  const pooledConfigs = pool ? parseProxyPool(pool) : [];
   const fallbackProxy = !mainland && env.PROXY_URL ? parseProxyUrl(env.PROXY_URL) : null;
   if (pooledConfigs.length === 0 && fallbackProxy) {
     pooledConfigs.push(fallbackProxy);

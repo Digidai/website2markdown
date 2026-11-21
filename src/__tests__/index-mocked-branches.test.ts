@@ -1105,9 +1105,8 @@ describe("index mocked branch coverage", () => {
     const mainlandProxy = { host: "cn.proxy.example.com", port: 8080, username: "u", password: "p" };
     const generalProxy = { host: "proxy.example.com", port: 8080, username: "u", password: "p" };
     // The general proxy parses too, so a test passes only when the retry asks for the mainland one.
-    let generalUsername = generalProxy.username;
     const parsesOnlyMainlandPool = () => {
-      mocked.proxy.parseProxyUrl.mockImplementation(() => ({ ...generalProxy, username: generalUsername }));
+      mocked.proxy.parseProxyUrl.mockReturnValue(generalProxy);
       mocked.proxy.parseProxyPool.mockImplementation((raw: string) => raw === MAINLAND_POOL ? [mainlandProxy] : []);
     };
     const govHtml = `<html><body><article>${"通知正文。".repeat(300)}</article></body></html>`;
@@ -1170,36 +1169,6 @@ describe("index mocked branch coverage", () => {
         expect(await res.json()).toMatchObject({ code: "target_timeout" });
       }
       expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
-    });
-
-    it("switches the general proxy to the mainland zone when no mainland proxy is named", async () => {
-      const env = () => createMockEnv({ PROXY_URL: "u_custom_zone_US:p@proxy.example.com:8080", PROXY_MAINLAND_ZONE: "CN" }).env;
-      try {
-        generalUsername = "u_custom_zone_US";
-        proxyAnswers(govHtml);
-        expect((await convertAfterTimeout(env())).status).toBe(200);
-        expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([{ ...generalProxy, username: "u_custom_zone_CN" }]);
-
-        // A username that names no zone has no exit to switch: no retry, and no budget spent on one.
-        generalUsername = "u";
-        mocked.proxy.fetchViaProxyPool.mockReset();
-        expect((await convertAfterTimeout(env())).status).toBe(504);
-        expect(mocked.proxy.fetchViaProxyPool).not.toHaveBeenCalled();
-      } finally {
-        generalUsername = generalProxy.username;
-      }
-    });
-
-    it("prefers the named mainland proxies over a switched zone", async () => {
-      try {
-        generalUsername = "u_custom_zone_US";
-        proxyAnswers(govHtml);
-        const res = await convertAfterTimeout(createMockEnv({ PROXY_URL: "x", PROXY_POOL_MAINLAND: MAINLAND_POOL, PROXY_MAINLAND_ZONE: "CN" }).env);
-        expect(res.status).toBe(200);
-        expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][1]).toEqual([mainlandProxy]);
-      } finally {
-        generalUsername = generalProxy.username;
-      }
     });
 
     it("retries a signed-in request through the proxy too", async () => {
