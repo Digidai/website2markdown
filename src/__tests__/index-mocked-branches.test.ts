@@ -1140,6 +1140,60 @@ describe("index mocked branch coverage", () => {
       expect(mocked.proxy.fetchViaProxyPool).toHaveBeenCalledOnce();
     });
 
+    it("asks the proxy for the redirect target that timed out", async () => {
+      proxyAnswers(govHtml);
+      mocked.paywall.getPaywallRule.mockReturnValue(null);
+      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      vi.useFakeTimers();
+      try {
+        const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/a.html")
+          ? Promise.resolve(new Response(null, { status: 302, headers: { Location: "/moved/b.html" } }))
+          : new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }));
+        vi.stubGlobal("fetch", fetchMock);
+        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+          headers: { Accept: "application/json" },
+        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        await vi.advanceTimersByTimeAsync(10_500);
+        expect((await pending).status).toBe(200);
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(mocked.proxy.fetchViaProxyPool.mock.calls[0][0]).toBe("https://www.example.gov.cn/moved/b.html");
+    });
+
+    it("gives up on a proxy that does not answer within 20 more seconds", async () => {
+      mocked.proxy.fetchViaProxyPool.mockReset().mockImplementation(((
+        _url: string, _proxies: unknown, _variants: unknown, options: { signal?: AbortSignal },
+      ) => new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new Error("Proxy request aborted")));
+      })) as never);
+      mocked.paywall.getPaywallRule.mockReturnValue(null);
+      mocked.proxy.parseProxyUrl.mockReturnValue({ host: "proxy.example.com", port: 8080, username: "u", password: "p" });
+      vi.useFakeTimers();
+      try {
+        const hang = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+        }));
+        vi.stubGlobal("fetch", hang);
+        const pending = worker.fetch(new Request("https://md.example.com/https://www.example.gov.cn/a.html", {
+          headers: { Accept: "application/json" },
+        }), createMockEnv({ PROXY_URL: "u:p@proxy.example.com:8080" }).env, mockCtx());
+        let settled = false;
+        void pending.then(() => { settled = true; });
+        await vi.waitFor(() => expect(hang).toHaveBeenCalled());
+        await vi.advanceTimersByTimeAsync(29_000);
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(settled).toBe(true);
+        expect((await pending).status).toBe(504);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps the timeout error when the proxy gets no answer either, without naming the proxy", async () => {
       mocked.proxy.fetchViaProxyPool.mockReset().mockRejectedValueOnce(
         Object.assign(new Error("Proxy response timed out after 25000ms"), { attempts: 2 }),

@@ -246,6 +246,8 @@ export function asFetchConvertError(error: unknown): ConvertError {
  * residential proxy, and an error that says why when both fail.
  */
 const MAINLAND_FETCH_TIMEOUT = 10_000;
+/** Deadline for that proxy retry, so the whole request ends within about 30 seconds. */
+const MAINLAND_PROXY_DEADLINE = 20_000;
 /** Hosts outside .cn that timed out from every overseas location we tested. */
 const MAINLAND_ONLY_HOSTS = new Set(["www.tsrcw.com", "tsrcw.com"]);
 export const MAINLAND_TIMEOUT_MESSAGE =
@@ -2128,9 +2130,18 @@ async function tryStaticFetch(
     if (abortSignal?.aborted) throw new RequestAbortedError();
     if (mainlandOnly && isTimeoutLikeError(e)) {
       // The site dropped our datacenter address; a residential one often gets an answer.
-      const viaProxy = providerApiKeysAllowed
-        ? await tryDirectProxyFetch(targetUrl, env, fallbacks, abortSignal, progress)
-        : await tryAnonymousProxy(targetUrl, env, fallbacks, abortSignal, progress);
+      // The proxy does not follow redirects, so it asks for the hop that timed out.
+      resolvedUrl = (e as { url?: string }).url ?? targetUrl;
+      const deadline = createTimeoutSignal(MAINLAND_PROXY_DEADLINE, abortSignal);
+      let viaProxy: string | null;
+      try {
+        viaProxy = providerApiKeysAllowed
+          ? await tryDirectProxyFetch(resolvedUrl, env, fallbacks, deadline.signal, progress)
+          : await tryAnonymousProxy(resolvedUrl, env, fallbacks, deadline.signal, progress);
+      } finally {
+        deadline.cleanup();
+      }
+      if (abortSignal?.aborted) throw new RequestAbortedError();
       if (viaProxy) {
         return {
           finalHtml: viaProxy,
