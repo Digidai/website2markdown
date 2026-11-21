@@ -2,7 +2,7 @@ import { isPublicErrorCode, type PublicErrorCode } from "../public-error";
 import type { Env } from "../types";
 import { CACHE_TTL_DEFAULT, CACHE_TTL_SHORT } from "../config";
 import { isNegativeOriginStatus } from "../policy/anonymous-guards";
-import { errorMessage } from "../utils";
+import { errorMessage, withTimeout } from "../utils";
 
 type CachedPayload = {
   content: string;
@@ -75,25 +75,6 @@ function isTransientStorageError(error: unknown): boolean {
     lower.includes("internal error") ||
     lower.includes("network")
   );
-}
-
-async function withTimeout<T>(
-  task: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string,
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-  });
-
-  try {
-    return await Promise.race([task, timeoutPromise]);
-  } finally {
-    if (timeoutId !== undefined) {
-      clearTimeout(timeoutId);
-    }
-  }
 }
 
 async function withTransientRetry<T>(
